@@ -134,6 +134,14 @@ Tools support four credential injection methods:
 | GET | `/api/v1/tools/search?q=` | Search tools by name/description |
 | GET | `/api/v1/tools` | List all tools |
 | GET | `/api/v1/tools/{id}` | Get tool details |
+| POST | `/api/v1/auth/login` | User login (returns session token) |
+
+### Authenticated user (requires session token)
+
+| Method | Path | Description |
+|--------|------|-------------|
+| GET | `/api/v1/auth/me` | Get current user info |
+| POST | `/api/v1/auth/logout` | End session |
 
 ### Agent (requires `Authorization: Bearer <agent-key>`)
 
@@ -161,6 +169,7 @@ Tools support four credential injection methods:
 | DELETE | `/api/v1/member/teams/{team}/members/{userId}` | Remove member from team |
 | GET | `/api/v1/member/users` | List users |
 | PUT | `/api/v1/member/users/me` | Update own profile |
+| PUT | `/api/v1/member/users/me/password` | Change own password |
 
 ### Admin (requires org_admin session)
 
@@ -214,6 +223,17 @@ Seed users (from `octroi seed`):
 - `user2@octroi.dev` / `octroi` -- member, team alpha
 - `user3@octroi.dev` / `octroi` -- member, team beta admin
 
+## Security
+
+- **API key hashing** -- Agent API keys are SHA-256 hashed before storage. Only the `octroi_` prefix is retained for identification.
+- **Credential encryption** -- Tool auth credentials (`auth_config`) can be AES-256-GCM encrypted at rest. Set `encryption.key` or `OCTROI_ENCRYPTION_KEY` with a hex-encoded 32-byte key. Generate one with `openssl rand -hex 32`. When no key is configured, credentials are stored as plaintext JSON (backward compatible).
+- **CORS** -- Configurable allowed origins via `cors.allowed_origins`. Empty list = same-origin only.
+- **Secure headers** -- `X-Content-Type-Options: nosniff`, `X-Frame-Options: DENY`, `Referrer-Policy: strict-origin-when-cross-origin`.
+- **Request IDs** -- Every request gets an `X-Request-ID` header (generated or forwarded) for tracing.
+- **Login rate limiting** -- 5 attempts per IP per minute on the login endpoint.
+- **Session cleanup** -- Expired sessions are automatically purged hourly.
+- **No open proxy** -- The gateway only forwards to registered tool endpoints.
+
 ## Configuration
 
 Octroi loads configuration from a YAML file specified with `--config`. Values in the YAML can reference environment variables using `${VAR}` syntax. Additionally, the following environment variables override config values directly:
@@ -224,13 +244,15 @@ Octroi loads configuration from a YAML file specified with `--config`. Values in
 | Server port | `server.port` | `OCTROI_PORT` | `8080` |
 | Read timeout | `server.read_timeout` | -- | `30s` |
 | Write timeout | `server.write_timeout` | -- | `30s` |
-| Database URL | `database.url` | `OCTROI_DATABASE_URL` | `postgres://octroi:octroi@localhost:5432/octroi?sslmode=disable` |
+| Database URL | `database.url` | `OCTROI_DATABASE_URL` | `postgres://octroi:octroi@localhost:5433/octroi?sslmode=disable` |
 | Proxy timeout | `proxy.timeout` | -- | `30s` |
 | Max request size | `proxy.max_request_size` | -- | `10485760` (10 MB) |
 | Metering batch size | `metering.batch_size` | -- | `100` |
 | Metering flush interval | `metering.flush_interval` | -- | `5s` |
 | Default rate limit | `rate_limit.default` | -- | `60` req/min |
 | Rate limit window | `rate_limit.window` | -- | `1m` |
+| CORS origins | `cors.allowed_origins` | -- | `[]` (same-origin) |
+| Encryption key | `encryption.key` | `OCTROI_ENCRYPTION_KEY` | -- (disabled) |
 
 See `configs/octroi.example.yaml` for a complete example.
 
@@ -269,6 +291,24 @@ make prod         # Build binary, migrate, serve (expects external Postgres)
 make db           # Start local Postgres via Docker (for testing prod locally)
 make clean        # Remove binary, tear down containers and volumes
 ```
+
+### Docker production deployment
+
+A production-ready Docker Compose file is included:
+
+```bash
+# Set a strong Postgres password
+export POSTGRES_PASSWORD=changeme
+
+# Build and start
+docker compose -f docker-compose.prod.yml up -d
+```
+
+This starts the Octroi container and a Postgres instance. The Octroi container automatically runs migrations on startup.
+
+### CI
+
+GitHub Actions CI runs on every push and PR to `main`: `go vet`, `go build`, `go test -race`, and migration verification against a real Postgres instance.
 
 ## License
 
