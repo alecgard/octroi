@@ -29,3 +29,6 @@ pgdata/
 
 # Go
 vendor/
+
+# Temp
+tmp/

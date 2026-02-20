@@ -241,6 +241,45 @@ select:focus { outline: none; border-color: var(--text); }
 select:hover { border-color: var(--text2); }
 /* Filters */
 .filters { display: flex; gap: 8px; align-items: center; flex-wrap: wrap; }
+.multi-select {
+  position: relative; display: inline-block; min-width: 120px; font-size: 11px; font-weight: 500;
+  background: var(--bg); border: 1px solid var(--border); border-radius: 4px; cursor: pointer; user-select: none;
+}
+.multi-select .ms-display {
+  padding: 3px 22px 3px 8px; height: 24px; display: flex; align-items: center; gap: 4px; white-space: nowrap; overflow: hidden;
+}
+.multi-select .ms-display::after {
+  content: '▾'; position: absolute; right: 6px; top: 50%; transform: translateY(-50%); font-size: 9px; color: var(--text2);
+}
+.multi-select .ms-clear {
+  display: none; position: absolute; right: 4px; top: 50%; transform: translateY(-50%);
+  font-size: 14px; color: var(--text2); cursor: pointer; padding: 2px 4px; line-height: 1; z-index: 1;
+}
+.multi-select .ms-clear:hover { color: var(--text); }
+.multi-select.has-selection:hover .ms-clear { display: block; }
+.multi-select.has-selection:hover .ms-display::after { display: none; }
+.multi-select.has-selection:hover .ms-display { padding-right: 22px; }
+.multi-select .ms-tag {
+  background: var(--surface); border: 1px solid var(--border); border-radius: 3px; padding: 0 5px; font-size: 10px; max-width: 80px; overflow: hidden; text-overflow: ellipsis;
+}
+.multi-select .ms-dropdown {
+  display: none; position: absolute; top: 100%; left: 0; min-width: 100%; max-height: 240px; overflow-y: auto;
+  background: var(--bg); border: 1px solid var(--border); border-radius: 4px; margin-top: 2px; z-index: 100; box-shadow: 0 4px 12px rgba(0,0,0,0.15);
+}
+.multi-select.open .ms-dropdown { display: block; }
+.multi-select .ms-option {
+  padding: 4px 8px; display: flex; align-items: center; gap: 6px; cursor: pointer; font-size: 11px;
+}
+.multi-select .ms-option:hover { background: var(--surface); }
+.multi-select .ms-option .ms-check {
+  width: 12px; height: 12px; border: 1px solid var(--border); border-radius: 2px; display: flex; align-items: center; justify-content: center; flex-shrink: 0;
+}
+.multi-select .ms-option.selected .ms-check { background: var(--text); border-color: var(--text); }
+.multi-select .ms-option.selected .ms-check::after { content: '✓'; color: var(--bg); font-size: 9px; }
+.multi-select .ms-search {
+  width: 100%; box-sizing: border-box; padding: 4px 8px; border: none; border-bottom: 1px solid var(--border);
+  font-size: 11px; font-family: var(--font); background: var(--bg); color: var(--text); outline: none;
+}
 .filters input[type="date"] {
   background: var(--bg);
   border: 1px solid var(--border);
@@ -340,18 +379,6 @@ body.shift-held .txn-filter-pending { background: var(--surface2); }
 .txn-excluded { text-decoration: line-through; color: var(--text2); }
 .chart-legend-excluded { text-decoration: line-through; color: var(--text2); opacity: 0.5; }
 /* Filter pills */
-.filter-pills {
-  display: flex; flex-wrap: wrap; gap: 4px; padding: 4px 0;
-}
-.filter-pill {
-  display: inline-flex; align-items: center; gap: 4px;
-  background: var(--surface); border: 1px solid var(--border);
-  padding: 2px 8px; font-size: 10px; font-family: var(--font);
-}
-.filter-pill-x {
-  cursor: pointer; opacity: 0.5; font-size: 12px; line-height: 1;
-}
-.filter-pill-x:hover { opacity: 1; }
 /* Team cards */
 .team-section {
   background: var(--surface);
@@ -553,15 +580,9 @@ body.shift-held .txn-filter-pending { background: var(--surface2); }
       <h2>Usage</h2>
     </div>
     <div class="filters" style="margin-bottom:12px">
-      <select id="usage-team-select" onchange="onTeamFilterChange()">
-        <option value="">All teams</option>
-      </select>
-      <select id="usage-agent-select" onchange="onAgentFilterChange()">
-        <option value="">All agents</option>
-      </select>
-      <select id="usage-tool-select" onchange="onToolFilterChange()">
-        <option value="">All tools</option>
-      </select>
+      <div class="multi-select" id="usage-team-select" data-placeholder="All teams"></div>
+      <div class="multi-select" id="usage-agent-select" data-placeholder="All agents"></div>
+      <div class="multi-select" id="usage-tool-select" data-placeholder="All tools"></div>
       <div style="flex:1"></div>
       <div id="usage-date-controls" style="display:none;gap:8px;align-items:center">
         <input type="date" id="usage-from">
@@ -582,7 +603,6 @@ body.shift-held .txn-filter-pending { background: var(--surface2); }
         <button class="mode-btn" id="mode-hist" onclick="setUsageMode('historical')">Historical</button>
       </div>
     </div>
-    <div id="usage-filter-pills" style="display:none"></div>
     <div class="cards" id="usage-cards">
       <div class="card"><div class="label">Total Requests</div><div class="value" id="stat-requests">&mdash;</div></div>
       <div class="card"><div class="label">Total Cost</div><div class="value" id="stat-cost">&mdash;</div></div>
@@ -981,47 +1001,77 @@ document.addEventListener('keyup', e => {
 
 // Sync dropdowns: when multi-select is active, clear dropdown; otherwise set single value.
 function syncDropdowns() {
-  const teamSel = document.getElementById('usage-team-select');
-  const agentSel = document.getElementById('usage-agent-select');
-  const toolSel = document.getElementById('usage-tool-select');
-  teamSel.value = usageTeamFilters.length === 1 ? usageTeamFilters[0] : '';
-  agentSel.value = usageAgentIds.length === 1 ? usageAgentIds[0] : '';
-  toolSel.value = usageToolIds.length === 1 ? usageToolIds[0] : '';
+  msUpdateDisplay('usage-team-select', usageTeamFilters, v => v);
+  msUpdateDisplay('usage-agent-select', usageAgentIds, resolveAgentName);
+  msUpdateDisplay('usage-tool-select', usageToolIds, resolveToolName);
+}
+
+function msRender(id, options, selectedArr, resolveName, onToggle, onClear) {
+  const el = document.getElementById(id);
+  const placeholder = el.dataset.placeholder || 'All';
+  options.sort((a, b) => a.label.localeCompare(b.label));
+  let dropdown = '<div class="ms-dropdown">';
+  dropdown += '<input type="text" class="ms-search" placeholder="Search..." onclick="event.stopPropagation()">';
+  options.forEach(opt => {
+    const val = opt.value;
+    const label = esc(opt.label);
+    const sel = selectedArr.includes(val) ? ' selected' : '';
+    dropdown += `<div class="ms-option${sel}" data-value="${esc(val)}" data-label="${label.toLowerCase()}"><span class="ms-check"></span>${label}</div>`;
+  });
+  dropdown += '</div>';
+  const display = '<div class="ms-display">' + msDisplayText(selectedArr, resolveName, placeholder) + '</div>';
+  const clearBtn = '<span class="ms-clear">&times;</span>';
+  el.innerHTML = display + clearBtn + dropdown;
+  el.classList.toggle('has-selection', selectedArr.length > 0);
+  el._msClear = onToggle;
+  el.querySelectorAll('.ms-option').forEach(opt => {
+    opt.addEventListener('click', e => {
+      e.stopPropagation();
+      onToggle(opt.dataset.value);
+    });
+  });
+  el.querySelector('.ms-search').addEventListener('input', e => {
+    const q = e.target.value.toLowerCase();
+    el.querySelectorAll('.ms-option').forEach(opt => {
+      opt.style.display = opt.dataset.label.includes(q) ? '' : 'none';
+    });
+  });
+  el.querySelector('.ms-clear').addEventListener('click', e => {
+    e.stopPropagation();
+    if (onClear) onClear();
+  });
+  el.querySelector('.ms-display').addEventListener('click', e => {
+    e.stopPropagation();
+    document.querySelectorAll('.multi-select.open').forEach(ms => { if (ms !== el) ms.classList.remove('open'); });
+    el.classList.toggle('open');
+    if (el.classList.contains('open')) {
+      const search = el.querySelector('.ms-search');
+      search.value = '';
+      search.dispatchEvent(new Event('input'));
+      setTimeout(() => search.focus(), 0);
+    }
+  });
+}
+
+function msDisplayText(selectedArr, resolveName, placeholder) {
+  if (!selectedArr.length) return `<span style="color:var(--text2)">${placeholder}</span>`;
+  if (selectedArr.length === 1) return esc(resolveName(selectedArr[0]));
+  return `<span class="ms-tag">${esc(resolveName(selectedArr[0]))}</span><span style="color:var(--text2)">+${selectedArr.length - 1}</span>`;
+}
+
+function msUpdateDisplay(id, selectedArr, resolveName) {
+  const el = document.getElementById(id);
+  const placeholder = el.dataset.placeholder || 'All';
+  const display = el.querySelector('.ms-display');
+  if (display) display.innerHTML = msDisplayText(selectedArr, resolveName, placeholder);
+  el.classList.toggle('has-selection', selectedArr.length > 0);
+  el.querySelectorAll('.ms-option').forEach(opt => {
+    opt.classList.toggle('selected', selectedArr.includes(opt.dataset.value));
+  });
 }
 
 // Render filter pills
-function renderFilterPills() {
-  const container = document.getElementById('usage-filter-pills');
-  const pills = [];
-  usageTeamFilters.forEach(t => pills.push({ type: 'team', value: t, label: 'Team: ' + t }));
-  usageAgentIds.forEach(a => pills.push({ type: 'agent', value: a, label: 'Agent: ' + resolveAgentName(a) }));
-  usageToolIds.forEach(t => pills.push({ type: 'tool', value: t, label: 'Tool: ' + resolveToolName(t) }));
-  if (!pills.length) { container.style.display = 'none'; container.innerHTML = ''; return; }
-  container.style.display = '';
-  container.innerHTML = '<div class="filter-pills">' + pills.map(p =>
-    `<span class="filter-pill">${esc(p.label)} <span class="filter-pill-x" onclick="removeFilterPill('${p.type}','${esc(p.value)}')">&times;</span></span>`
-  ).join('') +
-  (pills.length > 1 ? `<span class="filter-pill" style="cursor:pointer;color:var(--danger)" onclick="clearAllFilters()">Clear all &times;</span>` : '') +
-  '</div>';
-}
-
-function removeFilterPill(type, value) {
-  if (type === 'team') usageTeamFilters = usageTeamFilters.filter(t => t !== value);
-  else if (type === 'agent') usageAgentIds = usageAgentIds.filter(a => a !== value);
-  else if (type === 'tool') usageToolIds = usageToolIds.filter(t => t !== value);
-  syncDropdowns();
-  renderFilterPills();
-  loadUsage();
-}
-
-function clearAllFilters() {
-  usageTeamFilters = [];
-  usageAgentIds = [];
-  usageToolIds = [];
-  syncDropdowns();
-  renderFilterPills();
-  loadUsage();
-}
+function renderFilterPills() {}
 
 // Compute the effective (preview) filter sets: committed state with pending toggles applied.
 function effectiveFilters() {
@@ -1682,11 +1732,19 @@ async function submitCreateTeam() {
 }
 
 function populateTeamFilter() {
-  const sel = document.getElementById('usage-team-select');
-  const current = sel.value;
-  sel.innerHTML = '<option value="">All teams</option>' +
-    teamsCache.map(t => `<option value="${esc(t.name)}">${esc(t.name)}</option>`).join('');
-  sel.value = current;
+  const options = teamsCache.map(t => ({ value: t.name, label: t.name }));
+  msRender('usage-team-select', options, usageTeamFilters, v => v, val => {
+    const idx = usageTeamFilters.indexOf(val);
+    if (idx >= 0) usageTeamFilters.splice(idx, 1); else usageTeamFilters.push(val);
+    syncDropdowns();
+    renderFilterPills();
+    renderTxnTable();
+    renderUsageChart(lastChartTxns);
+    loadUsage();
+  }, () => {
+    usageTeamFilters = [];
+    syncDropdowns(); renderFilterPills(); renderTxnTable(); renderUsageChart(lastChartTxns); loadUsage();
+  });
 }
 
 // --- Usage Mode (Live / Historical) ---
@@ -1849,26 +1907,23 @@ function viewAgentUsage(agentId, agentName) {
   loadUsage();
 }
 
-function onAgentFilterChange() {
-  const sel = document.getElementById('usage-agent-select');
-  usageAgentIds = sel.value ? [sel.value] : [];
-  renderFilterPills();
-  loadUsage();
-}
-
-function onTeamFilterChange() {
-  const sel = document.getElementById('usage-team-select');
-  usageTeamFilters = sel.value ? [sel.value] : [];
-  renderFilterPills();
-  loadUsage();
-}
+function onAgentFilterChange() {}
+function onTeamFilterChange() {}
 
 function populateAgentFilter() {
-  const sel = document.getElementById('usage-agent-select');
-  const current = sel.value;
-  sel.innerHTML = '<option value="">All agents</option>' +
-    agentsCache.map(a => `<option value="${a.id}">${esc(a.name)}</option>`).join('');
-  sel.value = current;
+  const options = agentsCache.map(a => ({ value: a.id, label: a.name }));
+  msRender('usage-agent-select', options, usageAgentIds, resolveAgentName, val => {
+    const idx = usageAgentIds.indexOf(val);
+    if (idx >= 0) usageAgentIds.splice(idx, 1); else usageAgentIds.push(val);
+    syncDropdowns();
+    renderFilterPills();
+    renderTxnTable();
+    renderUsageChart(lastChartTxns);
+    loadUsage();
+  }, () => {
+    usageAgentIds = [];
+    syncDropdowns(); renderFilterPills(); renderTxnTable(); renderUsageChart(lastChartTxns); loadUsage();
+  });
 }
 
 function viewToolUsage(toolId, toolName) {
@@ -1881,19 +1936,22 @@ function viewToolUsage(toolId, toolName) {
   loadUsage();
 }
 
-function onToolFilterChange() {
-  const sel = document.getElementById('usage-tool-select');
-  usageToolIds = sel.value ? [sel.value] : [];
-  renderFilterPills();
-  loadUsage();
-}
+function onToolFilterChange() {}
 
 function populateToolFilter() {
-  const sel = document.getElementById('usage-tool-select');
-  const current = sel.value;
-  sel.innerHTML = '<option value="">All tools</option>' +
-    toolsCache.map(t => `<option value="${t.id}">${esc(t.name)}</option>`).join('');
-  sel.value = current;
+  const options = toolsCache.map(t => ({ value: t.id, label: t.name }));
+  msRender('usage-tool-select', options, usageToolIds, resolveToolName, val => {
+    const idx = usageToolIds.indexOf(val);
+    if (idx >= 0) usageToolIds.splice(idx, 1); else usageToolIds.push(val);
+    syncDropdowns();
+    renderFilterPills();
+    renderTxnTable();
+    renderUsageChart(lastChartTxns);
+    loadUsage();
+  }, () => {
+    usageToolIds = [];
+    syncDropdowns(); renderFilterPills(); renderTxnTable(); renderUsageChart(lastChartTxns); loadUsage();
+  });
 }
 
 async function loadUsage() {
@@ -2171,6 +2229,10 @@ function filterFromTxn(type, value, event) {
   }
   syncDropdowns();
   renderFilterPills();
+  chartLegendHover = false;
+  document.body.classList.remove('chart-paused');
+  renderTxnTable();
+  renderUsageChart(lastChartTxns);
   loadUsage();
 }
 
@@ -2192,6 +2254,10 @@ function removeFilterItem(type, value, event) {
 // Close modals on overlay click
 document.querySelectorAll('.modal-overlay').forEach(el => {
   el.addEventListener('click', e => { if (e.target === el) el.classList.remove('open'); });
+});
+
+document.addEventListener('click', () => {
+  document.querySelectorAll('.multi-select.open').forEach(ms => ms.classList.remove('open'));
 });
 
 // Set default date range to last 7 days
