@@ -7,9 +7,6 @@ server:
 database:
   url: "postgres://octroi:octroi@localhost:5433/octroi?sslmode=disable"
 
-auth:
-  admin_key: "${OCTROI_ADMIN_KEY}"
-
 proxy:
   timeout: 30s
   max_request_size: 10485760  # 10MB

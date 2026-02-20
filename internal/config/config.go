@@ -12,7 +12,6 @@ import (
 type Config struct {
 	Server    ServerConfig    `yaml:"server"`
 	Database  DatabaseConfig  `yaml:"database"`
-	Auth      AuthConfig      `yaml:"auth"`
 	Proxy     ProxyConfig     `yaml:"proxy"`
 	Metering  MeteringConfig  `yaml:"metering"`
 	RateLimit RateLimitConfig `yaml:"rate_limit"`
@@ -27,10 +26,6 @@ type ServerConfig struct {
 
 type DatabaseConfig struct {
 	URL string `yaml:"url"`
-}
-
-type AuthConfig struct {
-	AdminKey string `yaml:"admin_key"`
 }
 
 type ProxyConfig struct {
@@ -102,9 +97,6 @@ func expandEnvVars(s string) string {
 func applyEnvOverrides(cfg *Config) {
 	if v := os.Getenv("OCTROI_DATABASE_URL"); v != "" {
 		cfg.Database.URL = v
-	}
-	if v := os.Getenv("OCTROI_ADMIN_KEY"); v != "" {
-		cfg.Auth.AdminKey = v
 	}
 	if v := os.Getenv("OCTROI_PORT"); v != "" {
 		var port int

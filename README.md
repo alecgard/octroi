@@ -15,7 +15,7 @@ A gateway that sits between AI agents and the tools/APIs they consume, providing
 
 ```bash
 cp configs/octroi.example.yaml configs/octroi.yaml
-cp .env.example .env        # then edit .env with your admin key
+cp .env.example .env
 ```
 
 ### 2. Run
@@ -24,7 +24,7 @@ cp .env.example .env        # then edit .env with your admin key
 make dev
 ```
 
-This starts Postgres, runs migrations, seeds demo data, and starts the server. The seed command creates a demo tool (CoinGecko Crypto Prices) and a demo agent, printing the agent API key to stdout. Save it for the examples below.
+This starts Postgres, runs migrations, seeds demo data, and starts the server. The seed command creates demo tools, a demo agent (API key saved to `.env`), and seed users.
 
 For production (compiled binary):
 
@@ -32,7 +32,7 @@ For production (compiled binary):
 make prod
 ```
 
-### 5. Try it
+### 3. Try it
 
 ```bash
 # Health check (unauthenticated)
@@ -42,30 +42,15 @@ curl http://localhost:8080/health
 curl 'http://localhost:8080/api/v1/tools/search?q=crypto'
 
 # Proxy a request through the gateway (agent key required)
-curl -H "Authorization: Bearer $AGENT_KEY" \
+curl -H "Authorization: Bearer $OCTROI_DEMO_AGENT_KEY" \
   "http://localhost:8080/proxy/$TOOL_ID/api/v3/simple/price?ids=bitcoin&vs_currencies=usd"
 
 # Check your usage (agent key required)
-curl -H "Authorization: Bearer $AGENT_KEY" \
+curl -H "Authorization: Bearer $OCTROI_DEMO_AGENT_KEY" \
   http://localhost:8080/api/v1/usage
-
-# Register a new tool (admin key required)
-curl -X POST http://localhost:8080/api/v1/admin/tools \
-  -H "Authorization: Bearer $OCTROI_ADMIN_KEY" \
-  -H "Content-Type: application/json" \
-  -d '{
-    "name": "Weather API",
-    "description": "Current weather data for any city",
-    "endpoint": "https://api.weatherapi.com/v1",
-    "auth_type": "none",
-  }'
-
-# Register a new agent (admin key required)
-curl -X POST http://localhost:8080/api/v1/admin/agents \
-  -H "Authorization: Bearer $OCTROI_ADMIN_KEY" \
-  -H "Content-Type: application/json" \
-  -d '{"name": "my-agent", "team": "engineering", "rate_limit": 100}'
 ```
+
+Admin operations (creating tools, agents, managing users) are done through the web UI at `/ui` using email/password login.
 
 ## Architecture
 
@@ -74,14 +59,14 @@ Octroi has five core subsystems:
 - **Registry** -- Tool providers register API endpoints; agents discover them via search or the well-known manifest.
 - **Proxy** -- Receives agent requests, strips the gateway prefix, injects tool credentials, and forwards to the upstream API.
 - **Metering** -- Every proxied request is logged asynchronously (agent, tool, timestamp, latency, status, sizes) using batched writes.
-- **Auth** -- Agents authenticate with `octroi_`-prefixed API keys (SHA-256 hashed at rest). Admin endpoints use a separate admin key.
+- **Auth** -- Agents authenticate with `octroi_`-prefixed API keys (SHA-256 hashed at rest). Users authenticate via email/password sessions with role-based access (org_admin / member).
 - **Rate Limiting** -- In-memory token bucket per agent and per tool. The stricter limit wins. Returns standard `X-RateLimit-*` headers.
 
 ```
 Agent --> Octroi Gateway --> Tool Provider API
             |
             +-- Registry (search/list)
-            +-- Auth (agent key / admin key)
+            +-- Auth (agent key / user session)
             +-- Rate Limiter (token bucket)
             +-- Metering (async batch writes to Postgres)
 ```
@@ -107,7 +92,7 @@ Agent --> Octroi Gateway --> Tool Provider API
 | GET | `/api/v1/usage/transactions` | List own transactions |
 | ANY | `/proxy/{toolID}/*` | Proxy request to a registered tool |
 
-### Admin (requires `Authorization: Bearer <admin-key>`)
+### Admin (requires org_admin session)
 
 | Method | Path | Description |
 |--------|------|-------------|
@@ -129,13 +114,14 @@ Agent --> Octroi Gateway --> Tool Provider API
 
 ## Admin UI
 
-Octroi includes a built-in admin dashboard at `/ui` — a single embedded HTML page with no build step or external dependencies.
+Octroi includes a built-in dashboard at `/ui` — a single embedded HTML page with no build step or external dependencies.
 
-Navigate to `http://localhost:8080/ui`, enter your admin key, and you can:
+Navigate to `http://localhost:8080/ui` and log in with your email and password. Seed users:
 
-- **Tools** — View, create, edit, and delete registered tools
-- **Agents** — Create and delete agents (API key shown once on creation)
-- **Usage** — View summary stats (requests, cost, success/error, latency) and browse the transaction log with date filters
+- `admin@octroi.dev` / `octroi` — org admin (full access)
+- `user1@octroi.dev` / `octroi` — member, team alpha admin
+- `user2@octroi.dev` / `octroi` — member, team alpha
+- `user3@octroi.dev` / `octroi` — member, team beta admin
 
 ## Configuration
 
@@ -148,7 +134,6 @@ Octroi loads configuration from a YAML file specified with `--config`. Values in
 | Read timeout | `server.read_timeout` | -- | `30s` |
 | Write timeout | `server.write_timeout` | -- | `30s` |
 | Database URL | `database.url` | `OCTROI_DATABASE_URL` | `postgres://octroi:octroi@localhost:5432/octroi?sslmode=disable` |
-| Admin key | `auth.admin_key` | `OCTROI_ADMIN_KEY` | -- |
 | Proxy timeout | `proxy.timeout` | -- | `30s` |
 | Max request size | `proxy.max_request_size` | -- | `10485760` (10 MB) |
 | Metering batch size | `metering.batch_size` | -- | `100` |

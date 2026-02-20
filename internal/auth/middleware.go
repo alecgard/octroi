@@ -62,9 +62,8 @@ func AgentAuthMiddleware(svc *Service) func(http.Handler) http.Handler {
 	}
 }
 
-// AdminAuthMiddleware returns middleware that authenticates requests by
-// comparing the Bearer token against a static admin key.
-func AdminAuthMiddleware(adminKey string) func(http.Handler) http.Handler {
+// AdminSessionMiddleware validates the session token and requires org_admin role.
+func AdminSessionMiddleware(sessions SessionLookup) func(http.Handler) http.Handler {
 	return func(next http.Handler) http.Handler {
 		return http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
 			token := extractBearerToken(r)
@@ -73,12 +72,18 @@ func AdminAuthMiddleware(adminKey string) func(http.Handler) http.Handler {
 				return
 			}
 
-			if token != adminKey {
-				writeUnauthorized(w, "invalid admin key")
+			user, err := sessions.LookupSession(r.Context(), token)
+			if err != nil || user == nil {
+				writeUnauthorized(w, "invalid or expired session")
+				return
+			}
+			if user.Role != "org_admin" {
+				writeForbidden(w, "admin access required")
 				return
 			}
 
-			next.ServeHTTP(w, r)
+			ctx := ContextWithUser(r.Context(), user)
+			next.ServeHTTP(w, r.WithContext(ctx))
 		})
 	}
 }
@@ -102,40 +107,6 @@ type errorResponse struct {
 type errorBody struct {
 	Code    string `json:"code"`
 	Message string `json:"message"`
-}
-
-// AdminOrKeyMiddleware tries admin key first (backward compat), then falls
-// back to session token for admin users. Replaces AdminAuthMiddleware on admin routes.
-func AdminOrKeyMiddleware(adminKey string, sessions SessionLookup) func(http.Handler) http.Handler {
-	return func(next http.Handler) http.Handler {
-		return http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
-			token := extractBearerToken(r)
-			if token == "" {
-				writeUnauthorized(w, "missing or malformed authorization header")
-				return
-			}
-
-			// Try static admin key first.
-			if token == adminKey {
-				next.ServeHTTP(w, r)
-				return
-			}
-
-			// Try session token.
-			user, err := sessions.LookupSession(r.Context(), token)
-			if err != nil || user == nil {
-				writeUnauthorized(w, "invalid credentials")
-				return
-			}
-			if user.Role != "org_admin" {
-				writeForbidden(w, "admin access required")
-				return
-			}
-
-			ctx := ContextWithUser(r.Context(), user)
-			next.ServeHTTP(w, r.WithContext(ctx))
-		})
-	}
 }
 
 // MemberAuthMiddleware validates the session token and injects the user into

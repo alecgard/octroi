@@ -27,9 +27,8 @@ type RouterDeps struct {
 	Collector   *metering.Collector
 	Auth        *auth.Service
 	Limiter     *ratelimit.Limiter
-	Proxy       *proxy.Handler
-	AdminKey    string
-	UserStore   *user.Store
+	Proxy     *proxy.Handler
+	UserStore *user.Store
 }
 
 // NewRouter builds the chi router with all routes and middleware.
@@ -85,13 +84,9 @@ func NewRouter(deps RouterDeps) http.Handler {
 		})
 	}
 
-	// Admin routes (require admin key or admin session).
+	// Admin routes (require org_admin session).
 	r.Route("/api/v1/admin", func(ar chi.Router) {
-		if sessionLookup != nil {
-			ar.Use(auth.AdminOrKeyMiddleware(deps.AdminKey, sessionLookup))
-		} else {
-			ar.Use(auth.AdminAuthMiddleware(deps.AdminKey))
-		}
+		ar.Use(auth.AdminSessionMiddleware(sessionLookup))
 
 		// Tool management.
 		ar.Get("/tools", tools.AdminListTools)

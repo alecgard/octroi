@@ -193,69 +193,6 @@ func TestAgentAuthMiddleware(t *testing.T) {
 	}
 }
 
-// --- AdminAuthMiddleware tests ---
-
-func TestAdminAuthMiddleware(t *testing.T) {
-	adminKey := "super-secret-admin-key"
-
-	okHandler := http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
-		w.WriteHeader(http.StatusOK)
-	})
-
-	tests := []struct {
-		name       string
-		authHeader string
-		wantStatus int
-		wantError  bool
-	}{
-		{
-			name:       "valid admin key",
-			authHeader: "Bearer " + adminKey,
-			wantStatus: http.StatusOK,
-			wantError:  false,
-		},
-		{
-			name:       "wrong admin key",
-			authHeader: "Bearer wrong-key",
-			wantStatus: http.StatusUnauthorized,
-			wantError:  true,
-		},
-		{
-			name:       "missing header",
-			authHeader: "",
-			wantStatus: http.StatusUnauthorized,
-			wantError:  true,
-		},
-		{
-			name:       "malformed header",
-			authHeader: "Basic " + adminKey,
-			wantStatus: http.StatusUnauthorized,
-			wantError:  true,
-		},
-	}
-
-	for _, tt := range tests {
-		t.Run(tt.name, func(t *testing.T) {
-			req := httptest.NewRequest(http.MethodGet, "/admin", nil)
-			if tt.authHeader != "" {
-				req.Header.Set("Authorization", tt.authHeader)
-			}
-			rr := httptest.NewRecorder()
-
-			handler := AdminAuthMiddleware(adminKey)(okHandler)
-			handler.ServeHTTP(rr, req)
-
-			if rr.Code != tt.wantStatus {
-				t.Errorf("expected status %d, got %d", tt.wantStatus, rr.Code)
-			}
-
-			if tt.wantError {
-				assertJSONError(t, rr)
-			}
-		})
-	}
-}
-
 // assertJSONError checks that the response body contains the expected error JSON structure.
 func assertJSONError(t *testing.T, rr *httptest.ResponseRecorder) {
 	t.Helper()

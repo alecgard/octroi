@@ -79,9 +79,8 @@ func runServe(cmd *cobra.Command, args []string) error {
 		Collector:   collector,
 		Auth:        authService,
 		Limiter:     limiter,
-		Proxy:       proxyHandler,
-		AdminKey:    cfg.Auth.AdminKey,
-		UserStore:   userStore,
+		Proxy:     proxyHandler,
+		UserStore: userStore,
 	})
 
 	srv := &http.Server{

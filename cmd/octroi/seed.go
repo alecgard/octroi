@@ -1,9 +1,12 @@
 package main
 
 import (
+	"bufio"
 	"context"
 	"fmt"
 	"log/slog"
+	"os"
+	"strings"
 
 	"github.com/alecgard/octroi/internal/agent"
 	"github.com/alecgard/octroi/internal/auth"
@@ -176,6 +179,12 @@ func runSeed(cmd *cobra.Command, args []string) error {
 			fmt.Printf("\nTry it:\n")
 			fmt.Printf("  curl -H 'Authorization: Bearer %s' http://localhost:8080/proxy/%s/api/v3/simple/price?ids=bitcoin&vs_currencies=usd\n", plaintext, firstTool.ID)
 		}
+
+		if err := setEnvKey(".env", "OCTROI_DEMO_AGENT_KEY", plaintext); err != nil {
+			slog.Warn("could not write demo agent key to .env", "error", err)
+		} else {
+			slog.Info("wrote OCTROI_DEMO_AGENT_KEY to .env")
+		}
 	} else {
 		slog.Info("demo-agent already exists, skipping")
 	}
@@ -204,4 +213,35 @@ func runSeed(cmd *cobra.Command, args []string) error {
 	fmt.Printf("  Password for all: octroi\n")
 
 	return nil
+}
+
+// setEnvKey upserts a KEY=value line in a .env file.
+func setEnvKey(path, key, value string) error {
+	line := key + "=" + value
+	prefix := key + "="
+
+	// Read existing content.
+	content, err := os.ReadFile(path)
+	if err != nil && !os.IsNotExist(err) {
+		return err
+	}
+
+	var lines []string
+	replaced := false
+	if len(content) > 0 {
+		sc := bufio.NewScanner(strings.NewReader(string(content)))
+		for sc.Scan() {
+			if strings.HasPrefix(sc.Text(), prefix) {
+				lines = append(lines, line)
+				replaced = true
+			} else {
+				lines = append(lines, sc.Text())
+			}
+		}
+	}
+	if !replaced {
+		lines = append(lines, line)
+	}
+
+	return os.WriteFile(path, []byte(strings.Join(lines, "\n")+"\n"), 0644)
 }

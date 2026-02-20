@@ -229,26 +229,6 @@ tbody tr:hover { background: var(--surface); }
   margin-bottom: 16px;
   text-align: center;
 }
-.login-toggle {
-  display: flex;
-  gap: 0;
-  margin-bottom: 16px;
-}
-.login-toggle button {
-  flex: 1;
-  font-size: 10px;
-  text-transform: uppercase;
-  letter-spacing: 0.5px;
-  padding: 6px;
-  border: 1px solid var(--border);
-  background: var(--bg);
-  color: var(--text2);
-}
-.login-toggle button.active {
-  background: var(--accent);
-  color: #fff;
-  border-color: var(--accent);
-}
 .login-error {
   color: var(--danger);
   font-size: 11px;
@@ -258,6 +238,40 @@ tbody tr:hover { background: var(--surface); }
 /* Links */
 a { color: var(--text); }
 a:hover { color: var(--text2); }
+/* Usage mode toggle */
+.usage-mode-toggle { display: flex; gap: 0; margin-left: 12px; }
+.mode-btn {
+  background: var(--bg);
+  border: 1px solid var(--border);
+  font-size: 11px;
+  font-weight: 500;
+  padding: 3px 12px;
+  color: var(--text2);
+  cursor: pointer;
+  display: flex;
+  align-items: center;
+  gap: 5px;
+}
+.mode-btn:first-child { border-radius: 3px 0 0 3px; }
+.mode-btn:last-child { border-radius: 0 3px 3px 0; border-left: none; }
+.mode-btn.active { background: var(--accent); color: #fff; border-color: var(--accent); font-weight: 700; }
+.live-dot {
+  display: inline-block;
+  width: 7px;
+  height: 7px;
+  border-radius: 50%;
+  background: #2a7;
+}
+.mode-btn.active .live-dot { background: #5fffaa; animation: pulse 1.5s infinite; }
+@keyframes pulse {
+  0%, 100% { opacity: 1; }
+  50% { opacity: 0.4; }
+}
+@keyframes fadeIn {
+  from { background: rgba(42, 119, 77, 0.12); }
+  to { background: transparent; }
+}
+.txn-new { animation: fadeIn 1.2s ease-out; }
 /* Team cards */
 .team-section {
   background: var(--surface);
@@ -318,28 +332,14 @@ a:hover { color: var(--text2); }
 <div id="login-screen">
   <div class="login-box">
     <h2>octroi</h2>
-    <div class="login-toggle">
-      <button class="active" id="toggle-email" onclick="setLoginMode('email')">Email Login</button>
-      <button id="toggle-key" onclick="setLoginMode('key')">Admin Key</button>
-    </div>
     <div class="login-error" id="login-error"></div>
-    <!-- Email login fields -->
-    <div id="login-email-fields">
-      <div class="form-group">
-        <label>Email</label>
-        <input type="email" id="login-email" placeholder="admin@octroi.dev" autocomplete="email">
-      </div>
-      <div class="form-group">
-        <label>Password</label>
-        <input type="password" id="login-password" placeholder="Password" autocomplete="current-password">
-      </div>
+    <div class="form-group">
+      <label>Email</label>
+      <input type="email" id="login-email" placeholder="admin@octroi.dev" autocomplete="email">
     </div>
-    <!-- Admin key field -->
-    <div id="login-key-fields" style="display:none">
-      <div class="form-group">
-        <label>Admin Key</label>
-        <input type="password" id="login-admin-key" placeholder="Admin key" autocomplete="off">
-      </div>
+    <div class="form-group">
+      <label>Password</label>
+      <input type="password" id="login-password" placeholder="Password" autocomplete="current-password">
     </div>
     <div style="margin-top:12px">
       <button class="btn-primary" style="width:100%" id="login-btn" onclick="doLogin()">Connect</button>
@@ -418,23 +418,29 @@ a:hover { color: var(--text2); }
 
   <!-- Usage Tab -->
   <div class="tab-panel" id="tab-usage">
-    <div class="toolbar">
+    <div class="toolbar" style="margin-bottom:4px">
       <h2>Usage</h2>
-      <div class="spacer" style="flex:1"></div>
-      <div class="filters">
-        <select id="usage-team-select" onchange="onTeamFilterChange()">
-          <option value="">All teams</option>
-        </select>
-        <select id="usage-agent-select" onchange="onAgentFilterChange()">
-          <option value="">All agents</option>
-        </select>
-        <select id="usage-tool-select" onchange="onToolFilterChange()">
-          <option value="">All tools</option>
-        </select>
+    </div>
+    <div class="filters" style="margin-bottom:12px">
+      <select id="usage-team-select" onchange="onTeamFilterChange()">
+        <option value="">All teams</option>
+      </select>
+      <select id="usage-agent-select" onchange="onAgentFilterChange()">
+        <option value="">All agents</option>
+      </select>
+      <select id="usage-tool-select" onchange="onToolFilterChange()">
+        <option value="">All tools</option>
+      </select>
+      <div style="flex:1"></div>
+      <div id="usage-date-controls" style="display:none;gap:8px;align-items:center">
         <input type="date" id="usage-from">
         <span style="color:var(--text2)">to</span>
         <input type="date" id="usage-to">
         <button class="btn-ghost" onclick="loadUsage()">Apply</button>
+      </div>
+      <div class="usage-mode-toggle">
+        <button class="mode-btn active" id="mode-live" onclick="setUsageMode('live')"><span class="live-dot"></span> Live</button>
+        <button class="mode-btn" id="mode-hist" onclick="setUsageMode('historical')">Historical</button>
       </div>
     </div>
     <div class="cards" id="usage-cards">
@@ -473,6 +479,7 @@ a:hover { color: var(--text2); }
         <tr>
           <th>Email</th>
           <th>Name</th>
+          <th>Teams</th>
           <th>Role</th>
           <th>Created</th>
           <th></th>
@@ -662,10 +669,21 @@ a:hover { color: var(--text2); }
 <script>
 // --- State ---
 let authToken = localStorage.getItem('octroi_session_token') || '';
-let authMode = ''; // 'session' or 'adminkey'
-let currentUser = null; // { id, email, name, teams, role } or null (admin key mode)
+let authMode = ''; // 'session' when logged in
+let currentUser = null; // { id, email, name, teams, role }
 let isAdmin = false;
-let loginMode = 'email'; // 'email' or 'key'
+let usageAgentId = null;
+let usageAgentName = null;
+let usageToolId = null;
+let usageToolName = null;
+let usageTeamFilter = '';
+let usageMode = 'live'; // 'live' or 'historical'
+let usagePollTimer = null;
+let lastTxnTimestamp = null;
+let agentsCache = [];
+let toolsCache = [];
+let teamsCache = [];
+let usersCache = [];
 
 // --- API helpers ---
 function apiBase() {
@@ -697,7 +715,6 @@ function userInTeam(u, team) {
 }
 
 function canManageTeam(team) {
-  if (isAdmin && authMode === 'adminkey') return true;
   if (!currentUser) return false;
   if (currentUser.role === 'org_admin') return true;
   if (!currentUser.teams) return false;
@@ -705,11 +722,10 @@ function canManageTeam(team) {
 }
 
 // --- Session persistence ---
-function saveSession(token, mode, user) {
-  localStorage.setItem('octroi_session_token', token);
-  localStorage.setItem('octroi_auth_mode', mode);
-  if (user) {
-    localStorage.setItem('octroi_user', JSON.stringify(user));
+function saveSession() {
+  localStorage.setItem('octroi_session_token', authToken);
+  if (currentUser) {
+    localStorage.setItem('octroi_user', JSON.stringify(currentUser));
   } else {
     localStorage.removeItem('octroi_user');
   }
@@ -717,62 +733,34 @@ function saveSession(token, mode, user) {
 
 function clearSession() {
   localStorage.removeItem('octroi_session_token');
-  localStorage.removeItem('octroi_auth_mode');
   localStorage.removeItem('octroi_user');
 }
 
 // --- Login ---
-function setLoginMode(mode) {
-  loginMode = mode;
-  document.getElementById('toggle-email').classList.toggle('active', mode === 'email');
-  document.getElementById('toggle-key').classList.toggle('active', mode === 'key');
-  document.getElementById('login-email-fields').style.display = mode === 'email' ? 'block' : 'none';
-  document.getElementById('login-key-fields').style.display = mode === 'key' ? 'block' : 'none';
-  document.getElementById('login-error').style.display = 'none';
-}
-
 async function doLogin() {
   const errEl = document.getElementById('login-error');
   errEl.style.display = 'none';
 
-  if (loginMode === 'key') {
-    const key = document.getElementById('login-admin-key').value.trim();
-    if (!key) return;
-    authToken = key;
-    try {
-      await api('GET', '/api/v1/admin/agents?limit=1');
-      authMode = 'adminkey';
-      currentUser = null;
-      isAdmin = true;
-      saveSession(key, 'adminkey', null);
-      enterApp();
-    } catch (e) {
-      errEl.textContent = 'Invalid admin key';
-      errEl.style.display = 'block';
-      authToken = '';
-    }
-  } else {
-    const email = document.getElementById('login-email').value.trim();
-    const password = document.getElementById('login-password').value;
-    if (!email || !password) return;
-    try {
-      const res = await fetch('/api/v1/auth/login', {
-        method: 'POST',
-        headers: { 'Content-Type': 'application/json' },
-        body: JSON.stringify({ email, password }),
-      });
-      const data = await res.json();
-      if (!res.ok) throw new Error((data.error && data.error.message) || 'Login failed');
-      authToken = data.token;
-      authMode = 'session';
-      currentUser = data.user;
-      isAdmin = currentUser.role === 'org_admin';
-      saveSession(authToken, 'session', currentUser);
-      enterApp();
-    } catch (e) {
-      errEl.textContent = e.message;
-      errEl.style.display = 'block';
-    }
+  const email = document.getElementById('login-email').value.trim();
+  const password = document.getElementById('login-password').value;
+  if (!email || !password) return;
+  try {
+    const res = await fetch('/api/v1/auth/login', {
+      method: 'POST',
+      headers: { 'Content-Type': 'application/json' },
+      body: JSON.stringify({ email, password }),
+    });
+    const data = await res.json();
+    if (!res.ok) throw new Error((data.error && data.error.message) || 'Login failed');
+    authToken = data.token;
+    authMode = 'session';
+    currentUser = data.user;
+    isAdmin = currentUser.role === 'org_admin';
+    saveSession();
+    enterApp();
+  } catch (e) {
+    errEl.textContent = e.message;
+    errEl.style.display = 'block';
   }
 }
 
@@ -791,10 +779,6 @@ function enterApp() {
     const roleLabel = currentUser.role === 'org_admin' ? 'org admin' : currentUser.role;
     badgeEl.textContent = roleLabel;
     badgeEl.className = 'role-badge' + (currentUser.role === 'org_admin' ? ' admin' : '');
-  } else {
-    nameEl.textContent = 'Admin Key';
-    badgeEl.textContent = 'admin';
-    badgeEl.className = 'role-badge admin';
   }
 
   // Permission-based UI: disable (not hide) actions the user can't perform.
@@ -818,6 +802,7 @@ function enterApp() {
 }
 
 async function logout() {
+  stopUsagePoll();
   if (authMode === 'session') {
     try { await api('POST', '/api/v1/auth/logout'); } catch (e) { /* ignore */ }
   }
@@ -831,56 +816,42 @@ async function logout() {
 
 // Handle Enter key in login fields
 document.getElementById('login-password').addEventListener('keydown', e => { if (e.key === 'Enter') doLogin(); });
-document.getElementById('login-admin-key').addEventListener('keydown', e => { if (e.key === 'Enter') doLogin(); });
 document.getElementById('login-email').addEventListener('keydown', e => { if (e.key === 'Enter') document.getElementById('login-password').focus(); });
 
 // Auto-reconnect from stored session.
 // Immediately enter app from cached user data, then validate in background.
 (function autoConnect() {
   const storedToken = localStorage.getItem('octroi_session_token');
-  const storedMode = localStorage.getItem('octroi_auth_mode');
   if (!storedToken) return;
 
   authToken = storedToken;
 
-  if (storedMode === 'adminkey') {
-    authMode = 'adminkey';
-    currentUser = null;
-    isAdmin = true;
-    enterApp();
-    // Validate in background
-    api('GET', '/api/v1/admin/agents?limit=1').catch(() => {
-      clearSession();
-      location.reload();
-    });
-  } else {
-    // Try to restore from cached user data immediately
-    const cachedUser = localStorage.getItem('octroi_user');
-    if (cachedUser) {
-      try {
-        currentUser = JSON.parse(cachedUser);
-        authMode = 'session';
-        isAdmin = currentUser.role === 'org_admin';
-        enterApp();
-      } catch (e) {
-        // Bad cached data, fall through to async validation
-      }
-    }
-
-    // Validate session and refresh user data
-    api('GET', '/api/v1/auth/me').then(data => {
-      const wasInApp = !!currentUser;
-      currentUser = data;
-      isAdmin = currentUser.role === 'org_admin';
+  // Try to restore from cached user data immediately
+  const cachedUser = localStorage.getItem('octroi_user');
+  if (cachedUser) {
+    try {
+      currentUser = JSON.parse(cachedUser);
       authMode = 'session';
-      saveSession(authToken, 'session', currentUser);
-      if (!wasInApp) enterApp();
-    }).catch(() => {
-      clearSession();
-      if (authMode) location.reload(); // was showing app, need to show login
-      authToken = '';
-    });
+      isAdmin = currentUser.role === 'org_admin';
+      enterApp();
+    } catch (e) {
+      // Bad cached data, fall through to async validation
+    }
   }
+
+  // Validate session and refresh user data
+  api('GET', '/api/v1/auth/me').then(data => {
+    const wasInApp = !!currentUser;
+    currentUser = data;
+    isAdmin = currentUser.role === 'org_admin';
+    authMode = 'session';
+    saveSession();
+    if (!wasInApp) enterApp();
+  }).catch(() => {
+    clearSession();
+    if (authMode) location.reload();
+    authToken = '';
+  });
 })();
 
 // --- Tabs (hash-routed) ---
@@ -891,6 +862,17 @@ function switchTab(tab) {
   if (btn) btn.classList.add('active');
   const panel = document.getElementById('tab-' + tab);
   if (panel) panel.classList.add('active');
+  // Stop live polling when leaving usage tab.
+  if (tab !== 'usage') stopUsagePoll();
+  // Reload data when switching tabs.
+  if (tab === 'usage') {
+    loadUsage();
+    if (usageMode === 'live') startUsagePoll();
+  }
+  else if (tab === 'agents') loadAgents();
+  else if (tab === 'tools') loadTools();
+  else if (tab === 'teams') loadTeams();
+  else if (tab === 'users') loadUsers();
 }
 
 function navigateTo(hash) {
@@ -909,7 +891,6 @@ document.querySelectorAll('.tab-btn').forEach(btn => {
 window.addEventListener('hashchange', onHashChange);
 
 // --- Tools ---
-let toolsCache = [];
 async function loadTools() {
   try {
     const path = isAdmin ? '/api/v1/admin/tools?limit=100' : '/api/v1/member/tools?limit=100';
@@ -1006,7 +987,6 @@ async function deleteTool(id, name) {
 }
 
 // --- Agents ---
-let agentsCache = [];
 async function loadAgents() {
   try {
     const path = apiBase() + '/agents?limit=100';
@@ -1107,7 +1087,6 @@ async function deleteAgent(id, name) {
 }
 
 // --- Teams ---
-let teamsCache = [];
 async function loadTeams() {
   try {
     const path = apiBase() + '/teams';
@@ -1224,13 +1203,98 @@ function populateTeamFilter() {
   sel.value = current;
 }
 
-// --- Usage ---
-let usageAgentId = null;
-let usageAgentName = null;
-let usageToolId = null;
-let usageToolName = null;
-let usageTeamFilter = '';
+// --- Usage Mode (Live / Historical) ---
+function setUsageMode(mode) {
+  usageMode = mode;
+  document.getElementById('mode-live').classList.toggle('active', mode === 'live');
+  document.getElementById('mode-hist').classList.toggle('active', mode === 'historical');
+  const dateControls = document.getElementById('usage-date-controls');
+  dateControls.style.display = mode === 'historical' ? 'flex' : 'none';
+  if (mode === 'live') {
+    lastTxnTimestamp = null;
+    startUsagePoll();
+  } else {
+    stopUsagePoll();
+  }
+  loadUsage();
+}
 
+function startUsagePoll() {
+  stopUsagePoll();
+  usagePollTimer = setInterval(loadUsageLive, 3000);
+}
+
+function stopUsagePoll() {
+  if (usagePollTimer) { clearInterval(usagePollTimer); usagePollTimer = null; }
+}
+
+async function loadUsageLive() {
+  const from = new Date(Date.now() - 5 * 60 * 1000).toISOString();
+  let qs = '&from=' + encodeURIComponent(from);
+
+  if (isAdmin) {
+    let usagePath = '/api/v1/admin/usage';
+    let txnQs = qs;
+    if (usageTeamFilter) {
+      qs += '&team=' + encodeURIComponent(usageTeamFilter);
+      txnQs += '&team=' + encodeURIComponent(usageTeamFilter);
+    }
+    if (usageAgentId && usageToolId) {
+      usagePath = '/api/v1/admin/usage/agents/' + usageAgentId + '/tools/' + usageToolId;
+      txnQs += '&agent_id=' + usageAgentId + '&tool_id=' + usageToolId;
+    } else if (usageAgentId) {
+      usagePath = '/api/v1/admin/usage/agents/' + usageAgentId;
+      txnQs += '&agent_id=' + usageAgentId;
+    } else if (usageToolId) {
+      usagePath = '/api/v1/admin/usage/tools/' + usageToolId;
+      txnQs += '&tool_id=' + usageToolId;
+    }
+    try {
+      const [summary, txns] = await Promise.all([
+        api('GET', usagePath + '?' + qs),
+        api('GET', '/api/v1/admin/usage/transactions?limit=50' + txnQs),
+      ]);
+      renderUsageSummary(summary);
+      renderTransactionsLive(txns.transactions || []);
+    } catch (e) { console.error('Failed to load live usage', e); }
+  } else {
+    let memberQs = qs;
+    if (usageTeamFilter) {
+      memberQs += '&team=' + encodeURIComponent(usageTeamFilter);
+    }
+    try {
+      const [summary, txns] = await Promise.all([
+        api('GET', '/api/v1/member/usage?' + memberQs),
+        api('GET', '/api/v1/member/usage/transactions?limit=50' + memberQs),
+      ]);
+      renderUsageSummary(summary);
+      renderTransactionsLive(txns.transactions || []);
+    } catch (e) { console.error('Failed to load live usage', e); }
+  }
+}
+
+function renderTransactionsLive(txns) {
+  const tbody = document.getElementById('txn-body');
+  const empty = document.getElementById('txn-empty');
+  if (!txns.length) { tbody.innerHTML = ''; empty.style.display = 'block'; return; }
+  empty.style.display = 'none';
+  const prevTimestamp = lastTxnTimestamp;
+  if (txns.length) lastTxnTimestamp = txns[0].timestamp;
+  tbody.innerHTML = txns.map(t => {
+    const isNew = prevTimestamp && t.timestamp > prevTimestamp;
+    return `<tr${isNew ? ' class="txn-new"' : ''}>
+    <td style="white-space:nowrap">${fmtTime(t.timestamp)}</td>
+    <td>${esc(resolveAgentName(t.agent_id))}</td>
+    <td>${esc(resolveToolName(t.tool_id))}</td>
+    <td>${esc(t.method)}</td>
+    <td style="color:${t.success ? 'var(--success)' : 'var(--danger)'}">${t.status_code}</td>
+    <td>${t.latency_ms}ms</td>
+    <td>$${(t.cost || 0).toFixed(4)}</td>
+  </tr>`;
+  }).join('');
+}
+
+// --- Usage ---
 function viewAgentUsage(agentId, agentName) {
   usageAgentId = agentId;
   usageAgentName = agentName;
@@ -1284,6 +1348,7 @@ function populateToolFilter() {
 }
 
 async function loadUsage() {
+  if (usageMode === 'live') { loadUsageLive(); return; }
   const from = document.getElementById('usage-from').value;
   const to = document.getElementById('usage-to').value;
   let qs = '';
@@ -1359,8 +1424,7 @@ function renderTransactions(txns) {
   </tr>`).join('');
 }
 
-// --- Users (org_admin only) ---
-let usersCache = [];
+// --- Users ---
 async function loadUsers() {
   try {
     const path = isAdmin ? '/api/v1/admin/users' : '/api/v1/member/users';
@@ -1449,7 +1513,7 @@ async function submitUser() {
         if (body.name !== undefined) {
           currentUser.name = body.name;
           document.querySelector('.user-name').textContent = currentUser.name || currentUser.email;
-          saveSession(authToken, authMode, currentUser);
+          saveSession();
         }
         loadUsers();
       } catch (e) { alert('Error: ' + e.message); }
