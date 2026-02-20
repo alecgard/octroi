@@ -342,7 +342,7 @@ a:hover { color: var(--text2); }
     <input type="hidden" id="tool-edit-id">
     <div class="form-group">
       <label>Name *</label>
-      <input type="text" id="tool-name" placeholder="e.g. OpenAI GPT-4">
+      <input type="text" id="tool-name" placeholder="e.g. Open Weather Data">
     </div>
     <div class="form-group">
       <label>Description *</label>
@@ -469,6 +469,7 @@ async function connect() {
     loadTools();
     loadAgents();
     loadUsage();
+    onHashChange();
   } catch (e) {
     alert('Connection failed: ' + e.message);
   }
@@ -482,15 +483,30 @@ if (adminKey) {
   connect();
 }
 
-// --- Tabs ---
+// --- Tabs (hash-routed) ---
+function switchTab(tab) {
+  document.querySelectorAll('.tab-btn').forEach(b => b.classList.remove('active'));
+  document.querySelectorAll('.tab-panel').forEach(p => p.classList.remove('active'));
+  const btn = document.querySelector('[data-tab="' + tab + '"]');
+  if (btn) btn.classList.add('active');
+  const panel = document.getElementById('tab-' + tab);
+  if (panel) panel.classList.add('active');
+}
+
+function navigateTo(hash) {
+  location.hash = hash;
+}
+
+function onHashChange() {
+  const hash = location.hash.replace('#', '') || 'agents';
+  switchTab(hash);
+}
+
 document.querySelectorAll('.tab-btn').forEach(btn => {
-  btn.addEventListener('click', () => {
-    document.querySelectorAll('.tab-btn').forEach(b => b.classList.remove('active'));
-    document.querySelectorAll('.tab-panel').forEach(p => p.classList.remove('active'));
-    btn.classList.add('active');
-    document.getElementById('tab-' + btn.dataset.tab).classList.add('active');
-  });
+  btn.addEventListener('click', () => navigateTo(btn.dataset.tab));
 });
+
+window.addEventListener('hashchange', onHashChange);
 
 // --- Tools ---
 let toolsCache = [];
@@ -657,11 +673,7 @@ function viewAgentUsage(agentId, agentName) {
   usageAgentId = agentId;
   usageAgentName = agentName;
   document.getElementById('usage-agent-select').value = agentId;
-  // Switch to usage tab
-  document.querySelectorAll('.tab-btn').forEach(b => b.classList.remove('active'));
-  document.querySelectorAll('.tab-panel').forEach(p => p.classList.remove('active'));
-  document.querySelector('[data-tab="usage"]').classList.add('active');
-  document.getElementById('tab-usage').classList.add('active');
+  navigateTo('usage');
   loadUsage();
 }
 
@@ -684,11 +696,7 @@ function viewToolUsage(toolId, toolName) {
   usageToolId = toolId;
   usageToolName = toolName;
   document.getElementById('usage-tool-select').value = toolId;
-  // Switch to usage tab
-  document.querySelectorAll('.tab-btn').forEach(b => b.classList.remove('active'));
-  document.querySelectorAll('.tab-panel').forEach(p => p.classList.remove('active'));
-  document.querySelector('[data-tab="usage"]').classList.add('active');
-  document.getElementById('tab-usage').classList.add('active');
+  navigateTo('usage');
   loadUsage();
 }
 
