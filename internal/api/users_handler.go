@@ -191,7 +191,7 @@ func (h *usersHandler) MemberListUsers(w http.ResponseWriter, r *http.Request) {
 	})
 }
 
-// UpdateSelf handles PUT /api/v1/member/users/me — update own profile.
+// UpdateSelf handles PUT /api/v1/member/users/me — update own profile (name only).
 func (h *usersHandler) UpdateSelf(w http.ResponseWriter, r *http.Request) {
 	caller := auth.UserFromContext(r.Context())
 	if caller == nil {
@@ -200,8 +200,7 @@ func (h *usersHandler) UpdateSelf(w http.ResponseWriter, r *http.Request) {
 	}
 
 	var req struct {
-		Name     *string `json:"name"`
-		Password *string `json:"password"`
+		Name *string `json:"name"`
 	}
 	if err := readJSON(r, &req); err != nil {
 		writeError(w, http.StatusBadRequest, "invalid_body", "failed to parse request body")
@@ -212,9 +211,6 @@ func (h *usersHandler) UpdateSelf(w http.ResponseWriter, r *http.Request) {
 	if req.Name != nil {
 		input.Name = req.Name
 	}
-	if req.Password != nil {
-		input.Password = req.Password
-	}
 
 	u, err := h.store.Update(r.Context(), caller.ID, input)
 	if err != nil {
@@ -223,6 +219,54 @@ func (h *usersHandler) UpdateSelf(w http.ResponseWriter, r *http.Request) {
 	}
 
 	writeJSON(w, http.StatusOK, u)
+}
+
+// ChangePassword handles PUT /api/v1/member/users/me/password.
+func (h *usersHandler) ChangePassword(w http.ResponseWriter, r *http.Request) {
+	caller := auth.UserFromContext(r.Context())
+	if caller == nil {
+		writeError(w, http.StatusUnauthorized, "unauthorized", "not authenticated")
+		return
+	}
+
+	var req struct {
+		CurrentPassword string `json:"current_password"`
+		NewPassword     string `json:"new_password"`
+	}
+	if err := readJSON(r, &req); err != nil {
+		writeError(w, http.StatusBadRequest, "invalid_body", "failed to parse request body")
+		return
+	}
+
+	if req.CurrentPassword == "" || req.NewPassword == "" {
+		writeError(w, http.StatusUnprocessableEntity, "validation_error", "current_password and new_password are required")
+		return
+	}
+
+	if len(req.NewPassword) < 6 {
+		writeError(w, http.StatusUnprocessableEntity, "validation_error", "new password must be at least 6 characters")
+		return
+	}
+
+	// Fetch user to verify current password.
+	u, err := h.store.GetByID(r.Context(), caller.ID)
+	if err != nil {
+		writeError(w, http.StatusInternalServerError, "internal_error", "failed to get user")
+		return
+	}
+
+	if !user.CheckPassword(u, req.CurrentPassword) {
+		writeError(w, http.StatusUnauthorized, "unauthorized", "current password is incorrect")
+		return
+	}
+
+	input := user.UpdateUserInput{Password: &req.NewPassword}
+	if _, err := h.store.Update(r.Context(), caller.ID, input); err != nil {
+		writeError(w, http.StatusInternalServerError, "internal_error", "failed to update password")
+		return
+	}
+
+	writeJSON(w, http.StatusOK, map[string]string{"status": "password updated"})
 }
 
 // DeleteUser handles DELETE /api/v1/admin/users/{id}.

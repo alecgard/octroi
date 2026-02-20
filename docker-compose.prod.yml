@@ -1,0 +1,32 @@
+services:
+  octroi:
+    build: .
+    ports:
+      - "${OCTROI_PORT:-8080}:8080"
+    environment:
+      OCTROI_DATABASE_URL: "postgres://octroi:${POSTGRES_PASSWORD:-octroi}@postgres:5432/octroi?sslmode=disable"
+      OCTROI_HOST: "0.0.0.0"
+      OCTROI_PORT: "8080"
+    depends_on:
+      postgres:
+        condition: service_healthy
+    restart: unless-stopped
+    command: ["sh", "-c", "octroi migrate --config /dev/null && octroi serve"]
+
+  postgres:
+    image: postgres:16-alpine
+    environment:
+      POSTGRES_USER: octroi
+      POSTGRES_PASSWORD: "${POSTGRES_PASSWORD:-octroi}"
+      POSTGRES_DB: octroi
+    volumes:
+      - pgdata:/var/lib/postgresql/data
+    healthcheck:
+      test: ["CMD-SHELL", "pg_isready -U octroi"]
+      interval: 5s
+      timeout: 5s
+      retries: 5
+    restart: unless-stopped
+
+volumes:
+  pgdata:

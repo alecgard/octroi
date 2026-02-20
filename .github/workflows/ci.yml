@@ -1,0 +1,52 @@
+name: CI
+
+on:
+  push:
+    branches: [main]
+  pull_request:
+    branches: [main]
+
+jobs:
+  test:
+    runs-on: ubuntu-latest
+
+    services:
+      postgres:
+        image: postgres:16-alpine
+        env:
+          POSTGRES_USER: octroi
+          POSTGRES_PASSWORD: octroi
+          POSTGRES_DB: octroi
+        ports:
+          - 5433:5432
+        options: >-
+          --health-cmd "pg_isready -U octroi"
+          --health-interval 10s
+          --health-timeout 5s
+          --health-retries 5
+
+    steps:
+      - uses: actions/checkout@v4
+
+      - uses: actions/setup-go@v5
+        with:
+          go-version: '1.24'
+
+      - name: Download dependencies
+        run: go mod download
+
+      - name: Vet
+        run: go vet ./...
+
+      - name: Build
+        run: go build -o octroi ./cmd/octroi
+
+      - name: Test
+        run: go test -race -count=1 ./...
+        env:
+          OCTROI_DATABASE_URL: postgres://octroi:octroi@localhost:5433/octroi?sslmode=disable
+
+      - name: Run migrations
+        run: ./octroi migrate --config configs/octroi.example.yaml
+        env:
+          OCTROI_DATABASE_URL: postgres://octroi:octroi@localhost:5433/octroi?sslmode=disable

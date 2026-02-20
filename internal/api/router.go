@@ -277,6 +277,7 @@ func NewRouter(deps RouterDeps) http.Handler {
 			mr.Delete("/teams/{team}/members/{userId}", teams.RemoveTeamMember)
 			mr.Get("/users", users.MemberListUsers)
 			mr.Put("/users/me", users.UpdateSelf)
+			mr.Put("/users/me/password", users.ChangePassword)
 		})
 	}
 
