@@ -309,3 +309,120 @@ func TestAuthInjectionHeader(t *testing.T) {
 		t.Errorf("expected X-Api-Key %q, got %q", "my-api-key", receivedKey)
 	}
 }
+
+func TestAPIMode(t *testing.T) {
+	var receivedPath string
+	upstream := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
+		receivedPath = r.URL.Path
+		w.WriteHeader(http.StatusOK)
+	}))
+	defer upstream.Close()
+
+	// Use template endpoint: the upstream URL with a {version} placeholder.
+	tool := newTestTool("http://placeholder.invalid")
+	tool.Mode = "api"
+	// Replace endpoint with the template — use upstream host.
+	tool.Endpoint = upstream.URL + "/{version}"
+	tool.Variables = map[string]string{"version": "v2"}
+
+	store := &fakeToolStore{tools: map[string]*registry.Tool{"tool-1": tool}}
+	budgets := &fakeBudgetChecker{agentAllowed: true, globalAllowed: true}
+	collector := &fakeCollector{}
+	handler := NewHandler(store, budgets, collector, 5*time.Second, 1<<20)
+
+	router := setupRouter(handler)
+
+	req := httptest.NewRequest("GET", "/proxy/tool-1/data", nil)
+	req = withAgent(req, newTestAgent())
+	rr := httptest.NewRecorder()
+	router.ServeHTTP(rr, req)
+
+	if rr.Code != http.StatusOK {
+		t.Fatalf("expected 200, got %d", rr.Code)
+	}
+	if receivedPath != "/v2/data" {
+		t.Errorf("expected upstream path /v2/data, got %s", receivedPath)
+	}
+}
+
+func TestQueryAuth(t *testing.T) {
+	var receivedQuery string
+	upstream := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
+		receivedQuery = r.URL.RawQuery
+		w.WriteHeader(http.StatusOK)
+	}))
+	defer upstream.Close()
+
+	t.Run("default param name", func(t *testing.T) {
+		tool := newTestTool(upstream.URL)
+		tool.AuthType = "query"
+		tool.AuthConfig = map[string]string{"key": "secret123"}
+
+		store := &fakeToolStore{tools: map[string]*registry.Tool{"tool-1": tool}}
+		budgets := &fakeBudgetChecker{agentAllowed: true, globalAllowed: true}
+		collector := &fakeCollector{}
+		handler := NewHandler(store, budgets, collector, 5*time.Second, 1<<20)
+		router := setupRouter(handler)
+
+		req := httptest.NewRequest("GET", "/proxy/tool-1/resource", nil)
+		req = withAgent(req, newTestAgent())
+		rr := httptest.NewRecorder()
+		router.ServeHTTP(rr, req)
+
+		if rr.Code != http.StatusOK {
+			t.Fatalf("expected 200, got %d", rr.Code)
+		}
+		if receivedQuery != "api_key=secret123" {
+			t.Errorf("expected query api_key=secret123, got %s", receivedQuery)
+		}
+	})
+
+	t.Run("custom param name", func(t *testing.T) {
+		tool := newTestTool(upstream.URL)
+		tool.AuthType = "query"
+		tool.AuthConfig = map[string]string{"key": "mykey", "param_name": "token"}
+
+		store := &fakeToolStore{tools: map[string]*registry.Tool{"tool-1": tool}}
+		budgets := &fakeBudgetChecker{agentAllowed: true, globalAllowed: true}
+		collector := &fakeCollector{}
+		handler := NewHandler(store, budgets, collector, 5*time.Second, 1<<20)
+		router := setupRouter(handler)
+
+		req := httptest.NewRequest("GET", "/proxy/tool-1/resource", nil)
+		req = withAgent(req, newTestAgent())
+		rr := httptest.NewRecorder()
+		router.ServeHTTP(rr, req)
+
+		if rr.Code != http.StatusOK {
+			t.Fatalf("expected 200, got %d", rr.Code)
+		}
+		if receivedQuery != "token=mykey" {
+			t.Errorf("expected query token=mykey, got %s", receivedQuery)
+		}
+	})
+
+	t.Run("with existing query params", func(t *testing.T) {
+		tool := newTestTool(upstream.URL)
+		tool.AuthType = "query"
+		tool.AuthConfig = map[string]string{"key": "secret123"}
+
+		store := &fakeToolStore{tools: map[string]*registry.Tool{"tool-1": tool}}
+		budgets := &fakeBudgetChecker{agentAllowed: true, globalAllowed: true}
+		collector := &fakeCollector{}
+		handler := NewHandler(store, budgets, collector, 5*time.Second, 1<<20)
+		router := setupRouter(handler)
+
+		req := httptest.NewRequest("GET", "/proxy/tool-1/resource?foo=bar", nil)
+		req = withAgent(req, newTestAgent())
+		rr := httptest.NewRecorder()
+		router.ServeHTTP(rr, req)
+
+		if rr.Code != http.StatusOK {
+			t.Fatalf("expected 200, got %d", rr.Code)
+		}
+		// Should contain both the original param and the auth param.
+		if receivedQuery != "api_key=secret123&foo=bar" && receivedQuery != "foo=bar&api_key=secret123" {
+			t.Errorf("expected query to contain both foo=bar and api_key=secret123, got %s", receivedQuery)
+		}
+	})
+}

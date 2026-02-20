@@ -186,9 +186,11 @@ func adminToolView(t *registry.Tool) map[string]interface{} {
 		"id":               t.ID,
 		"name":             t.Name,
 		"description":      t.Description,
+		"mode":             t.Mode,
 		"endpoint":         t.Endpoint,
 		"auth_type":        t.AuthType,
 		"auth_config":      t.AuthConfig,
+		"variables":        t.Variables,
 		"pricing_model":    t.PricingModel,
 		"pricing_amount":   t.PricingAmount,
 		"pricing_currency": t.PricingCurrency,
@@ -205,5 +207,7 @@ func isValidationError(err error) bool {
 	return errors.Is(err, registry.ErrNameRequired) ||
 		errors.Is(err, registry.ErrDescriptionRequired) ||
 		errors.Is(err, registry.ErrEndpointInvalid) ||
-		errors.Is(err, registry.ErrAuthTypeInvalid)
+		errors.Is(err, registry.ErrAuthTypeInvalid) ||
+		errors.Is(err, registry.ErrModeInvalid) ||
+		errors.Is(err, registry.ErrVariablesMissing)
 }

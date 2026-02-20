@@ -7,9 +7,11 @@ type Tool struct {
 	ID              string            `json:"id"`
 	Name            string            `json:"name"`
 	Description     string            `json:"description"`
+	Mode            string            `json:"mode"`
 	Endpoint        string            `json:"-"`
 	AuthType        string            `json:"auth_type"`
 	AuthConfig      map[string]string `json:"-"`
+	Variables       map[string]string `json:"-"`
 	PricingModel    string            `json:"pricing_model"`
 	PricingAmount   float64           `json:"pricing_amount"`
 	PricingCurrency string            `json:"pricing_currency"`
@@ -24,9 +26,11 @@ type Tool struct {
 type CreateToolInput struct {
 	Name            string            `json:"name"`
 	Description     string            `json:"description"`
+	Mode            string            `json:"mode"`
 	Endpoint        string            `json:"endpoint"`
 	AuthType        string            `json:"auth_type"`
 	AuthConfig      map[string]string `json:"auth_config"`
+	Variables       map[string]string `json:"variables"`
 	PricingModel    string            `json:"pricing_model"`
 	PricingAmount   float64           `json:"pricing_amount"`
 	PricingCurrency string            `json:"pricing_currency"`
@@ -40,9 +44,11 @@ type CreateToolInput struct {
 type UpdateToolInput struct {
 	Name            *string            `json:"name"`
 	Description     *string            `json:"description"`
+	Mode            *string            `json:"mode"`
 	Endpoint        *string            `json:"endpoint"`
 	AuthType        *string            `json:"auth_type"`
 	AuthConfig      *map[string]string `json:"auth_config"`
+	Variables       *map[string]string `json:"variables"`
 	PricingModel    *string            `json:"pricing_model"`
 	PricingAmount   *float64           `json:"pricing_amount"`
 	PricingCurrency *string            `json:"pricing_currency"`

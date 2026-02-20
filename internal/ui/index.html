@@ -107,6 +107,7 @@ button:disabled { opacity: 0.4; cursor: not-allowed; }
 .tab-panel.active { display: block; }
 /* Tables */
 table { width: 100%; border-collapse: collapse; font-size: 12px; table-layout: fixed; }
+#tab-tools table { table-layout: auto; }
 th:last-child, td:last-child { width: 120px; text-align: right; }
 thead th {
   text-align: left;
@@ -522,6 +523,7 @@ body.shift-held .txn-filter-pending { background: var(--surface2); }
       <thead>
         <tr>
           <th>Name</th>
+          <th id="tools-type-th">Type</th>
           <th id="tools-endpoint-th">Endpoint</th>
           <th>Auth</th>
           <th>Total Calls</th>
@@ -584,7 +586,6 @@ body.shift-held .txn-filter-pending { background: var(--surface2); }
     <div class="cards" id="usage-cards">
       <div class="card"><div class="label">Total Requests</div><div class="value" id="stat-requests">&mdash;</div></div>
       <div class="card"><div class="label">Total Cost</div><div class="value" id="stat-cost">&mdash;</div></div>
-      <div class="card"><div class="label">Success / Error</div><div class="value" id="stat-results">&mdash;</div></div>
       <div class="card"><div class="label">Avg Latency</div><div class="value" id="stat-latency">&mdash;</div></div>
     </div>
     <div style="display:flex;align-items:center;gap:8px;margin-bottom:8px">
@@ -613,7 +614,7 @@ body.shift-held .txn-filter-pending { background: var(--surface2); }
           <th>Agent</th>
           <th>Tool</th>
           <th>Method</th>
-          <th>Status</th>
+          <th>Path</th>
           <th>Latency</th>
           <th>Cost</th>
         </tr>
@@ -658,6 +659,17 @@ body.shift-held .txn-filter-pending { background: var(--surface2); }
   <div class="modal">
     <h3 id="tool-modal-title">Create Tool</h3>
     <input type="hidden" id="tool-edit-id">
+    <div class="form-group" id="tool-id-group" style="display:none">
+      <label>Tool ID</label>
+      <code id="tool-id-display" style="display:block;padding:6px 8px;background:var(--surface);border:1px solid var(--border);border-radius:4px;font-size:12px;color:var(--text2);user-select:all"></code>
+    </div>
+    <div class="form-group">
+      <label>Mode</label>
+      <select id="tool-mode" onchange="toggleToolMode()">
+        <option value="service">Service</option>
+        <option value="api">API</option>
+      </select>
+    </div>
     <div class="form-group">
       <label>Name *</label>
       <input type="text" id="tool-name" placeholder="e.g. Open Weather Data">
@@ -669,6 +681,11 @@ body.shift-held .txn-filter-pending { background: var(--surface2); }
     <div class="form-group">
       <label>Endpoint *</label>
       <input type="url" id="tool-endpoint" placeholder="https://api.example.com/v1">
+    </div>
+    <div class="form-group" id="tool-variables-section" style="display:none">
+      <label>Variables (JSON)</label>
+      <textarea id="tool-variables" placeholder='{"instance": "mycompany"}'></textarea>
+      <span style="font-size:10px;color:var(--text2)">Key-value pairs for {placeholder} substitution in the endpoint URL</span>
     </div>
     <div class="form-row">
       <div class="form-group">
@@ -1254,6 +1271,7 @@ function renderTools() {
   const disAttr = isAdmin ? '' : ' disabled title="Org admin only"';
   tbody.innerHTML = filtered.map(t => `<tr>
     <td><a href="#" onclick="viewToolUsage('${t.id}','${esc(t.name)}');return false" style="text-decoration:none;font-weight:700;border-bottom:1px solid var(--border)">${esc(t.name)}</a><br><span style="color:var(--text2);font-size:11px">${esc(t.description || '')}</span></td>
+    <td>${isAdmin ? (t.mode === 'api' ? 'API' : 'Service') : (t.mode === 'api' ? 'API' : 'Service')}</td>
     <td class="mono" style="word-break:break-all;max-width:220px">${isAdmin ? esc(t.endpoint || '\u2014') : esc(t.pricing_model || 'free')}</td>
     <td>${esc(t.auth_type || 'none')}</td>
     <td>${toolCallCounts[t.id] != null ? Number(toolCallCounts[t.id]).toLocaleString() : '\u2014'}</td>
@@ -1265,19 +1283,40 @@ function renderTools() {
 
   if (!isAdmin) {
     document.getElementById('tools-endpoint-th').textContent = 'Pricing';
+    document.getElementById('tools-type-th').textContent = 'Type';
   }
 }
 
 let toolRateOverridesOriginal = []; // track original overrides for diff on save
 
+function toggleToolMode() {
+  const mode = document.getElementById('tool-mode').value;
+  const varsSection = document.getElementById('tool-variables-section');
+  const endpointInput = document.getElementById('tool-endpoint');
+  if (mode === 'api') {
+    varsSection.style.display = '';
+    endpointInput.type = 'text';
+    endpointInput.placeholder = 'https://{instance}.example.com/api/{version}';
+  } else {
+    varsSection.style.display = 'none';
+    endpointInput.type = 'url';
+    endpointInput.placeholder = 'https://api.example.com/v1';
+  }
+}
+
 function openToolModal(tool) {
   document.getElementById('tool-edit-id').value = tool ? tool.id : '';
+  document.getElementById('tool-id-group').style.display = tool ? '' : 'none';
+  document.getElementById('tool-id-display').textContent = tool ? tool.id : '';
   document.getElementById('tool-modal-title').textContent = tool ? 'Edit Tool' : 'Create Tool';
   document.getElementById('tool-submit-btn').textContent = tool ? 'Save' : 'Create';
+  document.getElementById('tool-mode').value = tool ? tool.mode || 'service' : 'service';
   document.getElementById('tool-name').value = tool ? tool.name : '';
   document.getElementById('tool-description').value = tool ? tool.description : '';
   document.getElementById('tool-endpoint').value = tool ? tool.endpoint || '' : '';
   document.getElementById('tool-auth-type').value = tool ? tool.auth_type || 'none' : 'none';
+  document.getElementById('tool-variables').value = tool && tool.variables && Object.keys(tool.variables).length ? JSON.stringify(tool.variables) : '';
+  toggleToolMode();
   document.getElementById('tool-rate-limit').value = tool ? tool.rate_limit || '' : '';
   document.getElementById('tool-auth-config').value = tool && tool.auth_config ? JSON.stringify(tool.auth_config) : '';
   document.getElementById('tool-pricing-model').value = tool ? tool.pricing_model || '' : '';
@@ -1345,12 +1384,20 @@ async function submitTool() {
   if (authConfigRaw) {
     try { authConfig = JSON.parse(authConfigRaw); } catch { toast('Invalid auth config JSON'); return; }
   }
+  const mode = document.getElementById('tool-mode').value;
+  let variables = {};
+  const variablesRaw = document.getElementById('tool-variables').value.trim();
+  if (variablesRaw) {
+    try { variables = JSON.parse(variablesRaw); } catch { toast('Invalid variables JSON'); return; }
+  }
   const body = {
+    mode: mode,
     name: document.getElementById('tool-name').value.trim(),
     description: document.getElementById('tool-description').value.trim(),
     endpoint: document.getElementById('tool-endpoint').value.trim(),
     auth_type: document.getElementById('tool-auth-type').value,
     auth_config: authConfig,
+    variables: variables,
     pricing_model: document.getElementById('tool-pricing-model').value,
     pricing_amount: parseFloat(document.getElementById('tool-pricing-amount').value) || 0,
     pricing_currency: document.getElementById('tool-pricing-currency').value.trim(),
@@ -1766,7 +1813,7 @@ function renderTxnTable(prevTimestamp) {
     <td class="txn-filterable${agentExcl}">${esc(resolveAgentName(t.agent_id))}${txnFilterBtn('agent', t.agent_id, t.agent_id)}</td>
     <td class="txn-filterable${toolExcl}">${esc(resolveToolName(t.tool_id))}${txnFilterBtn('tool', t.tool_id, t.tool_id)}</td>
     <td>${esc(t.method)}</td>
-    <td style="color:${t.success ? 'var(--success)' : 'var(--danger)'}">${t.status_code}</td>
+    <td class="mono" style="font-size:12px">${esc(t.path || '')}</td>
     <td>${t.latency_ms}ms</td>
     <td>$${(t.cost || 0).toFixed(4)}</td>
   </tr>`;
@@ -1908,7 +1955,7 @@ async function loadUsage() {
 
 function showUsageLoading() {
   usageLoading = true;
-  ['stat-requests','stat-cost','stat-results','stat-latency'].forEach(id => {
+  ['stat-requests','stat-cost','stat-latency'].forEach(id => {
     document.getElementById(id).innerHTML = '<span class="usage-spinner"></span>';
   });
   document.getElementById('txn-empty').style.display = 'none';
@@ -1922,7 +1969,6 @@ function renderUsageSummary(summary) {
   hideUsageLoading();
   document.getElementById('stat-requests').textContent = summary.total_requests ?? 0;
   document.getElementById('stat-cost').textContent = '$' + (summary.total_cost ?? 0).toFixed(4);
-  document.getElementById('stat-results').textContent = (summary.success_count ?? 0) + ' / ' + (summary.error_count ?? 0);
   document.getElementById('stat-latency').textContent = (summary.avg_latency_ms ?? 0).toFixed(1) + 'ms';
 }
 

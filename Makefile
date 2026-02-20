@@ -1,7 +1,7 @@
 -include .env
 export
 
-.PHONY: dev dev\:seed prod clean
+.PHONY: dev dev\:seed prod db clean
 
 CONFIG := configs/octroi.yaml
 BIN := octroi
@@ -20,11 +20,14 @@ dev\:seed:
 	@go run ./cmd/octroi seed --config $(CONFIG) 2>/dev/null || true
 	OCTROI_DEV=1 go run ./cmd/octroi serve --config $(CONFIG)
 
-# --- Prod: build binary, run migrations, serve ---
+# --- Prod: build binary, run migrations, serve (expects external Postgres) ---
 prod: $(BIN)
-	@docker compose up -d --wait
 	@./$(BIN) migrate --config $(CONFIG)
 	./$(BIN) serve --config $(CONFIG)
+
+# --- Local Postgres via Docker (for testing prod locally) ---
+db:
+	docker compose up -d --wait
 
 $(BIN):
 	CGO_ENABLED=0 go build -o $(BIN) ./cmd/octroi

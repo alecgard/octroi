@@ -12,7 +12,9 @@ var (
 	ErrNameRequired        = errors.New("name is required")
 	ErrDescriptionRequired = errors.New("description is required")
 	ErrEndpointInvalid     = errors.New("endpoint must be a valid URL")
-	ErrAuthTypeInvalid     = errors.New("auth_type must be one of: none, bearer, header")
+	ErrAuthTypeInvalid     = errors.New("auth_type must be one of: none, bearer, header, query")
+	ErrModeInvalid         = errors.New("mode must be one of: service, api")
+	ErrVariablesMissing    = errors.New("variables do not satisfy all template placeholders")
 )
 
 // validAuthTypes is the set of accepted auth_type values.
@@ -20,6 +22,13 @@ var validAuthTypes = map[string]bool{
 	"none":   true,
 	"bearer": true,
 	"header": true,
+	"query":  true,
+}
+
+// validModes is the set of accepted mode values.
+var validModes = map[string]bool{
+	"service": true,
+	"api":     true,
 }
 
 // Service provides validated business logic over the registry Store.
@@ -34,14 +43,20 @@ func NewService(store *Store) *Service {
 
 // Create validates the input and creates the tool.
 func (s *Service) Create(ctx context.Context, input CreateToolInput) (*Tool, error) {
-	if err := validateCreate(input); err != nil {
-		return nil, err
+	if input.Mode == "" {
+		input.Mode = "service"
 	}
 	if input.AuthType == "" {
 		input.AuthType = "none"
 	}
 	if input.AuthConfig == nil {
 		input.AuthConfig = map[string]string{}
+	}
+	if input.Variables == nil {
+		input.Variables = map[string]string{}
+	}
+	if err := validateCreate(input); err != nil {
+		return nil, err
 	}
 	return s.store.Create(ctx, input)
 }
@@ -60,6 +75,31 @@ func (s *Service) List(ctx context.Context, params ToolListParams) ([]*Tool, str
 func (s *Service) Update(ctx context.Context, id string, input UpdateToolInput) (*Tool, error) {
 	if err := validateUpdate(input); err != nil {
 		return nil, err
+	}
+	// Cross-field validation for API mode: when endpoint or variables change,
+	// we need to validate the template against the full set of variables.
+	if input.Mode != nil || input.Endpoint != nil || input.Variables != nil {
+		existing, err := s.store.GetByID(ctx, id)
+		if err != nil {
+			return nil, err
+		}
+		mode := existing.Mode
+		if input.Mode != nil {
+			mode = *input.Mode
+		}
+		if mode == "api" {
+			endpoint := existing.Endpoint
+			if input.Endpoint != nil {
+				endpoint = *input.Endpoint
+			}
+			variables := existing.Variables
+			if input.Variables != nil {
+				variables = *input.Variables
+			}
+			if err := validateAPIEndpoint(endpoint, variables); err != nil {
+				return nil, err
+			}
+		}
 	}
 	return s.store.Update(ctx, id, input)
 }
@@ -82,8 +122,17 @@ func validateCreate(input CreateToolInput) error {
 	if strings.TrimSpace(input.Description) == "" {
 		return ErrDescriptionRequired
 	}
-	if err := validateEndpoint(input.Endpoint); err != nil {
-		return err
+	if input.Mode != "" && !validModes[input.Mode] {
+		return ErrModeInvalid
+	}
+	if input.Mode == "api" {
+		if err := validateAPIEndpoint(input.Endpoint, input.Variables); err != nil {
+			return err
+		}
+	} else {
+		if err := validateEndpoint(input.Endpoint); err != nil {
+			return err
+		}
 	}
 	if input.AuthType != "" {
 		if !validAuthTypes[input.AuthType] {
@@ -101,7 +150,11 @@ func validateUpdate(input UpdateToolInput) error {
 	if input.Description != nil && strings.TrimSpace(*input.Description) == "" {
 		return ErrDescriptionRequired
 	}
-	if input.Endpoint != nil {
+	if input.Mode != nil && !validModes[*input.Mode] {
+		return ErrModeInvalid
+	}
+	// Endpoint-only validation for service mode (cross-field API validation is in Update).
+	if input.Endpoint != nil && input.Mode == nil {
 		if err := validateEndpoint(*input.Endpoint); err != nil {
 			return err
 		}
@@ -112,6 +165,18 @@ func validateUpdate(input UpdateToolInput) error {
 		}
 	}
 	return nil
+}
+
+// validateAPIEndpoint resolves the template with variables and validates the resulting URL.
+func validateAPIEndpoint(endpoint string, variables map[string]string) error {
+	if strings.TrimSpace(endpoint) == "" {
+		return ErrEndpointInvalid
+	}
+	resolved, err := ResolveTemplate(endpoint, variables)
+	if err != nil {
+		return ErrVariablesMissing
+	}
+	return validateEndpoint(resolved)
 }
 
 // validateEndpoint checks that the endpoint is a well-formed URL with a scheme and host.

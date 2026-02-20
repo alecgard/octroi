@@ -23,7 +23,7 @@ func NewStore(pool *pgxpool.Pool) *Store {
 }
 
 // toolColumns is the full list of columns used in SELECT statements.
-const toolColumns = `id, name, description, endpoint, auth_type, auth_config,
+const toolColumns = `id, name, description, mode, endpoint, auth_type, auth_config, variables,
 	pricing_model, pricing_amount, pricing_currency, rate_limit,
 	budget_limit, budget_window, created_at, updated_at`
 
@@ -31,13 +31,16 @@ const toolColumns = `id, name, description, endpoint, auth_type, auth_config,
 func scanTool(row pgx.Row) (*Tool, error) {
 	var t Tool
 	var authConfigJSON []byte
+	var variablesJSON []byte
 	err := row.Scan(
 		&t.ID,
 		&t.Name,
 		&t.Description,
+		&t.Mode,
 		&t.Endpoint,
 		&t.AuthType,
 		&authConfigJSON,
+		&variablesJSON,
 		&t.PricingModel,
 		&t.PricingAmount,
 		&t.PricingCurrency,
@@ -56,6 +59,12 @@ func scanTool(row pgx.Row) (*Tool, error) {
 			return nil, fmt.Errorf("unmarshalling auth_config: %w", err)
 		}
 	}
+	t.Variables = make(map[string]string)
+	if len(variablesJSON) > 0 {
+		if err := json.Unmarshal(variablesJSON, &t.Variables); err != nil {
+			return nil, fmt.Errorf("unmarshalling variables: %w", err)
+		}
+	}
 	return &t, nil
 }
 
@@ -65,20 +74,26 @@ func (s *Store) Create(ctx context.Context, input CreateToolInput) (*Tool, error
 	if err != nil {
 		return nil, fmt.Errorf("marshalling auth_config: %w", err)
 	}
+	variablesJSON, err := json.Marshal(input.Variables)
+	if err != nil {
+		return nil, fmt.Errorf("marshalling variables: %w", err)
+	}
 
 	query := fmt.Sprintf(`INSERT INTO tools
-		(name, description, endpoint, auth_type, auth_config,
+		(name, description, mode, endpoint, auth_type, auth_config, variables,
 		 pricing_model, pricing_amount, pricing_currency, rate_limit,
 		 budget_limit, budget_window)
-		VALUES ($1, $2, $3, $4, $5, $6, $7, $8, $9, $10, $11)
+		VALUES ($1, $2, $3, $4, $5, $6, $7, $8, $9, $10, $11, $12, $13)
 		RETURNING %s`, toolColumns)
 
 	row := s.pool.QueryRow(ctx, query,
 		input.Name,
 		input.Description,
+		input.Mode,
 		input.Endpoint,
 		input.AuthType,
 		authConfigJSON,
+		variablesJSON,
 		input.PricingModel,
 		input.PricingAmount,
 		input.PricingCurrency,
@@ -202,6 +217,11 @@ func (s *Store) Update(ctx context.Context, id string, input UpdateToolInput) (*
 		args = append(args, *input.Description)
 		argIdx++
 	}
+	if input.Mode != nil {
+		setClauses = append(setClauses, fmt.Sprintf("mode = $%d", argIdx))
+		args = append(args, *input.Mode)
+		argIdx++
+	}
 	if input.Endpoint != nil {
 		setClauses = append(setClauses, fmt.Sprintf("endpoint = $%d", argIdx))
 		args = append(args, *input.Endpoint)
@@ -219,6 +239,15 @@ func (s *Store) Update(ctx context.Context, id string, input UpdateToolInput) (*
 		}
 		setClauses = append(setClauses, fmt.Sprintf("auth_config = $%d", argIdx))
 		args = append(args, authConfigJSON)
+		argIdx++
+	}
+	if input.Variables != nil {
+		variablesJSON, err := json.Marshal(*input.Variables)
+		if err != nil {
+			return nil, fmt.Errorf("marshalling variables: %w", err)
+		}
+		setClauses = append(setClauses, fmt.Sprintf("variables = $%d", argIdx))
+		args = append(args, variablesJSON)
 		argIdx++
 	}
 	if input.PricingModel != nil {

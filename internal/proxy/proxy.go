@@ -114,13 +114,24 @@ func (h *Handler) ServeHTTP(w http.ResponseWriter, r *http.Request) {
 		return
 	}
 
+	// Resolve template for API mode.
+	endpoint := tool.Endpoint
+	if tool.Mode == "api" {
+		resolved, err := registry.ResolveTemplate(tool.Endpoint, tool.Variables)
+		if err != nil {
+			writeError(w, http.StatusBadGateway, "proxy_error", "failed to resolve endpoint template")
+			return
+		}
+		endpoint = resolved
+	}
+
 	// Build the upstream path by stripping the /proxy/{toolID} prefix.
 	proxyPrefix := fmt.Sprintf("/proxy/%s", toolID)
 	upstreamPath := strings.TrimPrefix(r.URL.Path, proxyPrefix)
 	if upstreamPath == "" {
 		upstreamPath = "/"
 	}
-	targetURL := strings.TrimRight(tool.Endpoint, "/") + upstreamPath
+	targetURL := strings.TrimRight(endpoint, "/") + upstreamPath
 	if r.URL.RawQuery != "" {
 		targetURL += "?" + r.URL.RawQuery
 	}
@@ -161,6 +172,14 @@ func (h *Handler) ServeHTTP(w http.ResponseWriter, r *http.Request) {
 		if headerName != "" {
 			outReq.Header.Set(headerName, tool.AuthConfig["key"])
 		}
+	case "query":
+		paramName := tool.AuthConfig["param_name"]
+		if paramName == "" {
+			paramName = "api_key"
+		}
+		q := outReq.URL.Query()
+		q.Set(paramName, tool.AuthConfig["key"])
+		outReq.URL.RawQuery = q.Encode()
 	case "none":
 		// No auth injection.
 	}
