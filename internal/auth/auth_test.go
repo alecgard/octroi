@@ -41,8 +41,8 @@ func TestGenerateAPIKey_PrefixAndLength(t *testing.T) {
 		t.Errorf("expected plaintext length 39, got %d", len(plaintext))
 	}
 
-	if key.Prefix != plaintext[:8] {
-		t.Errorf("expected prefix %q, got %q", plaintext[:8], key.Prefix)
+	if key.Prefix != plaintext[:14] {
+		t.Errorf("expected prefix %q, got %q", plaintext[:14], key.Prefix)
 	}
 
 	if key.Hash == "" {

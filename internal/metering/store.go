@@ -169,6 +169,13 @@ func buildWhereClause(q UsageQuery) (string, []any) {
 	if q.AgentID != "" {
 		args = append(args, q.AgentID)
 		conditions = append(conditions, fmt.Sprintf("agent_id = $%d", len(args)))
+	} else if len(q.AgentIDs) > 0 {
+		placeholders := make([]string, len(q.AgentIDs))
+		for i, id := range q.AgentIDs {
+			args = append(args, id)
+			placeholders[i] = fmt.Sprintf("$%d", len(args))
+		}
+		conditions = append(conditions, "agent_id IN ("+strings.Join(placeholders, ", ")+")")
 	}
 	if q.ToolID != "" {
 		args = append(args, q.ToolID)

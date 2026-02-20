@@ -30,10 +30,11 @@ type UsageSummary struct {
 
 // UsageQuery defines filters and pagination for querying transactions.
 type UsageQuery struct {
-	AgentID string    `json:"agent_id,omitempty"`
-	ToolID  string    `json:"tool_id,omitempty"`
-	From    time.Time `json:"from"`
-	To      time.Time `json:"to"`
-	Cursor  string    `json:"cursor,omitempty"`
-	Limit   int       `json:"limit"`
+	AgentID  string    `json:"agent_id,omitempty"`
+	AgentIDs []string  `json:"agent_ids,omitempty"` // for team-scoped queries
+	ToolID   string    `json:"tool_id,omitempty"`
+	From     time.Time `json:"from"`
+	To       time.Time `json:"to"`
+	Cursor   string    `json:"cursor,omitempty"`
+	Limit    int       `json:"limit"`
 }

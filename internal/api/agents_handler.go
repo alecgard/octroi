@@ -169,6 +169,42 @@ func (h *agentsHandler) GetSelfAgent(w http.ResponseWriter, r *http.Request) {
 	writeJSON(w, http.StatusOK, ag)
 }
 
+// RegenerateKey handles POST /api/v1/admin/agents/{id}/regenerate-key (admin).
+func (h *agentsHandler) RegenerateKey(w http.ResponseWriter, r *http.Request) {
+	id := chi.URLParam(r, "id")
+	if id == "" {
+		writeError(w, http.StatusBadRequest, "invalid_id", "agent id is required")
+		return
+	}
+
+	apiKey, plaintext, err := auth.GenerateAPIKey()
+	if err != nil {
+		writeError(w, http.StatusInternalServerError, "internal_error", "failed to generate api key")
+		return
+	}
+
+	ag, err := h.store.RegenerateKey(r.Context(), id, apiKey.Hash, apiKey.Prefix)
+	if err != nil {
+		if errors.Is(err, pgx.ErrNoRows) {
+			writeError(w, http.StatusNotFound, "not_found", "agent not found")
+			return
+		}
+		writeError(w, http.StatusInternalServerError, "internal_error", "failed to regenerate key")
+		return
+	}
+
+	resp := map[string]interface{}{
+		"id":             ag.ID,
+		"name":           ag.Name,
+		"api_key_prefix": ag.APIKeyPrefix,
+		"api_key":        plaintext,
+		"team":           ag.Team,
+		"rate_limit":     ag.RateLimit,
+		"created_at":     ag.CreatedAt,
+	}
+	writeJSON(w, http.StatusOK, resp)
+}
+
 // SetBudget handles PUT /api/v1/agents/{agentID}/budgets/{toolID} (admin).
 func (h *agentsHandler) SetBudget(w http.ResponseWriter, r *http.Request) {
 	agentID := chi.URLParam(r, "agentID")

@@ -9,13 +9,14 @@ import (
 	"github.com/alecgard/octroi/internal/auth"
 	"github.com/alecgard/octroi/internal/config"
 	"github.com/alecgard/octroi/internal/registry"
+	"github.com/alecgard/octroi/internal/user"
 	"github.com/jackc/pgx/v5/pgxpool"
 	"github.com/spf13/cobra"
 )
 
 var seedCmd = &cobra.Command{
 	Use:   "seed",
-	Short: "Seed demo tools and a test agent",
+	Short: "Seed demo tools, agents, and users (idempotent)",
 	RunE:  runSeed,
 }
 
@@ -61,6 +62,37 @@ var demoTools = []registry.CreateToolInput{
 	},
 }
 
+var seedUsers = []user.CreateUserInput{
+	{
+		Email:    "admin@octroi.dev",
+		Password: "octroi",
+		Name:     "Admin",
+		Teams:    []user.TeamMembership{},
+		Role:     "org_admin",
+	},
+	{
+		Email:    "user1@octroi.dev",
+		Password: "octroi",
+		Name:     "User One",
+		Teams:    []user.TeamMembership{{Team: "alpha", Role: "admin"}},
+		Role:     "member",
+	},
+	{
+		Email:    "user2@octroi.dev",
+		Password: "octroi",
+		Name:     "User Two",
+		Teams:    []user.TeamMembership{{Team: "alpha", Role: "member"}},
+		Role:     "member",
+	},
+	{
+		Email:    "user3@octroi.dev",
+		Password: "octroi",
+		Name:     "User Three",
+		Teams:    []user.TeamMembership{{Team: "beta", Role: "admin"}},
+		Role:     "member",
+	},
+}
+
 func runSeed(cmd *cobra.Command, args []string) error {
 	cfg, err := config.Load(cfgFile)
 	if err != nil {
@@ -77,20 +109,29 @@ func runSeed(cmd *cobra.Command, args []string) error {
 	toolStore := registry.NewStore(pool)
 	toolService := registry.NewService(toolStore)
 	agentStore := agent.NewStore(pool)
+	userStore := user.NewStore(pool)
 
-	// Check if seed has already run.
-	existing, _, err := toolService.List(ctx, registry.ToolListParams{Limit: 1})
-	if err != nil {
-		return fmt.Errorf("checking existing tools: %w", err)
-	}
-	if len(existing) > 0 {
-		slog.Info("demo data already exists, skipping seed")
-		return nil
+	// Seed tools (skip each if a tool with that name already exists).
+	existingTools, _, _ := toolService.List(ctx, registry.ToolListParams{Limit: 100})
+	toolNames := make(map[string]bool, len(existingTools))
+	for _, t := range existingTools {
+		toolNames[t.Name] = true
 	}
 
-	// Create tools.
 	var firstTool *registry.Tool
 	for _, input := range demoTools {
+		if toolNames[input.Name] {
+			slog.Info("tool already exists, skipping", "name", input.Name)
+			if firstTool == nil {
+				for _, t := range existingTools {
+					if t.Name == input.Name {
+						firstTool = t
+						break
+					}
+				}
+			}
+			continue
+		}
 		t, err := toolService.Create(ctx, input)
 		if err != nil {
 			return fmt.Errorf("creating tool %q: %w", input.Name, err)
@@ -101,31 +142,66 @@ func runSeed(cmd *cobra.Command, args []string) error {
 		}
 	}
 
-	// Create demo agent.
-	apiKey, plaintext, err := auth.GenerateAPIKey()
-	if err != nil {
-		return fmt.Errorf("generating api key: %w", err)
+	// Seed demo agent (skip if one named "demo-agent" already exists).
+	existingAgents, _, _ := agentStore.List(ctx, agent.AgentListParams{Limit: 100})
+	hasDemoAgent := false
+	for _, a := range existingAgents {
+		if a.Name == "demo-agent" {
+			hasDemoAgent = true
+			break
+		}
 	}
 
-	ag, err := agentStore.Create(ctx, agent.CreateAgentInput{
-		Name:         "demo-agent",
-		APIKeyHash:   apiKey.Hash,
-		APIKeyPrefix: apiKey.Prefix,
-		Team:         "demo",
-		RateLimit:    120,
-	})
-	if err != nil {
-		return fmt.Errorf("creating demo agent: %w", err)
+	if !hasDemoAgent {
+		apiKey, plaintext, err := auth.GenerateAPIKey()
+		if err != nil {
+			return fmt.Errorf("generating api key: %w", err)
+		}
+
+		ag, err := agentStore.Create(ctx, agent.CreateAgentInput{
+			Name:         "demo-agent",
+			APIKeyHash:   apiKey.Hash,
+			APIKeyPrefix: apiKey.Prefix,
+			Team:         "alpha",
+			RateLimit:    120,
+		})
+		if err != nil {
+			return fmt.Errorf("creating demo agent: %w", err)
+		}
+
+		slog.Info("created demo agent", "id", ag.ID, "name", ag.Name)
+		fmt.Printf("\nDemo Agent: %s (%s)\n", ag.Name, ag.ID)
+		fmt.Printf("API Key:    %s\n", plaintext)
+		if firstTool != nil {
+			fmt.Printf("\nTry it:\n")
+			fmt.Printf("  curl -H 'Authorization: Bearer %s' http://localhost:8080/proxy/%s/api/v3/simple/price?ids=bitcoin&vs_currencies=usd\n", plaintext, firstTool.ID)
+		}
+	} else {
+		slog.Info("demo-agent already exists, skipping")
 	}
 
-	slog.Info("created demo agent", "id", ag.ID, "name", ag.Name)
-	fmt.Printf("\n=== Demo Data Seeded ===\n")
-	fmt.Printf("Tools:     %d registered\n", len(demoTools))
-	fmt.Printf("Agent:     %s (%s)\n", ag.Name, ag.ID)
-	fmt.Printf("API Key:   %s\n", plaintext)
-	fmt.Printf("\nTry it:\n")
-	fmt.Printf("  curl http://localhost:8080/api/v1/tools/search?q=weather\n")
-	fmt.Printf("  curl -H 'Authorization: Bearer %s' http://localhost:8080/proxy/%s/api/v3/simple/price?ids=bitcoin&vs_currencies=usd\n", plaintext, firstTool.ID)
+	// Seed users (skip each if email already exists).
+	for _, input := range seedUsers {
+		_, err := userStore.GetByEmail(ctx, input.Email)
+		if err == nil {
+			slog.Info("user already exists, skipping", "email", input.Email)
+			continue
+		}
+		u, err := userStore.Create(ctx, input)
+		if err != nil {
+			return fmt.Errorf("creating user %q: %w", input.Email, err)
+		}
+		slog.Info("created user", "email", u.Email, "role", u.Role, "teams", u.Teams)
+	}
+
+	fmt.Printf("\n=== Seed Complete ===\n")
+	fmt.Printf("Tools: %d configured\n", len(demoTools))
+	fmt.Printf("Users:\n")
+	fmt.Printf("  admin@octroi.dev  (org_admin, no teams)\n")
+	fmt.Printf("  user1@octroi.dev  (member, teams: [alpha:admin])\n")
+	fmt.Printf("  user2@octroi.dev  (member, teams: [alpha:member])\n")
+	fmt.Printf("  user3@octroi.dev  (member, teams: [beta:admin])\n")
+	fmt.Printf("  Password for all: octroi\n")
 
 	return nil
 }

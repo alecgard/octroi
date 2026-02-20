@@ -17,6 +17,7 @@ import (
 	"github.com/alecgard/octroi/internal/proxy"
 	"github.com/alecgard/octroi/internal/ratelimit"
 	"github.com/alecgard/octroi/internal/registry"
+	"github.com/alecgard/octroi/internal/user"
 	"github.com/jackc/pgx/v5/pgxpool"
 	"github.com/spf13/cobra"
 )
@@ -62,6 +63,8 @@ func runServe(cmd *cobra.Command, args []string) error {
 	collector := metering.NewCollector(meterStore, cfg.Metering.BatchSize, cfg.Metering.FlushInterval)
 	go collector.Start(ctx)
 
+	userStore := user.NewStore(pool)
+
 	limiter := ratelimit.New(cfg.RateLimit.Default, cfg.RateLimit.Window)
 	authService := auth.NewService(agent.NewAuthAdapter(agentStore))
 
@@ -78,6 +81,7 @@ func runServe(cmd *cobra.Command, args []string) error {
 		Limiter:     limiter,
 		Proxy:       proxyHandler,
 		AdminKey:    cfg.Auth.AdminKey,
+		UserStore:   userStore,
 	})
 
 	srv := &http.Server{

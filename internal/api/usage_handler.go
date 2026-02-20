@@ -5,6 +5,7 @@ import (
 	"strconv"
 	"time"
 
+	"github.com/alecgard/octroi/internal/agent"
 	"github.com/alecgard/octroi/internal/auth"
 	"github.com/alecgard/octroi/internal/metering"
 	"github.com/go-chi/chi/v5"
@@ -12,11 +13,12 @@ import (
 
 // usageHandler groups usage and transaction HTTP handlers.
 type usageHandler struct {
-	store *metering.Store
+	store      *metering.Store
+	agentStore *agent.Store
 }
 
-func newUsageHandler(store *metering.Store) *usageHandler {
-	return &usageHandler{store: store}
+func newUsageHandler(store *metering.Store, agentStore *agent.Store) *usageHandler {
+	return &usageHandler{store: store, agentStore: agentStore}
 }
 
 // parseTimeParam parses a date query param in YYYY-MM-DD or RFC3339 format.
@@ -100,6 +102,16 @@ func (h *usageHandler) GetUsageAdmin(w http.ResponseWriter, r *http.Request) {
 	if err != nil {
 		writeError(w, http.StatusBadRequest, "invalid_params", "invalid query parameters: "+err.Error())
 		return
+	}
+
+	// Team filter: if ?team=X, resolve to agent IDs in that team.
+	if teamFilter := r.URL.Query().Get("team"); teamFilter != "" && q.AgentID == "" {
+		agentIDs, tErr := h.agentStore.ListIDsByTeam(r.Context(), teamFilter)
+		if tErr != nil {
+			writeError(w, http.StatusInternalServerError, "internal_error", "failed to list team agents")
+			return
+		}
+		q.AgentIDs = agentIDs
 	}
 
 	summary, err := h.store.GetSummary(r.Context(), *q)
@@ -222,6 +234,18 @@ func (h *usageHandler) ListTransactions(w http.ResponseWriter, r *http.Request, 
 	if err != nil {
 		writeError(w, http.StatusBadRequest, "invalid_params", "invalid query parameters: "+err.Error())
 		return
+	}
+
+	// Team filter for admin.
+	if isAdmin {
+		if teamFilter := r.URL.Query().Get("team"); teamFilter != "" && q.AgentID == "" {
+			agentIDs, tErr := h.agentStore.ListIDsByTeam(r.Context(), teamFilter)
+			if tErr != nil {
+				writeError(w, http.StatusInternalServerError, "internal_error", "failed to list team agents")
+				return
+			}
+			q.AgentIDs = agentIDs
+		}
 	}
 
 	txns, nextCursor, err := h.store.ListTransactions(r.Context(), *q)

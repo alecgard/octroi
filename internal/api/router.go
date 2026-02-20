@@ -12,6 +12,7 @@ import (
 	"github.com/alecgard/octroi/internal/ratelimit"
 	"github.com/alecgard/octroi/internal/registry"
 	"github.com/alecgard/octroi/internal/ui"
+	"github.com/alecgard/octroi/internal/user"
 	"github.com/go-chi/chi/v5"
 	chimw "github.com/go-chi/chi/v5/middleware"
 )
@@ -28,6 +29,7 @@ type RouterDeps struct {
 	Limiter     *ratelimit.Limiter
 	Proxy       *proxy.Handler
 	AdminKey    string
+	UserStore   *user.Store
 }
 
 // NewRouter builds the chi router with all routes and middleware.
@@ -42,7 +44,13 @@ func NewRouter(deps RouterDeps) http.Handler {
 	tools := newToolsHandler(deps.ToolService)
 	agents := newAgentsHandler(deps.AgentStore, deps.BudgetStore)
 	search := newSearchHandler(deps.ToolService)
-	usage := newUsageHandler(deps.MeterStore)
+	usage := newUsageHandler(deps.MeterStore, deps.AgentStore)
+
+	// Session lookup adapter for user auth middlewares.
+	var sessionLookup auth.SessionLookup
+	if deps.UserStore != nil {
+		sessionLookup = user.NewAuthAdapter(deps.UserStore)
+	}
 
 	// Admin UI.
 	uiHandler := ui.Handler()
@@ -64,9 +72,26 @@ func NewRouter(deps RouterDeps) http.Handler {
 	r.Get("/api/v1/tools", tools.ListTools)
 	r.Get("/api/v1/tools/{id}", tools.GetTool)
 
-	// Admin routes (require admin key).
+	// Public auth routes.
+	if deps.UserStore != nil {
+		authH := newAuthHandler(deps.UserStore)
+		r.Post("/api/v1/auth/login", authH.Login)
+
+		// User-authed routes (any logged-in user).
+		r.Route("/api/v1/auth", func(ar chi.Router) {
+			ar.Use(auth.MemberAuthMiddleware(sessionLookup))
+			ar.Get("/me", authH.Me)
+			ar.Post("/logout", authH.Logout)
+		})
+	}
+
+	// Admin routes (require admin key or admin session).
 	r.Route("/api/v1/admin", func(ar chi.Router) {
-		ar.Use(auth.AdminAuthMiddleware(deps.AdminKey))
+		if sessionLookup != nil {
+			ar.Use(auth.AdminOrKeyMiddleware(deps.AdminKey, sessionLookup))
+		} else {
+			ar.Use(auth.AdminAuthMiddleware(deps.AdminKey))
+		}
 
 		// Tool management.
 		ar.Get("/tools", tools.AdminListTools)
@@ -79,6 +104,7 @@ func NewRouter(deps RouterDeps) http.Handler {
 		ar.Get("/agents", agents.ListAgents)
 		ar.Put("/agents/{id}", agents.UpdateAgent)
 		ar.Delete("/agents/{id}", agents.DeleteAgent)
+		ar.Post("/agents/{id}/regenerate-key", agents.RegenerateKey)
 
 		// Budget management.
 		ar.Put("/agents/{agentID}/budgets/{toolID}", agents.SetBudget)
@@ -93,7 +119,46 @@ func NewRouter(deps RouterDeps) http.Handler {
 		ar.Get("/usage/transactions", func(w http.ResponseWriter, r *http.Request) {
 			usage.ListTransactions(w, r, true)
 		})
+
+		// User management (admin only).
+		if deps.UserStore != nil {
+			users := newUsersHandler(deps.UserStore)
+			ar.Post("/users", users.CreateUser)
+			ar.Get("/users", users.ListUsers)
+			ar.Put("/users/{id}", users.UpdateUser)
+			ar.Delete("/users/{id}", users.DeleteUser)
+		}
+
+		// Teams (admin).
+		if deps.UserStore != nil {
+			teams := newTeamsHandler(deps.AgentStore, deps.UserStore)
+			ar.Get("/teams", teams.AdminListTeams)
+		}
 	})
+
+	// Member routes (require any valid session).
+	if deps.UserStore != nil && sessionLookup != nil {
+		member := newMemberHandler(deps.AgentStore, deps.ToolService, deps.MeterStore)
+		teams := newTeamsHandler(deps.AgentStore, deps.UserStore)
+		users := newUsersHandler(deps.UserStore)
+		r.Route("/api/v1/member", func(mr chi.Router) {
+			mr.Use(auth.MemberAuthMiddleware(sessionLookup))
+
+			mr.Get("/agents", member.ListAgents)
+			mr.Post("/agents", member.CreateAgent)
+			mr.Put("/agents/{id}", member.UpdateAgent)
+			mr.Delete("/agents/{id}", member.DeleteAgent)
+			mr.Post("/agents/{id}/regenerate-key", member.RegenerateKey)
+			mr.Get("/tools", member.ListTools)
+			mr.Get("/usage", member.GetUsage)
+			mr.Get("/usage/transactions", member.ListTransactions)
+			mr.Get("/teams", teams.MemberListTeams)
+			mr.Put("/teams/{team}/members/{userId}", teams.AddTeamMember)
+			mr.Delete("/teams/{team}/members/{userId}", teams.RemoveTeamMember)
+			mr.Get("/users", users.MemberListUsers)
+			mr.Put("/users/me", users.UpdateSelf)
+		})
+	}
 
 	// Agent-authed routes (require agent API key + rate limiting).
 	r.Route("/api/v1", func(ar chi.Router) {

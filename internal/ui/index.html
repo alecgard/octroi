@@ -43,22 +43,19 @@ body {
 }
 .topbar h1 { font-size: 12px; font-weight: 700; text-transform: uppercase; letter-spacing: 1px; }
 .topbar .spacer { flex: 1; }
-.topbar input[type="password"] {
-  background: var(--bg);
+.user-info { display: flex; align-items: center; gap: 8px; font-size: 11px; }
+.user-info .user-name { font-weight: 600; }
+.role-badge {
+  display: inline-block;
+  font-size: 9px;
+  font-weight: 700;
+  text-transform: uppercase;
+  letter-spacing: 0.5px;
+  padding: 1px 5px;
   border: 1px solid var(--border);
-  color: var(--text);
-  padding: 4px 8px;
-  font-size: 12px;
-  width: 240px;
-  font-family: var(--font);
+  color: var(--text2);
 }
-.topbar input::placeholder { color: var(--text2); }
-.status-dot {
-  width: 6px; height: 6px; border-radius: 50%;
-  background: var(--danger);
-  transition: background 0.2s;
-}
-.status-dot.connected { background: var(--success); }
+.role-badge.admin { border-color: var(--warn); color: var(--warn); }
 /* Buttons */
 button {
   font-family: var(--font);
@@ -80,6 +77,8 @@ button:disabled { opacity: 0.4; cursor: not-allowed; }
 .btn-ghost { background: transparent; color: var(--text2); }
 .btn-ghost:hover:not(:disabled) { color: var(--text); background: var(--surface); }
 .btn-sm { padding: 2px 8px; font-size: 11px; }
+.btn-warn { background: var(--bg); color: var(--warn); border-color: var(--warn); }
+.btn-warn:hover:not(:disabled) { background: #fef8f0; }
 /* Tabs */
 .tabs {
   display: flex;
@@ -106,7 +105,8 @@ button:disabled { opacity: 0.4; cursor: not-allowed; }
 .tab-panel { display: none; }
 .tab-panel.active { display: block; }
 /* Tables */
-table { width: 100%; border-collapse: collapse; font-size: 12px; }
+table { width: 100%; border-collapse: collapse; font-size: 12px; table-layout: fixed; }
+th:last-child, td:last-child { width: 120px; text-align: right; }
 thead th {
   text-align: left;
   padding: 6px 8px;
@@ -135,7 +135,7 @@ tbody tr:hover { background: var(--surface); }
 .card .value { font-size: 20px; font-weight: 700; }
 /* Toolbar */
 .toolbar { display: flex; align-items: center; gap: 10px; margin-bottom: 12px; flex-wrap: wrap; }
-.toolbar h2 { font-size: 11px; font-weight: 700; text-transform: uppercase; letter-spacing: 1px; }
+.toolbar h2, .toolbar-title { font-size: 11px; font-weight: 700; text-transform: uppercase; letter-spacing: 1px; }
 /* Modal */
 .modal-overlay {
   display: none;
@@ -208,18 +208,98 @@ tbody tr:hover { background: var(--surface); }
 }
 /* Empty state */
 .empty { text-align: center; padding: 32px; color: var(--text2); font-size: 12px; }
-/* Login prompt */
-#login-prompt {
+/* Login screen */
+#login-screen {
   display: flex;
   align-items: center;
   justify-content: center;
-  height: 60vh;
+  height: 80vh;
+}
+.login-box {
+  width: 320px;
+  border: 1px solid var(--border);
+  padding: 24px;
+  background: var(--surface);
+}
+.login-box h2 {
+  font-size: 11px;
+  font-weight: 700;
+  text-transform: uppercase;
+  letter-spacing: 1px;
+  margin-bottom: 16px;
+  text-align: center;
+}
+.login-toggle {
+  display: flex;
+  gap: 0;
+  margin-bottom: 16px;
+}
+.login-toggle button {
+  flex: 1;
+  font-size: 10px;
+  text-transform: uppercase;
+  letter-spacing: 0.5px;
+  padding: 6px;
+  border: 1px solid var(--border);
+  background: var(--bg);
   color: var(--text2);
-  font-size: 12px;
+}
+.login-toggle button.active {
+  background: var(--accent);
+  color: #fff;
+  border-color: var(--accent);
+}
+.login-error {
+  color: var(--danger);
+  font-size: 11px;
+  margin-bottom: 8px;
+  display: none;
 }
 /* Links */
 a { color: var(--text); }
 a:hover { color: var(--text2); }
+/* Team cards */
+.team-section {
+  background: var(--surface);
+  border: 1px solid var(--border);
+  padding: 12px;
+  margin-bottom: 12px;
+}
+.team-section h3 {
+  font-size: 12px;
+  font-weight: 700;
+  text-transform: uppercase;
+  letter-spacing: 0.5px;
+  margin-bottom: 8px;
+}
+.team-section .team-sub {
+  font-size: 10px;
+  font-weight: 600;
+  color: var(--text2);
+  text-transform: uppercase;
+  letter-spacing: 0.5px;
+  margin: 8px 0 4px;
+  display: flex;
+  align-items: center;
+  gap: 8px;
+}
+.team-section ul {
+  list-style: none;
+  padding: 0;
+  margin: 0;
+}
+.team-section li {
+  padding: 2px 0;
+  font-size: 12px;
+  display: flex;
+  align-items: center;
+  gap: 6px;
+}
+.team-section li .mono {
+  color: var(--text2);
+  font-size: 11px;
+}
+
 </style>
 </head>
 <body>
@@ -227,9 +307,44 @@ a:hover { color: var(--text2); }
 <div class="topbar">
   <h1>octroi</h1>
   <div class="spacer"></div>
-  <span class="status-dot" id="status-dot"></span>
-  <input type="password" id="admin-key" placeholder="Admin key" autocomplete="off">
-  <button class="btn-primary" id="connect-btn" onclick="connect()">Connect</button>
+  <div class="user-info" id="user-info" style="display:none">
+    <span class="user-name" id="topbar-user-name"></span>
+    <span class="role-badge" id="topbar-role-badge"></span>
+    <button class="btn-ghost btn-sm" onclick="logout()">Logout</button>
+  </div>
+</div>
+
+<!-- Login Screen -->
+<div id="login-screen">
+  <div class="login-box">
+    <h2>octroi</h2>
+    <div class="login-toggle">
+      <button class="active" id="toggle-email" onclick="setLoginMode('email')">Email Login</button>
+      <button id="toggle-key" onclick="setLoginMode('key')">Admin Key</button>
+    </div>
+    <div class="login-error" id="login-error"></div>
+    <!-- Email login fields -->
+    <div id="login-email-fields">
+      <div class="form-group">
+        <label>Email</label>
+        <input type="email" id="login-email" placeholder="admin@octroi.dev" autocomplete="email">
+      </div>
+      <div class="form-group">
+        <label>Password</label>
+        <input type="password" id="login-password" placeholder="Password" autocomplete="current-password">
+      </div>
+    </div>
+    <!-- Admin key field -->
+    <div id="login-key-fields" style="display:none">
+      <div class="form-group">
+        <label>Admin Key</label>
+        <input type="password" id="login-admin-key" placeholder="Admin key" autocomplete="off">
+      </div>
+    </div>
+    <div style="margin-top:12px">
+      <button class="btn-primary" style="width:100%" id="login-btn" onclick="doLogin()">Connect</button>
+    </div>
+  </div>
 </div>
 
 <!-- Tabs -->
@@ -237,10 +352,9 @@ a:hover { color: var(--text2); }
   <button class="tab-btn active" data-tab="agents">Agents</button>
   <button class="tab-btn" data-tab="tools">Tools</button>
   <button class="tab-btn" data-tab="usage">Usage</button>
+  <button class="tab-btn" data-tab="teams">Teams</button>
+  <button class="tab-btn" data-tab="users">Users</button>
 </div>
-
-<!-- Login Prompt -->
-<div id="login-prompt">$ enter admin key to connect _</div>
 
 <!-- Content -->
 <div class="content" id="main-content" style="display:none">
@@ -249,9 +363,9 @@ a:hover { color: var(--text2); }
     <div class="banner" id="agent-key-banner">
       API key (shown once, copy now): <span class="key-value" id="agent-key-value"></span>
     </div>
-    <div class="toolbar">
-      <h2>Agents</h2>
-      <div class="spacer" style="flex:1"></div>
+    <div style="display:flex;align-items:center;margin-bottom:8px">
+      <h2 class="toolbar-title">Agents</h2>
+      <div style="flex:1"></div>
       <button class="btn-primary" onclick="openAgentModal()">+ Create Agent</button>
     </div>
     <table>
@@ -259,7 +373,6 @@ a:hover { color: var(--text2); }
         <tr>
           <th>Name</th>
           <th>Team</th>
-          <th>Key Prefix</th>
           <th>Rate Limit</th>
           <th>Created</th>
           <th></th>
@@ -272,24 +385,35 @@ a:hover { color: var(--text2); }
 
   <!-- Tools Tab -->
   <div class="tab-panel" id="tab-tools">
-    <div class="toolbar">
-      <h2>Tools</h2>
-      <div class="spacer" style="flex:1"></div>
-      <button class="btn-primary" onclick="openToolModal()">+ Create Tool</button>
+    <div style="display:flex;align-items:center;margin-bottom:8px">
+      <h2 class="toolbar-title">Tools</h2>
+      <div style="flex:1"></div>
+      <button class="btn-primary" id="tools-create-btn" onclick="openToolModal()">+ Create Tool</button>
     </div>
     <table>
       <thead>
         <tr>
           <th>Name</th>
-          <th>Endpoint</th>
+          <th id="tools-endpoint-th">Endpoint</th>
           <th>Auth</th>
           <th>Rate Limit</th>
-          <th></th>
+          <th id="tools-actions-th"></th>
         </tr>
       </thead>
       <tbody id="tools-body"></tbody>
     </table>
     <div class="empty" id="tools-empty" style="display:none">No tools registered yet.</div>
+  </div>
+
+  <!-- Teams Tab -->
+  <div class="tab-panel" id="tab-teams">
+    <div style="display:flex;align-items:center;margin-bottom:8px">
+      <h2 class="toolbar-title">Teams</h2>
+      <div style="flex:1"></div>
+      <button class="btn-primary" id="teams-create-btn" onclick="openCreateTeamModal()">+ Create Team</button>
+    </div>
+    <div id="teams-content"></div>
+    <div class="empty" id="teams-empty" style="display:none">No teams found.</div>
   </div>
 
   <!-- Usage Tab -->
@@ -298,6 +422,9 @@ a:hover { color: var(--text2); }
       <h2>Usage</h2>
       <div class="spacer" style="flex:1"></div>
       <div class="filters">
+        <select id="usage-team-select" onchange="onTeamFilterChange()">
+          <option value="">All teams</option>
+        </select>
         <select id="usage-agent-select" onchange="onAgentFilterChange()">
           <option value="">All agents</option>
         </select>
@@ -311,10 +438,10 @@ a:hover { color: var(--text2); }
       </div>
     </div>
     <div class="cards" id="usage-cards">
-      <div class="card"><div class="label">Total Requests</div><div class="value" id="stat-requests">—</div></div>
-      <div class="card"><div class="label">Total Cost</div><div class="value" id="stat-cost">—</div></div>
-      <div class="card"><div class="label">Success / Error</div><div class="value" id="stat-results">—</div></div>
-      <div class="card"><div class="label">Avg Latency</div><div class="value" id="stat-latency">—</div></div>
+      <div class="card"><div class="label">Total Requests</div><div class="value" id="stat-requests">&mdash;</div></div>
+      <div class="card"><div class="label">Total Cost</div><div class="value" id="stat-cost">&mdash;</div></div>
+      <div class="card"><div class="label">Success / Error</div><div class="value" id="stat-results">&mdash;</div></div>
+      <div class="card"><div class="label">Avg Latency</div><div class="value" id="stat-latency">&mdash;</div></div>
     </div>
     <h3 style="font-size:14px; font-weight:600; margin-bottom:12px;">Transactions</h3>
     <table>
@@ -332,6 +459,28 @@ a:hover { color: var(--text2); }
       <tbody id="txn-body"></tbody>
     </table>
     <div class="empty" id="txn-empty" style="display:none">No transactions found.</div>
+  </div>
+
+  <!-- Users Tab (org_admin only) -->
+  <div class="tab-panel" id="tab-users">
+    <div style="display:flex;align-items:center;margin-bottom:8px">
+      <h2 class="toolbar-title">Users</h2>
+      <div style="flex:1"></div>
+      <button class="btn-primary" id="users-create-btn" onclick="openUserModal()">+ Create User</button>
+    </div>
+    <table>
+      <thead>
+        <tr>
+          <th>Email</th>
+          <th>Name</th>
+          <th>Role</th>
+          <th>Created</th>
+          <th></th>
+        </tr>
+      </thead>
+      <tbody id="users-body"></tbody>
+    </table>
+    <div class="empty" id="users-empty" style="display:none">No users created yet.</div>
   </div>
 </div>
 
@@ -411,12 +560,16 @@ a:hover { color: var(--text2); }
   <div class="modal">
     <h3 id="agent-modal-title">Create Agent</h3>
     <input type="hidden" id="agent-edit-id">
+    <div class="form-group" id="agent-key-group" style="display:none">
+      <label>Key</label>
+      <div class="mono" id="agent-key-display" style="padding:4px 0;color:var(--text2)"></div>
+    </div>
     <div class="form-group">
       <label>Name *</label>
       <input type="text" id="agent-name" placeholder="e.g. my-scraper">
     </div>
     <div class="form-row">
-      <div class="form-group">
+      <div class="form-group" id="agent-team-group">
         <label>Team</label>
         <input type="text" id="agent-team" placeholder="e.g. backend">
       </div>
@@ -426,21 +579,103 @@ a:hover { color: var(--text2); }
       </div>
     </div>
     <div class="modal-actions">
+      <button class="btn-warn" id="agent-regen-btn" onclick="regenKeyFromModal()" style="display:none;margin-right:auto">Regenerate Key</button>
       <button class="btn-ghost" onclick="closeModal('agent-modal')">Cancel</button>
       <button class="btn-primary" id="agent-submit-btn" onclick="submitAgent()">Create</button>
     </div>
   </div>
 </div>
 
+<!-- User Modal -->
+<div class="modal-overlay" id="user-modal">
+  <div class="modal">
+    <h3 id="user-modal-title">Create User</h3>
+    <input type="hidden" id="user-edit-id">
+    <div class="form-group">
+      <label>Email *</label>
+      <input type="email" id="user-email" placeholder="user@example.com">
+    </div>
+    <div class="form-group" id="user-password-group">
+      <label>Password *</label>
+      <input type="password" id="user-password" placeholder="Password">
+    </div>
+    <div class="form-group">
+      <label>Name</label>
+      <input type="text" id="user-name-input" placeholder="Full name">
+    </div>
+    <div class="form-group">
+      <label>Role</label>
+      <select id="user-role">
+        <option value="member">member</option>
+        <option value="org_admin">org_admin</option>
+      </select>
+    </div>
+    <div class="modal-actions">
+      <button class="btn-ghost" onclick="closeModal('user-modal')">Cancel</button>
+      <button class="btn-primary" id="user-submit-btn" onclick="submitUser()">Create</button>
+    </div>
+  </div>
+</div>
+
+<!-- Add Team Member Modal -->
+<div class="modal-overlay" id="add-member-modal">
+  <div class="modal">
+    <h3>Add Team Member</h3>
+    <input type="hidden" id="add-member-team">
+    <div class="form-group">
+      <label>User</label>
+      <select id="add-member-user"></select>
+    </div>
+    <div class="form-group">
+      <label>Team Role</label>
+      <select id="add-member-role">
+        <option value="member">member</option>
+        <option value="admin">admin</option>
+      </select>
+    </div>
+    <div class="modal-actions">
+      <button class="btn-ghost" onclick="closeModal('add-member-modal')">Cancel</button>
+      <button class="btn-primary" onclick="submitAddMember()">Add</button>
+    </div>
+  </div>
+</div>
+
+<!-- Create Team Modal -->
+<div class="modal-overlay" id="create-team-modal">
+  <div class="modal">
+    <h3>Create Team</h3>
+    <div class="form-group">
+      <label>Team Name *</label>
+      <input type="text" id="create-team-name" placeholder="e.g. backend">
+    </div>
+    <div class="form-group">
+      <label>First Admin *</label>
+      <select id="create-team-admin"></select>
+    </div>
+    <div class="modal-actions">
+      <button class="btn-ghost" onclick="closeModal('create-team-modal')">Cancel</button>
+      <button class="btn-primary" onclick="submitCreateTeam()">Create</button>
+    </div>
+  </div>
+</div>
+
 <script>
-let adminKey = localStorage.getItem('octroi_admin_key') || '';
-let connected = false;
+// --- State ---
+let authToken = localStorage.getItem('octroi_session_token') || '';
+let authMode = ''; // 'session' or 'adminkey'
+let currentUser = null; // { id, email, name, teams, role } or null (admin key mode)
+let isAdmin = false;
+let loginMode = 'email'; // 'email' or 'key'
 
 // --- API helpers ---
+function apiBase() {
+  return isAdmin ? '/api/v1/admin' : '/api/v1/member';
+}
+
 function api(method, path, body) {
   const opts = {
     method,
-    headers: { 'Authorization': 'Bearer ' + adminKey, 'Content-Type': 'application/json' },
+    headers: { 'Authorization': 'Bearer ' + authToken, 'Content-Type': 'application/json' },
   };
   if (body) opts.body = JSON.stringify(body);
   return fetch(path, opts).then(async r => {
@@ -451,37 +686,202 @@ function api(method, path, body) {
   });
 }
 
-// --- Connect ---
-async function connect() {
-  adminKey = document.getElementById('admin-key').value.trim();
-  if (!adminKey) return;
-  try {
-    // Test connection by listing agents
-    await api('GET', '/api/v1/admin/agents?limit=1');
-    localStorage.setItem('octroi_admin_key', adminKey);
-    connected = true;
-    document.getElementById('status-dot').classList.add('connected');
-    document.getElementById('login-prompt').style.display = 'none';
-    document.getElementById('tab-bar').style.display = 'flex';
-    document.getElementById('main-content').style.display = 'block';
-    document.getElementById('connect-btn').textContent = 'Connected';
-    document.getElementById('connect-btn').disabled = true;
-    loadTools();
-    loadAgents();
-    loadUsage();
-    onHashChange();
-  } catch (e) {
-    alert('Connection failed: ' + e.message);
+// --- Helpers for TeamMembership ---
+function userTeamNames(u) {
+  if (!u || !u.teams) return [];
+  return u.teams.map(t => typeof t === 'string' ? t : t.team);
+}
+
+function userInTeam(u, team) {
+  return userTeamNames(u).includes(team);
+}
+
+function canManageTeam(team) {
+  if (isAdmin && authMode === 'adminkey') return true;
+  if (!currentUser) return false;
+  if (currentUser.role === 'org_admin') return true;
+  if (!currentUser.teams) return false;
+  return currentUser.teams.some(t => t.team === team && t.role === 'admin');
+}
+
+// --- Session persistence ---
+function saveSession(token, mode, user) {
+  localStorage.setItem('octroi_session_token', token);
+  localStorage.setItem('octroi_auth_mode', mode);
+  if (user) {
+    localStorage.setItem('octroi_user', JSON.stringify(user));
+  } else {
+    localStorage.removeItem('octroi_user');
   }
 }
 
-document.getElementById('admin-key').addEventListener('keydown', e => { if (e.key === 'Enter') connect(); });
-
-// Auto-connect if key is stored
-if (adminKey) {
-  document.getElementById('admin-key').value = adminKey;
-  connect();
+function clearSession() {
+  localStorage.removeItem('octroi_session_token');
+  localStorage.removeItem('octroi_auth_mode');
+  localStorage.removeItem('octroi_user');
 }
+
+// --- Login ---
+function setLoginMode(mode) {
+  loginMode = mode;
+  document.getElementById('toggle-email').classList.toggle('active', mode === 'email');
+  document.getElementById('toggle-key').classList.toggle('active', mode === 'key');
+  document.getElementById('login-email-fields').style.display = mode === 'email' ? 'block' : 'none';
+  document.getElementById('login-key-fields').style.display = mode === 'key' ? 'block' : 'none';
+  document.getElementById('login-error').style.display = 'none';
+}
+
+async function doLogin() {
+  const errEl = document.getElementById('login-error');
+  errEl.style.display = 'none';
+
+  if (loginMode === 'key') {
+    const key = document.getElementById('login-admin-key').value.trim();
+    if (!key) return;
+    authToken = key;
+    try {
+      await api('GET', '/api/v1/admin/agents?limit=1');
+      authMode = 'adminkey';
+      currentUser = null;
+      isAdmin = true;
+      saveSession(key, 'adminkey', null);
+      enterApp();
+    } catch (e) {
+      errEl.textContent = 'Invalid admin key';
+      errEl.style.display = 'block';
+      authToken = '';
+    }
+  } else {
+    const email = document.getElementById('login-email').value.trim();
+    const password = document.getElementById('login-password').value;
+    if (!email || !password) return;
+    try {
+      const res = await fetch('/api/v1/auth/login', {
+        method: 'POST',
+        headers: { 'Content-Type': 'application/json' },
+        body: JSON.stringify({ email, password }),
+      });
+      const data = await res.json();
+      if (!res.ok) throw new Error((data.error && data.error.message) || 'Login failed');
+      authToken = data.token;
+      authMode = 'session';
+      currentUser = data.user;
+      isAdmin = currentUser.role === 'org_admin';
+      saveSession(authToken, 'session', currentUser);
+      enterApp();
+    } catch (e) {
+      errEl.textContent = e.message;
+      errEl.style.display = 'block';
+    }
+  }
+}
+
+function enterApp() {
+  document.getElementById('login-screen').style.display = 'none';
+  document.getElementById('tab-bar').style.display = 'flex';
+  document.getElementById('main-content').style.display = 'block';
+
+  // Topbar user info
+  const infoEl = document.getElementById('user-info');
+  infoEl.style.display = 'flex';
+  const nameEl = document.getElementById('topbar-user-name');
+  const badgeEl = document.getElementById('topbar-role-badge');
+  if (currentUser) {
+    nameEl.textContent = currentUser.name || currentUser.email;
+    const roleLabel = currentUser.role === 'org_admin' ? 'org admin' : currentUser.role;
+    badgeEl.textContent = roleLabel;
+    badgeEl.className = 'role-badge' + (currentUser.role === 'org_admin' ? ' admin' : '');
+  } else {
+    nameEl.textContent = 'Admin Key';
+    badgeEl.textContent = 'admin';
+    badgeEl.className = 'role-badge admin';
+  }
+
+  // Permission-based UI: disable (not hide) actions the user can't perform.
+  const adminOnlyBtns = ['tools-create-btn', 'teams-create-btn', 'users-create-btn'];
+  adminOnlyBtns.forEach(id => {
+    const btn = document.getElementById(id);
+    btn.disabled = !isAdmin;
+    btn.title = isAdmin ? '' : 'Org admin only';
+  });
+  if (!isAdmin) {
+    // Hide agent team field for members (UX simplification, not permission)
+    document.getElementById('agent-team-group').style.display = 'none';
+  }
+
+  loadAgents();
+  loadTools();
+  loadTeams();
+  loadUsage();
+  loadUsers();
+  onHashChange();
+}
+
+async function logout() {
+  if (authMode === 'session') {
+    try { await api('POST', '/api/v1/auth/logout'); } catch (e) { /* ignore */ }
+  }
+  authToken = '';
+  authMode = '';
+  currentUser = null;
+  isAdmin = false;
+  clearSession();
+  location.reload();
+}
+
+// Handle Enter key in login fields
+document.getElementById('login-password').addEventListener('keydown', e => { if (e.key === 'Enter') doLogin(); });
+document.getElementById('login-admin-key').addEventListener('keydown', e => { if (e.key === 'Enter') doLogin(); });
+document.getElementById('login-email').addEventListener('keydown', e => { if (e.key === 'Enter') document.getElementById('login-password').focus(); });
+
+// Auto-reconnect from stored session.
+// Immediately enter app from cached user data, then validate in background.
+(function autoConnect() {
+  const storedToken = localStorage.getItem('octroi_session_token');
+  const storedMode = localStorage.getItem('octroi_auth_mode');
+  if (!storedToken) return;
+
+  authToken = storedToken;
+
+  if (storedMode === 'adminkey') {
+    authMode = 'adminkey';
+    currentUser = null;
+    isAdmin = true;
+    enterApp();
+    // Validate in background
+    api('GET', '/api/v1/admin/agents?limit=1').catch(() => {
+      clearSession();
+      location.reload();
+    });
+  } else {
+    // Try to restore from cached user data immediately
+    const cachedUser = localStorage.getItem('octroi_user');
+    if (cachedUser) {
+      try {
+        currentUser = JSON.parse(cachedUser);
+        authMode = 'session';
+        isAdmin = currentUser.role === 'org_admin';
+        enterApp();
+      } catch (e) {
+        // Bad cached data, fall through to async validation
+      }
+    }
+
+    // Validate session and refresh user data
+    api('GET', '/api/v1/auth/me').then(data => {
+      const wasInApp = !!currentUser;
+      currentUser = data;
+      isAdmin = currentUser.role === 'org_admin';
+      authMode = 'session';
+      saveSession(authToken, 'session', currentUser);
+      if (!wasInApp) enterApp();
+    }).catch(() => {
+      clearSession();
+      if (authMode) location.reload(); // was showing app, need to show login
+      authToken = '';
+    });
+  }
+})();
 
 // --- Tabs (hash-routed) ---
 function switchTab(tab) {
@@ -512,7 +912,8 @@ window.addEventListener('hashchange', onHashChange);
 let toolsCache = [];
 async function loadTools() {
   try {
-    const data = await api('GET', '/api/v1/admin/tools?limit=100');
+    const path = isAdmin ? '/api/v1/admin/tools?limit=100' : '/api/v1/member/tools?limit=100';
+    const data = await api('GET', path);
     toolsCache = data.tools || [];
     renderTools();
     populateToolFilter();
@@ -524,16 +925,22 @@ function renderTools() {
   const empty = document.getElementById('tools-empty');
   if (!toolsCache.length) { tbody.innerHTML = ''; empty.style.display = 'block'; return; }
   empty.style.display = 'none';
+
+  const disAttr = isAdmin ? '' : ' disabled title="Org admin only"';
   tbody.innerHTML = toolsCache.map(t => `<tr>
     <td><a href="#" onclick="viewToolUsage('${t.id}','${esc(t.name)}');return false" style="text-decoration:none;font-weight:700;border-bottom:1px solid var(--border)">${esc(t.name)}</a><br><span style="color:var(--text2);font-size:11px">${esc(t.description || '')}</span></td>
-    <td class="mono">${esc(t.endpoint || '—')}</td>
+    <td class="mono">${isAdmin ? esc(t.endpoint || '\u2014') : esc(t.pricing_model || 'free')}</td>
     <td>${esc(t.auth_type || 'none')}</td>
-    <td>${t.rate_limit || '—'}</td>
+    <td>${t.rate_limit || '\u2014'}</td>
     <td style="white-space:nowrap">
-      <button class="btn-ghost btn-sm" onclick="editTool('${t.id}')">Edit</button>
-      <button class="btn-danger btn-sm" onclick="deleteTool('${t.id}','${esc(t.name)}')">Delete</button>
+      <button class="btn-ghost btn-sm" onclick="editTool('${t.id}')"${disAttr}>Edit</button>
+      <button class="btn-danger btn-sm" onclick="deleteTool('${t.id}','${esc(t.name)}')"${disAttr}>Delete</button>
     </td>
   </tr>`).join('');
+
+  if (!isAdmin) {
+    document.getElementById('tools-endpoint-th').textContent = 'Pricing';
+  }
 }
 
 function openToolModal(tool) {
@@ -555,10 +962,6 @@ function openToolModal(tool) {
 }
 
 async function editTool(id) {
-  // Fetch full tool details via admin create/update cache — we use the public endpoint
-  // but the cached version from list won't have endpoint/auth_config.
-  // For editing, just load from cache; endpoint/auth_config will be blank for existing tools
-  // unless they were just created in this session. User can re-enter if needed.
   const tool = toolsCache.find(t => t.id === id);
   if (tool) openToolModal(tool);
 }
@@ -606,7 +1009,8 @@ async function deleteTool(id, name) {
 let agentsCache = [];
 async function loadAgents() {
   try {
-    const data = await api('GET', '/api/v1/admin/agents?limit=100');
+    const path = apiBase() + '/agents?limit=100';
+    const data = await api('GET', path);
     agentsCache = data.agents || [];
     renderAgents();
     populateAgentFilter();
@@ -620,37 +1024,76 @@ function renderAgents() {
   empty.style.display = 'none';
   tbody.innerHTML = agentsCache.map(a => `<tr>
     <td><a href="#" onclick="viewAgentUsage('${a.id}','${esc(a.name)}');return false" style="text-decoration:none;font-weight:700;border-bottom:1px solid var(--border)">${esc(a.name)}</a></td>
-    <td>${esc(a.team || '—')}</td>
-    <td class="mono">${esc(a.api_key_prefix || '—')}</td>
-    <td>${a.rate_limit || '—'}</td>
+    <td>${esc(a.team || '\u2014')}</td>
+    <td>${a.rate_limit || '\u2014'}</td>
     <td>${fmtDate(a.created_at)}</td>
-    <td>
+    <td style="white-space:nowrap">
+      <button class="btn-ghost btn-sm" onclick="editAgent('${a.id}')">Edit</button>
       <button class="btn-danger btn-sm" onclick="deleteAgent('${a.id}','${esc(a.name)}')">Delete</button>
     </td>
   </tr>`).join('');
 }
 
-function openAgentModal() {
-  document.getElementById('agent-edit-id').value = '';
-  document.getElementById('agent-name').value = '';
-  document.getElementById('agent-team').value = '';
-  document.getElementById('agent-rate-limit').value = '';
+function openAgentModal(ag) {
+  document.getElementById('agent-edit-id').value = ag ? ag.id : '';
+  document.getElementById('agent-modal-title').textContent = ag ? 'Edit Agent' : 'Create Agent';
+  document.getElementById('agent-submit-btn').textContent = ag ? 'Save' : 'Create';
+  document.getElementById('agent-name').value = ag ? ag.name : '';
+  document.getElementById('agent-team').value = ag ? ag.team || '' : '';
+  document.getElementById('agent-rate-limit').value = ag ? ag.rate_limit || '' : '';
+  document.getElementById('agent-regen-btn').style.display = ag ? '' : 'none';
+  // Show key prefix in edit mode
+  const keyGroup = document.getElementById('agent-key-group');
+  const keyDisplay = document.getElementById('agent-key-display');
+  if (ag && ag.api_key_prefix) {
+    keyDisplay.textContent = ag.api_key_prefix + '...';
+    keyGroup.style.display = '';
+  } else {
+    keyGroup.style.display = 'none';
+  }
   document.getElementById('agent-modal').classList.add('open');
 }
 
+function editAgent(id) {
+  const ag = agentsCache.find(a => a.id === id);
+  if (ag) openAgentModal(ag);
+}
+
 async function submitAgent() {
+  const id = document.getElementById('agent-edit-id').value;
   const body = {
     name: document.getElementById('agent-name').value.trim(),
     team: document.getElementById('agent-team').value.trim(),
     rate_limit: parseInt(document.getElementById('agent-rate-limit').value) || 0,
   };
   try {
-    const res = await api('POST', '/api/v1/admin/agents', body);
-    closeModal('agent-modal');
+    if (id) {
+      await api('PUT', apiBase() + '/agents/' + id, body);
+      closeModal('agent-modal');
+    } else {
+      const res = await api('POST', apiBase() + '/agents', body);
+      closeModal('agent-modal');
+      if (res.api_key) {
+        document.getElementById('agent-key-value').textContent = res.api_key;
+        document.getElementById('agent-key-banner').classList.add('show');
+      }
+    }
+    loadAgents();
+  } catch (e) { alert('Error: ' + e.message); }
+}
+
+async function regenKeyFromModal() {
+  const id = document.getElementById('agent-edit-id').value;
+  const name = document.getElementById('agent-name').value;
+  if (!id) return;
+  if (!confirm('Regenerate API key for "' + name + '"? The old key will stop working immediately.')) return;
+  try {
+    const res = await api('POST', apiBase() + '/agents/' + id + '/regenerate-key');
     if (res.api_key) {
       document.getElementById('agent-key-value').textContent = res.api_key;
       document.getElementById('agent-key-banner').classList.add('show');
     }
+    closeModal('agent-modal');
     loadAgents();
   } catch (e) { alert('Error: ' + e.message); }
 }
@@ -658,9 +1101,127 @@ async function submitAgent() {
 async function deleteAgent(id, name) {
   if (!confirm('Delete agent "' + name + '"?')) return;
   try {
-    await api('DELETE', '/api/v1/admin/agents/' + id);
+    await api('DELETE', apiBase() + '/agents/' + id);
     loadAgents();
   } catch (e) { alert('Error: ' + e.message); }
+}
+
+// --- Teams ---
+let teamsCache = [];
+async function loadTeams() {
+  try {
+    const path = apiBase() + '/teams';
+    const data = await api('GET', path);
+    teamsCache = data.teams || [];
+    renderTeams();
+    populateTeamFilter();
+  } catch (e) { console.error('Failed to load teams', e); }
+}
+
+function renderTeams() {
+  const container = document.getElementById('teams-content');
+  const empty = document.getElementById('teams-empty');
+  if (!teamsCache.length) { container.innerHTML = ''; empty.style.display = 'block'; return; }
+  empty.style.display = 'none';
+
+  container.innerHTML = teamsCache.map(t => {
+    const canManage = canManageTeam(t.name);
+    const agentList = t.agents.length
+      ? t.agents.map(a => `<li><strong>${esc(a.name)}</strong></li>`).join('')
+      : '<li style="color:var(--text2)">No agents</li>';
+    const userList = t.users.length
+      ? t.users.map(u => {
+          const globalBadge = u.role === 'org_admin'
+            ? `<span class="role-badge admin" style="font-size:9px">org admin</span>`
+            : '';
+          const teamBadge = `<span class="role-badge${u.team_role === 'admin' ? ' admin' : ''}" style="font-size:9px">${esc(u.team_role || 'member')}</span>`;
+          const removeDis = canManage ? '' : ' disabled title="Team admin or org admin only"';
+          return `<li><strong>${esc(u.name || u.email)}</strong> &lt;${esc(u.email)}&gt; ${teamBadge} ${globalBadge} <button class="btn-danger btn-sm" onclick="removeTeamMember('${esc(t.name)}','${u.id}','${esc(u.name || u.email)}')"${removeDis}>Remove</button></li>`;
+        }).join('')
+      : '<li style="color:var(--text2)">No users</li>';
+
+    const addDis = canManage ? '' : ' disabled title="Team admin or org admin only"';
+    const addBtn = `<button class="btn-ghost btn-sm" onclick="openAddMemberModal('${esc(t.name)}')"${addDis}>+ Add Member</button>`;
+
+    return `<div class="team-section">
+      <h3>${esc(t.name)}</h3>
+      <div class="team-sub">Agents (${t.agents.length})</div>
+      <ul>${agentList}</ul>
+      <div class="team-sub">Users (${t.users.length}) ${addBtn}</div>
+      <ul>${userList}</ul>
+    </div>`;
+  }).join('');
+}
+
+function openAddMemberModal(team) {
+  document.getElementById('add-member-team').value = team;
+  document.getElementById('add-member-role').value = 'member';
+  // Populate user dropdown, excluding users already in this team.
+  const sel = document.getElementById('add-member-user');
+  const teamData = teamsCache.find(t => t.name === team);
+  const existingIds = new Set(teamData ? teamData.users.map(u => u.id) : []);
+  const available = (usersCache.length ? usersCache : []).filter(u => !existingIds.has(u.id) && u.role !== 'org_admin');
+  sel.innerHTML = available.map(u => `<option value="${u.id}">${esc(u.name || u.email)} (${esc(u.email)})</option>`).join('');
+  if (!available.length) {
+    sel.innerHTML = '<option value="">No users available</option>';
+  }
+  document.getElementById('add-member-modal').classList.add('open');
+}
+
+async function submitAddMember() {
+  const team = document.getElementById('add-member-team').value;
+  const userId = document.getElementById('add-member-user').value;
+  const role = document.getElementById('add-member-role').value;
+  if (!userId) return;
+  try {
+    await api('PUT', '/api/v1/member/teams/' + encodeURIComponent(team) + '/members/' + userId, { role });
+    closeModal('add-member-modal');
+    loadTeams();
+    loadUsers();
+  } catch (e) { alert('Error: ' + e.message); }
+}
+
+async function removeTeamMember(team, userId, userName) {
+  if (!confirm('Remove "' + userName + '" from team "' + team + '"?')) return;
+  try {
+    await api('DELETE', '/api/v1/member/teams/' + encodeURIComponent(team) + '/members/' + userId);
+    loadTeams();
+    loadUsers();
+  } catch (e) { alert('Error: ' + e.message); }
+}
+
+function openCreateTeamModal() {
+  document.getElementById('create-team-name').value = '';
+  const sel = document.getElementById('create-team-admin');
+  const eligible = (usersCache.length ? usersCache : []).filter(u => u.role !== 'org_admin');
+  sel.innerHTML = eligible.map(u => `<option value="${u.id}">${esc(u.name || u.email)} (${esc(u.email)})</option>`).join('');
+  if (!eligible.length) {
+    sel.innerHTML = '<option value="">No eligible users</option>';
+  }
+  document.getElementById('create-team-modal').classList.add('open');
+}
+
+async function submitCreateTeam() {
+  const name = document.getElementById('create-team-name').value.trim();
+  const userId = document.getElementById('create-team-admin').value;
+  if (!name) { alert('Team name is required'); return; }
+  if (!userId) { alert('A first admin is required'); return; }
+  // Check if team already exists
+  if (teamsCache.some(t => t.name === name)) { alert('Team "' + name + '" already exists'); return; }
+  try {
+    await api('PUT', '/api/v1/member/teams/' + encodeURIComponent(name) + '/members/' + userId, { role: 'admin' });
+    closeModal('create-team-modal');
+    loadTeams();
+    loadUsers();
+  } catch (e) { alert('Error: ' + e.message); }
+}
+
+function populateTeamFilter() {
+  const sel = document.getElementById('usage-team-select');
+  const current = sel.value;
+  sel.innerHTML = '<option value="">All teams</option>' +
+    teamsCache.map(t => `<option value="${esc(t.name)}">${esc(t.name)}</option>`).join('');
+  sel.value = current;
 }
 
 // --- Usage ---
@@ -668,6 +1229,7 @@ let usageAgentId = null;
 let usageAgentName = null;
 let usageToolId = null;
 let usageToolName = null;
+let usageTeamFilter = '';
 
 function viewAgentUsage(agentId, agentName) {
   usageAgentId = agentId;
@@ -681,6 +1243,12 @@ function onAgentFilterChange() {
   const sel = document.getElementById('usage-agent-select');
   usageAgentId = sel.value || null;
   usageAgentName = sel.value ? sel.options[sel.selectedIndex].text : null;
+  loadUsage();
+}
+
+function onTeamFilterChange() {
+  const sel = document.getElementById('usage-team-select');
+  usageTeamFilter = sel.value || '';
   loadUsage();
 }
 
@@ -721,29 +1289,58 @@ async function loadUsage() {
   let qs = '';
   if (from) qs += '&from=' + from;
   if (to) qs += '&to=' + to;
-  let usagePath = '/api/v1/admin/usage';
-  let txnQs = qs;
-  if (usageAgentId && usageToolId) {
-    usagePath = '/api/v1/admin/usage/agents/' + usageAgentId + '/tools/' + usageToolId;
-    txnQs += '&agent_id=' + usageAgentId + '&tool_id=' + usageToolId;
-  } else if (usageAgentId) {
-    usagePath = '/api/v1/admin/usage/agents/' + usageAgentId;
-    txnQs += '&agent_id=' + usageAgentId;
-  } else if (usageToolId) {
-    usagePath = '/api/v1/admin/usage/tools/' + usageToolId;
-    txnQs += '&tool_id=' + usageToolId;
+
+  if (isAdmin) {
+    // Admin: use admin usage endpoints
+    let usagePath = '/api/v1/admin/usage';
+    let txnQs = qs;
+
+    // Team filter
+    if (usageTeamFilter) {
+      qs += '&team=' + encodeURIComponent(usageTeamFilter);
+      txnQs += '&team=' + encodeURIComponent(usageTeamFilter);
+    }
+
+    if (usageAgentId && usageToolId) {
+      usagePath = '/api/v1/admin/usage/agents/' + usageAgentId + '/tools/' + usageToolId;
+      txnQs += '&agent_id=' + usageAgentId + '&tool_id=' + usageToolId;
+    } else if (usageAgentId) {
+      usagePath = '/api/v1/admin/usage/agents/' + usageAgentId;
+      txnQs += '&agent_id=' + usageAgentId;
+    } else if (usageToolId) {
+      usagePath = '/api/v1/admin/usage/tools/' + usageToolId;
+      txnQs += '&tool_id=' + usageToolId;
+    }
+    try {
+      const [summary, txns] = await Promise.all([
+        api('GET', usagePath + '?' + qs),
+        api('GET', '/api/v1/admin/usage/transactions?limit=50' + txnQs),
+      ]);
+      renderUsageSummary(summary);
+      renderTransactions(txns.transactions || []);
+    } catch (e) { console.error('Failed to load usage', e); }
+  } else {
+    // Member: use member usage endpoints (team-scoped)
+    let memberQs = qs;
+    if (usageTeamFilter) {
+      memberQs += '&team=' + encodeURIComponent(usageTeamFilter);
+    }
+    try {
+      const [summary, txns] = await Promise.all([
+        api('GET', '/api/v1/member/usage?' + memberQs),
+        api('GET', '/api/v1/member/usage/transactions?limit=50' + memberQs),
+      ]);
+      renderUsageSummary(summary);
+      renderTransactions(txns.transactions || []);
+    } catch (e) { console.error('Failed to load usage', e); }
   }
-  try {
-    const [summary, txns] = await Promise.all([
-      api('GET', usagePath + '?' + qs),
-      api('GET', '/api/v1/admin/usage/transactions?limit=50' + txnQs),
-    ]);
-    document.getElementById('stat-requests').textContent = summary.total_requests ?? 0;
-    document.getElementById('stat-cost').textContent = '$' + (summary.total_cost ?? 0).toFixed(4);
-    document.getElementById('stat-results').textContent = (summary.success_count ?? 0) + ' / ' + (summary.error_count ?? 0);
-    document.getElementById('stat-latency').textContent = (summary.avg_latency_ms ?? 0).toFixed(1) + 'ms';
-    renderTransactions(txns.transactions || []);
-  } catch (e) { console.error('Failed to load usage', e); }
+}
+
+function renderUsageSummary(summary) {
+  document.getElementById('stat-requests').textContent = summary.total_requests ?? 0;
+  document.getElementById('stat-cost').textContent = '$' + (summary.total_cost ?? 0).toFixed(4);
+  document.getElementById('stat-results').textContent = (summary.success_count ?? 0) + ' / ' + (summary.error_count ?? 0);
+  document.getElementById('stat-latency').textContent = (summary.avg_latency_ms ?? 0).toFixed(1) + 'ms';
 }
 
 function renderTransactions(txns) {
@@ -762,11 +1359,136 @@ function renderTransactions(txns) {
   </tr>`).join('');
 }
 
+// --- Users (org_admin only) ---
+let usersCache = [];
+async function loadUsers() {
+  try {
+    const path = isAdmin ? '/api/v1/admin/users' : '/api/v1/member/users';
+    const data = await api('GET', path);
+    usersCache = data.users || [];
+    // Sort current user to top.
+    if (currentUser) {
+      usersCache.sort((a, b) => {
+        if (a.id === currentUser.id) return -1;
+        if (b.id === currentUser.id) return 1;
+        return 0;
+      });
+    }
+    renderUsers();
+  } catch (e) { console.error('Failed to load users', e); }
+}
+
+function renderUsers() {
+  const tbody = document.getElementById('users-body');
+  const empty = document.getElementById('users-empty');
+  if (!usersCache.length) { tbody.innerHTML = ''; empty.style.display = 'block'; return; }
+  empty.style.display = 'none';
+  tbody.innerHTML = usersCache.map(u => {
+    const teamsStr = (u.teams && u.teams.length)
+      ? u.teams.map(t => t.team + ':' + t.role).join(', ')
+      : '\u2014';
+    const roleLabel = u.role === 'org_admin' ? 'org admin' : u.role;
+    const isSelf = currentUser && u.id === currentUser.id;
+    const canEdit = isAdmin || isSelf;
+    const canDelete = isAdmin && !isSelf;
+    const editAttr = canEdit ? '' : ' disabled title="You can only edit your own profile"';
+    const deleteAttr = canDelete ? '' : (isSelf ? ' disabled title="Cannot delete yourself"' : ' disabled title="Org admin only"');
+    return `<tr${isSelf ? ' style="background:var(--surface)"' : ''}>
+    <td style="font-weight:600">${esc(u.email)}${isSelf ? ' <span style="font-size:9px;color:var(--text2)">(you)</span>' : ''}</td>
+    <td>${esc(u.name || '\u2014')}</td>
+    <td>${esc(teamsStr)}</td>
+    <td><span class="role-badge${u.role === 'org_admin' ? ' admin' : ''}">${esc(roleLabel)}</span></td>
+    <td>${fmtDate(u.created_at)}</td>
+    <td style="white-space:nowrap">
+      <button class="btn-ghost btn-sm" onclick="editUser('${u.id}')"${editAttr}>Edit</button>
+      <button class="btn-danger btn-sm" onclick="deleteUser('${u.id}','${esc(u.email)}')"${deleteAttr}>Delete</button>
+    </td>
+  </tr>`;
+  }).join('');
+}
+
+function openUserModal(u) {
+  const isSelfEdit = u && currentUser && u.id === currentUser.id && !isAdmin;
+  document.getElementById('user-edit-id').value = u ? u.id : '';
+  document.getElementById('user-modal-title').textContent = u ? 'Edit User' : 'Create User';
+  document.getElementById('user-submit-btn').textContent = u ? 'Save' : 'Create';
+  document.getElementById('user-email').value = u ? u.email : '';
+  document.getElementById('user-email').disabled = isSelfEdit;
+  document.getElementById('user-password').value = '';
+  document.getElementById('user-name-input').value = u ? u.name || '' : '';
+  document.getElementById('user-role').value = u ? u.role || 'member' : 'member';
+  document.getElementById('user-role').disabled = isSelfEdit;
+  // Password is optional when editing
+  document.getElementById('user-password-group').querySelector('label').textContent = u ? 'Password (leave blank to keep)' : 'Password *';
+  document.getElementById('user-modal').classList.add('open');
+}
+
+function editUser(id) {
+  const u = usersCache.find(u => u.id === id);
+  if (u) openUserModal(u);
+}
+
+async function submitUser() {
+  const id = document.getElementById('user-edit-id').value;
+  const email = document.getElementById('user-email').value.trim();
+  const password = document.getElementById('user-password').value;
+  const name = document.getElementById('user-name-input').value.trim();
+  const role = document.getElementById('user-role').value;
+
+  if (id) {
+    const isSelf = currentUser && id === currentUser.id;
+    if (!isAdmin && isSelf) {
+      // Member self-edit: only name and password via member endpoint.
+      const body = {};
+      if (name !== undefined) body.name = name;
+      if (password) body.password = password;
+      try {
+        await api('PUT', '/api/v1/member/users/me', body);
+        closeModal('user-modal');
+        // Update cached currentUser name.
+        if (body.name !== undefined) {
+          currentUser.name = body.name;
+          document.querySelector('.user-name').textContent = currentUser.name || currentUser.email;
+          saveSession(authToken, authMode, currentUser);
+        }
+        loadUsers();
+      } catch (e) { alert('Error: ' + e.message); }
+    } else {
+      const body = {};
+      if (email) body.email = email;
+      if (password) body.password = password;
+      if (name !== undefined) body.name = name;
+      if (role) body.role = role;
+      try {
+        await api('PUT', '/api/v1/admin/users/' + id, body);
+        closeModal('user-modal');
+        loadUsers();
+      } catch (e) { alert('Error: ' + e.message); }
+    }
+  } else {
+    if (!email || !password) { alert('Email and password are required'); return; }
+    const body = { email, password, name, role };
+    try {
+      await api('POST', '/api/v1/admin/users', body);
+      closeModal('user-modal');
+      loadUsers();
+    } catch (e) { alert('Error: ' + e.message); }
+  }
+}
+
+async function deleteUser(id, email) {
+  if (!confirm('Delete user "' + email + '"?')) return;
+  try {
+    await api('DELETE', '/api/v1/admin/users/' + id);
+    loadUsers();
+  } catch (e) { alert('Error: ' + e.message); }
+}
+
 // --- Helpers ---
 function closeModal(id) { document.getElementById(id).classList.remove('open'); }
 function esc(s) { const d = document.createElement('div'); d.textContent = s; return d.innerHTML; }
-function fmtDate(s) { if (!s) return '—'; return new Date(s).toLocaleDateString(); }
-function fmtTime(s) { if (!s) return '—'; const d = new Date(s); return d.toLocaleDateString() + ' ' + d.toLocaleTimeString(); }
+function fmtDate(s) { if (!s) return '\u2014'; return new Date(s).toLocaleDateString(); }
+function fmtTime(s) { if (!s) return '\u2014'; const d = new Date(s); return d.toLocaleDateString() + ' ' + d.toLocaleTimeString(); }
 function resolveAgentName(id) { const a = agentsCache.find(a => a.id === id); return a ? a.name : id.slice(0,8); }
 function resolveToolName(id) { const t = toolsCache.find(t => t.id === id); return t ? t.name : id.slice(0,8); }
 
@@ -775,7 +1497,7 @@ document.querySelectorAll('.modal-overlay').forEach(el => {
   el.addEventListener('click', e => { if (e.target === el) el.classList.remove('open'); });
 });
 
-// Set default date range to last 7 days (to = tomorrow so today's data is included)
+// Set default date range to last 7 days
 const now = new Date();
 const tomorrow = new Date(now);
 tomorrow.setDate(tomorrow.getDate() + 1);
