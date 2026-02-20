@@ -75,17 +75,19 @@ func runServe(cmd *cobra.Command, args []string) error {
 	proxyHandler.SetToolRateLimitChecker(toolRateLimiter)
 
 	router := api.NewRouter(api.RouterDeps{
-		ToolService: toolService,
-		ToolStore:   toolStore,
-		AgentStore:  agentStore,
-		BudgetStore: budgetStore,
-		MeterStore:  meterStore,
-		Collector:   collector,
-		Auth:        authService,
-		Limiter:     limiter,
+		DBPool:             pool,
+		ToolService:        toolService,
+		ToolStore:          toolStore,
+		AgentStore:         agentStore,
+		BudgetStore:        budgetStore,
+		MeterStore:         meterStore,
+		Collector:          collector,
+		Auth:               authService,
+		Limiter:            limiter,
 		Proxy:              proxyHandler,
 		UserStore:          userStore,
 		ToolRateLimitStore: toolRateLimitStore,
+		AllowedOrigins:     cfg.CORS.AllowedOrigins,
 	})
 
 	srv := &http.Server{

@@ -1,8 +1,12 @@
 package api
 
 import (
+	"context"
+	"fmt"
 	"log/slog"
+	"math"
 	"net/http"
+	"sync"
 	"time"
 
 	"github.com/alecgard/octroi/internal/agent"
@@ -15,10 +19,92 @@ import (
 	"github.com/alecgard/octroi/internal/user"
 	"github.com/go-chi/chi/v5"
 	chimw "github.com/go-chi/chi/v5/middleware"
+	"github.com/jackc/pgx/v5/pgxpool"
 )
+
+// loginRateLimiter tracks per-IP login attempt counts within a sliding window.
+type loginRateLimiter struct {
+	entries sync.Map // IP string -> *loginEntry
+	limit   int
+	window  time.Duration
+}
+
+type loginEntry struct {
+	mu      sync.Mutex
+	count   int
+	windowStart time.Time
+}
+
+func newLoginRateLimiter(limit int, window time.Duration) *loginRateLimiter {
+	return &loginRateLimiter{
+		limit:  limit,
+		window: window,
+	}
+}
+
+// allow checks whether the given IP is within the rate limit.
+// It returns (allowed, retryAfterSeconds).
+func (l *loginRateLimiter) allow(ip string) (bool, int) {
+	now := time.Now()
+	val, _ := l.entries.LoadOrStore(ip, &loginEntry{windowStart: now})
+	entry := val.(*loginEntry)
+
+	entry.mu.Lock()
+	defer entry.mu.Unlock()
+
+	// Reset window if expired.
+	if now.Sub(entry.windowStart) >= l.window {
+		entry.count = 0
+		entry.windowStart = now
+	}
+
+	if entry.count >= l.limit {
+		remaining := l.window - now.Sub(entry.windowStart)
+		retryAfter := int(math.Ceil(remaining.Seconds()))
+		if retryAfter < 1 {
+			retryAfter = 1
+		}
+		return false, retryAfter
+	}
+
+	entry.count++
+	return true, 0
+}
+
+// cleanup removes entries whose window has expired.
+func (l *loginRateLimiter) cleanup() {
+	now := time.Now()
+	l.entries.Range(func(key, value any) bool {
+		entry := value.(*loginEntry)
+		entry.mu.Lock()
+		expired := now.Sub(entry.windowStart) >= l.window
+		entry.mu.Unlock()
+		if expired {
+			l.entries.Delete(key)
+		}
+		return true
+	})
+}
+
+// startCleanup runs periodic cleanup in a background goroutine until ctx is cancelled.
+func (l *loginRateLimiter) startCleanup(ctx context.Context, interval time.Duration) {
+	go func() {
+		ticker := time.NewTicker(interval)
+		defer ticker.Stop()
+		for {
+			select {
+			case <-ctx.Done():
+				return
+			case <-ticker.C:
+				l.cleanup()
+			}
+		}
+	}()
+}
 
 // RouterDeps holds all dependencies for the API router.
 type RouterDeps struct {
+	DBPool             *pgxpool.Pool
 	ToolService        *registry.Service
 	ToolStore          *registry.Store
 	AgentStore         *agent.Store
@@ -30,6 +116,7 @@ type RouterDeps struct {
 	Proxy              *proxy.Handler
 	UserStore          *user.Store
 	ToolRateLimitStore *ratelimit.ToolRateLimitStore
+	AllowedOrigins     []string
 }
 
 // NewRouter builds the chi router with all routes and middleware.
@@ -38,6 +125,9 @@ func NewRouter(deps RouterDeps) http.Handler {
 
 	// Global middleware.
 	r.Use(chimw.Recoverer)
+	r.Use(secureHeaders)
+	r.Use(corsMiddleware(deps.AllowedOrigins))
+	r.Use(requestIDMiddleware)
 	r.Use(slogRequestLogger)
 
 	// Handlers.
@@ -45,6 +135,10 @@ func NewRouter(deps RouterDeps) http.Handler {
 	agents := newAgentsHandler(deps.AgentStore, deps.BudgetStore)
 	search := newSearchHandler(deps.ToolService)
 	usage := newUsageHandler(deps.MeterStore, deps.AgentStore)
+
+	// Login rate limiter: 5 attempts per IP per minute.
+	loginRL := newLoginRateLimiter(5, time.Minute)
+	loginRL.startCleanup(context.Background(), 5*time.Minute)
 
 	// Session lookup adapter for user auth middlewares.
 	var sessionLookup auth.SessionLookup
@@ -60,8 +154,17 @@ func NewRouter(deps RouterDeps) http.Handler {
 	// Health check.
 	r.Get("/health", func(w http.ResponseWriter, r *http.Request) {
 		w.Header().Set("Content-Type", "application/json")
+		if deps.DBPool != nil {
+			pingCtx, pingCancel := context.WithTimeout(r.Context(), 2*time.Second)
+			defer pingCancel()
+			if err := deps.DBPool.Ping(pingCtx); err != nil {
+				w.WriteHeader(http.StatusServiceUnavailable)
+				_, _ = w.Write([]byte(`{"status":"degraded","database":"unreachable"}`))
+				return
+			}
+		}
 		w.WriteHeader(http.StatusOK)
-		_, _ = w.Write([]byte(`{"status":"ok"}`))
+		_, _ = w.Write([]byte(`{"status":"ok","database":"connected"}`))
 	})
 
 	// Well-known manifest.
@@ -75,7 +178,19 @@ func NewRouter(deps RouterDeps) http.Handler {
 	// Public auth routes.
 	if deps.UserStore != nil {
 		authH := newAuthHandler(deps.UserStore)
-		r.Post("/api/v1/auth/login", authH.Login)
+		r.Post("/api/v1/auth/login", func(w http.ResponseWriter, r *http.Request) {
+			ip := r.RemoteAddr
+			if fwd := r.Header.Get("X-Forwarded-For"); fwd != "" {
+				ip = fwd
+			}
+			allowed, retryAfter := loginRL.allow(ip)
+			if !allowed {
+				w.Header().Set("Retry-After", fmt.Sprintf("%d", retryAfter))
+				writeError(w, http.StatusTooManyRequests, "rate_limited", "too many login attempts, try again later")
+				return
+			}
+			authH.Login(w, r)
+		})
 
 		// User-authed routes (any logged-in user).
 		r.Route("/api/v1/auth", func(ar chi.Router) {
@@ -200,6 +315,7 @@ func slogRequestLogger(next http.Handler) http.Handler {
 			"status", ww.Status(),
 			"duration_ms", time.Since(start).Milliseconds(),
 			"bytes", ww.BytesWritten(),
+			"request_id", RequestIDFromContext(r.Context()),
 		)
 	})
 }

@@ -15,6 +15,11 @@ type Config struct {
 	Proxy     ProxyConfig     `yaml:"proxy"`
 	Metering  MeteringConfig  `yaml:"metering"`
 	RateLimit RateLimitConfig `yaml:"rate_limit"`
+	CORS      CORSConfig      `yaml:"cors"`
+}
+
+type CORSConfig struct {
+	AllowedOrigins []string `yaml:"allowed_origins"` // default: [] (same-origin only when empty; ["*"] for dev)
 }
 
 type ServerConfig struct {
