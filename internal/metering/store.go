@@ -201,6 +201,13 @@ func buildWhereClause(q UsageQuery) (string, []any) {
 	if q.ToolID != "" {
 		args = append(args, q.ToolID)
 		conditions = append(conditions, fmt.Sprintf("tool_id = $%d", len(args)))
+	} else if len(q.ToolIDs) > 0 {
+		placeholders := make([]string, len(q.ToolIDs))
+		for i, id := range q.ToolIDs {
+			args = append(args, id)
+			placeholders[i] = fmt.Sprintf("$%d", len(args))
+		}
+		conditions = append(conditions, "tool_id IN ("+strings.Join(placeholders, ", ")+")")
 	}
 	if !q.From.IsZero() {
 		args = append(args, q.From)

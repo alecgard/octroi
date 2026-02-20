@@ -169,7 +169,7 @@ tbody tr:hover { background: var(--surface); }
   text-transform: uppercase;
   letter-spacing: 0.5px;
 }
-.form-group input, .form-group select, .form-group textarea {
+.form-group input, .form-group textarea {
   width: 100%;
   background: var(--bg);
   border: 1px solid var(--border);
@@ -178,6 +178,12 @@ tbody tr:hover { background: var(--surface); }
   font-size: 12px;
   font-family: var(--font);
 }
+.form-group select {
+  width: 100%;
+  height: 28px;
+  font-size: 12px;
+  padding: 5px 24px 5px 8px;
+}
 .form-group textarea { min-height: 50px; resize: vertical; }
 .form-group input:focus, .form-group select:focus, .form-group textarea:focus {
   outline: none;
@@ -185,6 +191,22 @@ tbody tr:hover { background: var(--surface); }
 }
 .form-row { display: grid; grid-template-columns: 1fr 1fr; gap: 10px; }
 .modal-actions { display: flex; justify-content: flex-end; gap: 6px; margin-top: 14px; }
+/* Confirm dialog */
+.confirm-modal .modal { max-width: 360px; }
+.confirm-modal .confirm-msg { font-size: 12px; line-height: 1.5; margin-bottom: 14px; }
+.btn-danger {
+  background: #c33; color: #fff; border: 1px solid #c33;
+  padding: 4px 14px; font-size: 11px; font-family: var(--font); font-weight: 600; cursor: pointer;
+}
+.btn-danger:hover { background: #a22; border-color: #a22; }
+/* Toast */
+.toast {
+  position: fixed; bottom: 20px; left: 50%; transform: translateX(-50%);
+  background: var(--text); color: var(--bg); padding: 8px 16px;
+  font-size: 11px; font-family: var(--font); z-index: 300;
+  opacity: 0; transition: opacity 0.2s;
+}
+.toast.show { opacity: 1; }
 /* Banner */
 .banner {
   background: var(--surface);
@@ -197,9 +219,28 @@ tbody tr:hover { background: var(--surface); }
 }
 .banner.show { display: block; }
 .banner .key-value { font-weight: 700; color: var(--text); user-select: all; }
+/* Select (global) */
+select {
+  appearance: none;
+  -webkit-appearance: none;
+  -moz-appearance: none;
+  border: 1px solid var(--border);
+  border-radius: 0;
+  color: var(--text);
+  padding: 3px 8px;
+  padding-right: 22px;
+  font-size: 11px;
+  font-weight: 500;
+  font-family: var(--font);
+  height: 24px;
+  cursor: pointer;
+  background: var(--bg) url("data:image/svg+xml,%3Csvg xmlns='http://www.w3.org/2000/svg' width='10' height='6' viewBox='0 0 10 6'%3E%3Cpath d='M0 0l5 6 5-6z' fill='%23707068'/%3E%3C/svg%3E") no-repeat right 6px center;
+}
+select:focus { outline: none; border-color: var(--text); }
+select:hover { border-color: var(--text2); }
 /* Filters */
 .filters { display: flex; gap: 8px; align-items: center; flex-wrap: wrap; }
-.filters input[type="date"], .filters select, select.styled-select {
+.filters input[type="date"] {
   background: var(--bg);
   border: 1px solid var(--border);
   color: var(--text);
@@ -267,6 +308,7 @@ a:hover { color: var(--text2); }
   background: #2a7;
 }
 .mode-btn.active .live-dot { background: #5fffaa; animation: pulse 1.5s infinite; }
+body.shift-held .mode-btn.active .live-dot { background: #f0c040; animation: none; }
 @keyframes pulse {
   0%, 100% { opacity: 1; }
   50% { opacity: 0.4; }
@@ -276,6 +318,39 @@ a:hover { color: var(--text2); }
   to { background: transparent; }
 }
 .txn-new { animation: fadeIn 1.2s ease-out; }
+.txn-filterable { position: relative; cursor: default; }
+.txn-filter-icon {
+  display: inline;
+  visibility: hidden;
+  cursor: pointer;
+  margin-left: 4px;
+  opacity: 0.4;
+  font-size: 10px;
+  vertical-align: middle;
+}
+.txn-filterable:hover .txn-filter-icon { visibility: visible; }
+.txn-filter-icon:hover { opacity: 1; }
+.txn-filterable:hover .txn-filter-active, body.shift-held .txn-filter-active { opacity: 1; }
+/* Show all filter icons when shift is held */
+body.shift-held .txn-filter-icon { visibility: visible; }
+/* Highlight pending selections */
+body.shift-held .txn-filter-pending { background: var(--surface2); }
+/* Strikethrough for non-selected items when filters are active */
+.txn-excluded { text-decoration: line-through; color: var(--text2); }
+.chart-legend-excluded { text-decoration: line-through; color: var(--text2); opacity: 0.5; }
+/* Filter pills */
+.filter-pills {
+  display: flex; flex-wrap: wrap; gap: 4px; padding: 4px 0;
+}
+.filter-pill {
+  display: inline-flex; align-items: center; gap: 4px;
+  background: var(--surface); border: 1px solid var(--border);
+  padding: 2px 8px; font-size: 10px; font-family: var(--font);
+}
+.filter-pill-x {
+  cursor: pointer; opacity: 0.5; font-size: 12px; line-height: 1;
+}
+.filter-pill-x:hover { opacity: 1; }
 /* Team cards */
 .team-section {
   background: var(--surface);
@@ -336,8 +411,9 @@ a:hover { color: var(--text2); }
 /* Chart */
 .chart-label { font-family: var(--font); font-size: 9px; fill: var(--text2); }
 .chart-tick { stroke: var(--border); stroke-dasharray: 3,3; }
-.chart-legend { display: flex; gap: 12px; flex-wrap: wrap; margin-top: 6px; font-size: 10px; color: var(--text2); }
-.chart-legend-item { display: flex; align-items: center; gap: 4px; cursor: default; }
+.chart-legend { display: flex; gap: 12px; flex-wrap: wrap; padding: 6px 8px 8px; font-size: 10px; color: var(--text); }
+.chart-legend-item { display: flex; align-items: center; gap: 4px; cursor: pointer; }
+.chart-legend-item:hover { color: var(--text); }
 .chart-legend-swatch { width: 10px; height: 10px; display: inline-block; }
 .chart-tooltip {
   position: absolute; pointer-events: none; z-index: 50;
@@ -504,6 +580,7 @@ a:hover { color: var(--text2); }
         <button class="mode-btn" id="mode-hist" onclick="setUsageMode('historical')">Historical</button>
       </div>
     </div>
+    <div id="usage-filter-pills" style="display:none"></div>
     <div class="cards" id="usage-cards">
       <div class="card"><div class="label">Total Requests</div><div class="value" id="stat-requests">&mdash;</div></div>
       <div class="card"><div class="label">Total Cost</div><div class="value" id="stat-cost">&mdash;</div></div>
@@ -514,7 +591,6 @@ a:hover { color: var(--text2); }
       <h3 style="font-size:14px;font-weight:600">Requests Over Time</h3>
       <div style="flex:1"></div>
       <select id="usage-bucket-select" class="styled-select" onchange="onBucketChange()">
-        <option value="auto">Bucket: auto</option>
         <option value="30000">Bucket: 30 sec</option>
         <option value="60000">Bucket: 1 min</option>
         <option value="300000">Bucket: 5 min</option>
@@ -527,12 +603,13 @@ a:hover { color: var(--text2); }
         <button class="mode-btn" id="chart-by-tool" onclick="setChartGroup('tool')">By Tool</button>
       </div>
     </div>
-    <div id="usage-chart" style="width:100%;height:180px;margin-bottom:16px;border:1px solid var(--border);background:var(--surface);overflow:hidden"></div>
+    <div id="usage-chart" style="width:100%;margin-bottom:16px;border:1px solid var(--border);background:var(--surface);overflow:hidden"></div>
     <h3 style="font-size:14px; font-weight:600; margin-bottom:12px;">Transactions</h3>
     <table>
       <thead>
         <tr>
           <th>Time</th>
+          <th>Team</th>
           <th>Agent</th>
           <th>Tool</th>
           <th>Method</th>
@@ -544,6 +621,11 @@ a:hover { color: var(--text2); }
       <tbody id="txn-body"></tbody>
     </table>
     <div class="empty" id="txn-empty" style="display:none">No transactions found.</div>
+    <div id="txn-pagination" style="display:none;align-items:center;justify-content:flex-end;margin-top:12px;font-size:13px;color:var(--text2);gap:8px">
+      <span id="txn-page-info"></span>
+      <button class="btn-ghost" id="txn-prev" onclick="txnPrevPage()" style="padding:4px 8px">&laquo; Prev</button>
+      <button class="btn-ghost" id="txn-next" onclick="txnNextPage()" style="padding:4px 8px">Next &raquo;</button>
+    </div>
   </div>
 
   <!-- Users Tab (org_admin only) -->
@@ -754,26 +836,188 @@ a:hover { color: var(--text2); }
   </div>
 </div>
 
+<div class="modal-overlay confirm-modal" id="confirm-modal">
+  <div class="modal">
+    <h3 id="confirm-title">Confirm</h3>
+    <div class="confirm-msg" id="confirm-msg"></div>
+    <div class="modal-actions">
+      <button class="btn-ghost" id="confirm-cancel">Cancel</button>
+      <button class="btn-danger" id="confirm-ok">Delete</button>
+    </div>
+  </div>
+</div>
+
+<div class="toast" id="toast"></div>
+
 <script>
+// --- Confirm / Toast helpers ---
+function appConfirm(msg, { title = 'Confirm', okLabel = 'Delete' } = {}) {
+  return new Promise(resolve => {
+    document.getElementById('confirm-title').textContent = title;
+    document.getElementById('confirm-msg').textContent = msg;
+    const okBtn = document.getElementById('confirm-ok');
+    okBtn.textContent = okLabel;
+    okBtn.className = okLabel === 'Delete' || okLabel === 'Remove' ? 'btn-danger' : 'btn-primary';
+    document.getElementById('confirm-modal').classList.add('open');
+    const cleanup = (val) => {
+      document.getElementById('confirm-modal').classList.remove('open');
+      okBtn.onclick = null;
+      document.getElementById('confirm-cancel').onclick = null;
+      resolve(val);
+    };
+    okBtn.onclick = () => cleanup(true);
+    document.getElementById('confirm-cancel').onclick = () => cleanup(false);
+  });
+}
+
+function toast(msg, ms = 3000) {
+  const el = document.getElementById('toast');
+  el.textContent = msg;
+  el.classList.add('show');
+  clearTimeout(el._t);
+  el._t = setTimeout(() => el.classList.remove('show'), ms);
+}
+
 // --- State ---
 let authToken = localStorage.getItem('octroi_session_token') || '';
 let authMode = ''; // 'session' when logged in
 let currentUser = null; // { id, email, name, teams, role }
 let isAdmin = false;
-let usageAgentId = null;
-let usageAgentName = null;
-let usageToolId = null;
-let usageToolName = null;
-let usageTeamFilter = '';
+let usageAgentIds = [];    // array of agent UUIDs
+let usageToolIds = [];     // array of tool UUIDs
+let usageTeamFilters = []; // array of team names
 let usageMode = 'live'; // 'live' or 'historical'
 let usagePollTimer = null;
 let lastTxnTimestamp = null;
 let usageLoading = false;
+let txnPageSize = 50;
+let txnAll = []; // current page rows
+let txnNextCursor = null;
+let txnCursorStack = []; // stack of cursors for previous pages
+let txnTotal = 0; // from summary total_requests
+let txnOffset = 0; // current page start index (0-based)
+let txnBasePath = ''; // base transaction query path (without cursor/limit)
 let agentsCache = [];
 let toolsCache = [];
 let teamsCache = [];
 let toolCallCounts = {};
 let usersCache = [];
+
+// --- Shift-key multi-select state ---
+let shiftHeld = false;
+let pendingFilters = { teams: new Set(), agents: new Set(), tools: new Set() };
+
+document.addEventListener('keydown', e => {
+  if (e.key === 'Shift' && !shiftHeld) {
+    shiftHeld = true;
+    document.body.classList.add('shift-held');
+    stopUsagePoll();
+  }
+});
+document.addEventListener('keyup', e => {
+  if (e.key === 'Shift' && shiftHeld) {
+    shiftHeld = false;
+    document.body.classList.remove('shift-held');
+    // Apply pending filters if any
+    let changed = false;
+    if (pendingFilters.teams.size) {
+      pendingFilters.teams.forEach(t => {
+        const idx = usageTeamFilters.indexOf(t);
+        if (idx >= 0) usageTeamFilters.splice(idx, 1);
+        else usageTeamFilters.push(t);
+      });
+      changed = true;
+    }
+    if (pendingFilters.agents.size) {
+      pendingFilters.agents.forEach(a => {
+        const idx = usageAgentIds.indexOf(a);
+        if (idx >= 0) usageAgentIds.splice(idx, 1);
+        else usageAgentIds.push(a);
+      });
+      changed = true;
+    }
+    if (pendingFilters.tools.size) {
+      pendingFilters.tools.forEach(t => {
+        const idx = usageToolIds.indexOf(t);
+        if (idx >= 0) usageToolIds.splice(idx, 1);
+        else usageToolIds.push(t);
+      });
+      changed = true;
+    }
+    pendingFilters = { teams: new Set(), agents: new Set(), tools: new Set() };
+    // Remove pending highlights
+    document.querySelectorAll('.txn-filter-pending').forEach(el => el.classList.remove('txn-filter-pending'));
+    if (changed) {
+      syncDropdowns();
+      renderFilterPills();
+    }
+    // Resume live polling if in live mode, with an immediate fetch.
+    if (usageMode === 'live') {
+      loadUsageLive();
+      startUsagePoll();
+    } else if (changed) {
+      loadUsage();
+    }
+  }
+});
+
+// Sync dropdowns: when multi-select is active, clear dropdown; otherwise set single value.
+function syncDropdowns() {
+  const teamSel = document.getElementById('usage-team-select');
+  const agentSel = document.getElementById('usage-agent-select');
+  const toolSel = document.getElementById('usage-tool-select');
+  teamSel.value = usageTeamFilters.length === 1 ? usageTeamFilters[0] : '';
+  agentSel.value = usageAgentIds.length === 1 ? usageAgentIds[0] : '';
+  toolSel.value = usageToolIds.length === 1 ? usageToolIds[0] : '';
+}
+
+// Render filter pills
+function renderFilterPills() {
+  const container = document.getElementById('usage-filter-pills');
+  const pills = [];
+  usageTeamFilters.forEach(t => pills.push({ type: 'team', value: t, label: 'Team: ' + t }));
+  usageAgentIds.forEach(a => pills.push({ type: 'agent', value: a, label: 'Agent: ' + resolveAgentName(a) }));
+  usageToolIds.forEach(t => pills.push({ type: 'tool', value: t, label: 'Tool: ' + resolveToolName(t) }));
+  if (!pills.length) { container.style.display = 'none'; container.innerHTML = ''; return; }
+  container.style.display = '';
+  container.innerHTML = '<div class="filter-pills">' + pills.map(p =>
+    `<span class="filter-pill">${esc(p.label)} <span class="filter-pill-x" onclick="removeFilterPill('${p.type}','${esc(p.value)}')">&times;</span></span>`
+  ).join('') +
+  (pills.length > 1 ? `<span class="filter-pill" style="cursor:pointer;color:var(--danger)" onclick="clearAllFilters()">Clear all &times;</span>` : '') +
+  '</div>';
+}
+
+function removeFilterPill(type, value) {
+  if (type === 'team') usageTeamFilters = usageTeamFilters.filter(t => t !== value);
+  else if (type === 'agent') usageAgentIds = usageAgentIds.filter(a => a !== value);
+  else if (type === 'tool') usageToolIds = usageToolIds.filter(t => t !== value);
+  syncDropdowns();
+  renderFilterPills();
+  loadUsage();
+}
+
+function clearAllFilters() {
+  usageTeamFilters = [];
+  usageAgentIds = [];
+  usageToolIds = [];
+  syncDropdowns();
+  renderFilterPills();
+  loadUsage();
+}
+
+// Compute the effective (preview) filter sets: committed state with pending toggles applied.
+function effectiveFilters() {
+  function toggle(arr, pending) {
+    const result = new Set(arr);
+    pending.forEach(v => { if (result.has(v)) result.delete(v); else result.add(v); });
+    return Array.from(result);
+  }
+  return {
+    teams: toggle(usageTeamFilters, pendingFilters.teams),
+    agents: toggle(usageAgentIds, pendingFilters.agents),
+    tools: toggle(usageToolIds, pendingFilters.tools),
+  };
+}
 
 // --- API helpers ---
 function apiBase() {
@@ -1010,7 +1254,7 @@ function renderTools() {
   const disAttr = isAdmin ? '' : ' disabled title="Org admin only"';
   tbody.innerHTML = filtered.map(t => `<tr>
     <td><a href="#" onclick="viewToolUsage('${t.id}','${esc(t.name)}');return false" style="text-decoration:none;font-weight:700;border-bottom:1px solid var(--border)">${esc(t.name)}</a><br><span style="color:var(--text2);font-size:11px">${esc(t.description || '')}</span></td>
-    <td class="mono">${isAdmin ? esc(t.endpoint || '\u2014') : esc(t.pricing_model || 'free')}</td>
+    <td class="mono" style="word-break:break-all;max-width:220px">${isAdmin ? esc(t.endpoint || '\u2014') : esc(t.pricing_model || 'free')}</td>
     <td>${esc(t.auth_type || 'none')}</td>
     <td>${toolCallCounts[t.id] != null ? Number(toolCallCounts[t.id]).toLocaleString() : '\u2014'}</td>
     <td style="white-space:nowrap">
@@ -1099,7 +1343,7 @@ async function submitTool() {
   let authConfig = {};
   const authConfigRaw = document.getElementById('tool-auth-config').value.trim();
   if (authConfigRaw) {
-    try { authConfig = JSON.parse(authConfigRaw); } catch { alert('Invalid auth config JSON'); return; }
+    try { authConfig = JSON.parse(authConfigRaw); } catch { toast('Invalid auth config JSON'); return; }
   }
   const body = {
     name: document.getElementById('tool-name').value.trim(),
@@ -1124,7 +1368,7 @@ async function submitTool() {
     }
     closeModal('tool-modal');
     loadTools();
-  } catch (e) { alert('Error: ' + e.message); }
+  } catch (e) { toast('Error: ' + e.message); }
 }
 
 async function saveToolRateOverrides(toolID) {
@@ -1157,11 +1401,11 @@ async function saveToolRateOverrides(toolID) {
 }
 
 async function deleteTool(id, name) {
-  if (!confirm('Delete tool "' + name + '"?')) return;
+  if (!await appConfirm('Delete tool "' + name + '"?')) return;
   try {
     await api('DELETE', '/api/v1/admin/tools/' + id);
     loadTools();
-  } catch (e) { alert('Error: ' + e.message); }
+  } catch (e) { toast('Error: ' + e.message); }
 }
 
 // --- Agents ---
@@ -1249,14 +1493,14 @@ async function submitAgent() {
       }
     }
     loadAgents();
-  } catch (e) { alert('Error: ' + e.message); }
+  } catch (e) { toast('Error: ' + e.message); }
 }
 
 async function regenKeyFromModal() {
   const id = document.getElementById('agent-edit-id').value;
   const name = document.getElementById('agent-name').value;
   if (!id) return;
-  if (!confirm('Regenerate API key for "' + name + '"? The old key will stop working immediately.')) return;
+  if (!await appConfirm('Regenerate API key for "' + name + '"? The old key will stop working immediately.', { title: 'Regenerate Key', okLabel: 'Regenerate' })) return;
   try {
     const res = await api('POST', apiBase() + '/agents/' + id + '/regenerate-key');
     if (res.api_key) {
@@ -1265,15 +1509,15 @@ async function regenKeyFromModal() {
     }
     closeModal('agent-modal');
     loadAgents();
-  } catch (e) { alert('Error: ' + e.message); }
+  } catch (e) { toast('Error: ' + e.message); }
 }
 
 async function deleteAgent(id, name) {
-  if (!confirm('Delete agent "' + name + '"?')) return;
+  if (!await appConfirm('Delete agent "' + name + '"?')) return;
   try {
     await api('DELETE', apiBase() + '/agents/' + id);
     loadAgents();
-  } catch (e) { alert('Error: ' + e.message); }
+  } catch (e) { toast('Error: ' + e.message); }
 }
 
 // --- Teams ---
@@ -1351,16 +1595,16 @@ async function submitAddMember() {
     closeModal('add-member-modal');
     loadTeams();
     loadUsers();
-  } catch (e) { alert('Error: ' + e.message); }
+  } catch (e) { toast('Error: ' + e.message); }
 }
 
 async function removeTeamMember(team, userId, userName) {
-  if (!confirm('Remove "' + userName + '" from team "' + team + '"?')) return;
+  if (!await appConfirm('Remove "' + userName + '" from team "' + team + '"?', { title: 'Remove Member', okLabel: 'Remove' })) return;
   try {
     await api('DELETE', '/api/v1/member/teams/' + encodeURIComponent(team) + '/members/' + userId);
     loadTeams();
     loadUsers();
-  } catch (e) { alert('Error: ' + e.message); }
+  } catch (e) { toast('Error: ' + e.message); }
 }
 
 function openCreateTeamModal() {
@@ -1377,16 +1621,16 @@ function openCreateTeamModal() {
 async function submitCreateTeam() {
   const name = document.getElementById('create-team-name').value.trim();
   const userId = document.getElementById('create-team-admin').value;
-  if (!name) { alert('Team name is required'); return; }
-  if (!userId) { alert('A first admin is required'); return; }
+  if (!name) { toast('Team name is required'); return; }
+  if (!userId) { toast('A first admin is required'); return; }
   // Check if team already exists
-  if (teamsCache.some(t => t.name === name)) { alert('Team "' + name + '" already exists'); return; }
+  if (teamsCache.some(t => t.name === name)) { toast('Team "' + name + '" already exists'); return; }
   try {
     await api('PUT', '/api/v1/member/teams/' + encodeURIComponent(name) + '/members/' + userId, { role: 'admin' });
     closeModal('create-team-modal');
     loadTeams();
     loadUsers();
-  } catch (e) { alert('Error: ' + e.message); }
+  } catch (e) { toast('Error: ' + e.message); }
 }
 
 function populateTeamFilter() {
@@ -1427,106 +1671,146 @@ async function loadUsageLive() {
   const from = new Date(Date.now() - liveLookback).toISOString();
   let qs = '&from=' + encodeURIComponent(from);
 
+  let baseTxnPrefix, usagePath, txnQs;
   if (isAdmin) {
-    let usagePath = '/api/v1/admin/usage';
-    let txnQs = qs;
-    if (usageTeamFilter) {
-      qs += '&team=' + encodeURIComponent(usageTeamFilter);
-      txnQs += '&team=' + encodeURIComponent(usageTeamFilter);
+    usagePath = '/api/v1/admin/usage';
+    baseTxnPrefix = '/api/v1/admin/usage/transactions?';
+    txnQs = qs;
+    if (usageTeamFilters.length > 0) {
+      const teamParam = '&team=' + encodeURIComponent(usageTeamFilters.join(','));
+      qs += teamParam;
+      txnQs += teamParam;
     }
-    if (usageAgentId && usageToolId) {
-      usagePath = '/api/v1/admin/usage/agents/' + usageAgentId + '/tools/' + usageToolId;
-      txnQs += '&agent_id=' + usageAgentId + '&tool_id=' + usageToolId;
-    } else if (usageAgentId) {
-      usagePath = '/api/v1/admin/usage/agents/' + usageAgentId;
-      txnQs += '&agent_id=' + usageAgentId;
-    } else if (usageToolId) {
-      usagePath = '/api/v1/admin/usage/tools/' + usageToolId;
-      txnQs += '&tool_id=' + usageToolId;
+    if (usageAgentIds.length > 0) {
+      const agentParam = '&agent_id=' + encodeURIComponent(usageAgentIds.join(','));
+      qs += agentParam;
+      txnQs += agentParam;
     }
-    try {
-      const [summary, txns] = await Promise.all([
-        api('GET', usagePath + '?' + qs),
-        api('GET', '/api/v1/admin/usage/transactions?limit=50' + txnQs),
-      ]);
-      renderUsageSummary(summary);
-      renderTransactionsLive(txns.transactions || []);
-    } catch (e) { console.error('Failed to load live usage', e); }
+    if (usageToolIds.length > 0) {
+      const toolParam = '&tool_id=' + encodeURIComponent(usageToolIds.join(','));
+      qs += toolParam;
+      txnQs += toolParam;
+    }
   } else {
-    let memberQs = qs;
-    if (usageTeamFilter) {
-      memberQs += '&team=' + encodeURIComponent(usageTeamFilter);
+    usagePath = '/api/v1/member/usage';
+    baseTxnPrefix = '/api/v1/member/usage/transactions?';
+    txnQs = qs;
+    if (usageTeamFilters.length > 0) {
+      txnQs += '&team=' + encodeURIComponent(usageTeamFilters.join(','));
     }
-    try {
-      const [summary, txns] = await Promise.all([
-        api('GET', '/api/v1/member/usage?' + memberQs),
-        api('GET', '/api/v1/member/usage/transactions?limit=50' + memberQs),
-      ]);
-      renderUsageSummary(summary);
-      renderTransactionsLive(txns.transactions || []);
-    } catch (e) { console.error('Failed to load live usage', e); }
+    if (usageToolIds.length > 0) {
+      txnQs += '&tool_id=' + encodeURIComponent(usageToolIds.join(','));
+    }
   }
+
+  txnBasePath = baseTxnPrefix + 'limit=' + txnPageSize + txnQs;
+  const onPage1 = txnOffset === 0;
+  try {
+    const fetches = [
+      api('GET', usagePath + '?' + qs),
+      api('GET', baseTxnPrefix + 'limit=5000' + txnQs),
+    ];
+    // Only re-fetch table data when on page 1; preserve user's position otherwise.
+    if (onPage1) fetches.push(api('GET', txnBasePath));
+    const results = await Promise.all(fetches);
+    const summary = results[0];
+    const chartTxns = results[1];
+    renderUsageSummary(summary);
+    txnTotal = summary.total_requests || 0;
+    renderUsageChart((chartTxns.transactions || chartTxns) || txnAll);
+    if (onPage1) {
+      const tableResp = results[2];
+      const prevTimestamp = lastTxnTimestamp;
+      txnAll = tableResp.transactions || [];
+      txnNextCursor = tableResp.next_cursor || null;
+      txnCursorStack = [];
+      if (txnAll.length) lastTxnTimestamp = txnAll[0].timestamp;
+      renderTxnTable(prevTimestamp);
+    } else {
+      // Just update the total count display without resetting the table.
+      const displayTotal = txnTotal > 0 ? txnTotal : (txnOffset + txnAll.length);
+      document.getElementById('txn-page-info').textContent = `${txnOffset + 1}–${txnOffset + txnAll.length} of ${displayTotal}`;
+    }
+  } catch (e) { console.error('Failed to load live usage', e); }
 }
 
-function renderTransactionsLive(txns) {
+function renderTxnTable(prevTimestamp) {
   const tbody = document.getElementById('txn-body');
   const empty = document.getElementById('txn-empty');
-  if (!txns.length) { tbody.innerHTML = ''; empty.style.display = 'block'; renderUsageChart(txns); return; }
+  const pag = document.getElementById('txn-pagination');
+  if (!txnAll.length && txnOffset === 0) { tbody.innerHTML = ''; empty.style.display = 'block'; pag.style.display = 'none'; return; }
   empty.style.display = 'none';
-  const prevTimestamp = lastTxnTimestamp;
-  if (txns.length) lastTxnTimestamp = txns[0].timestamp;
-  tbody.innerHTML = txns.map(t => {
+  const ficon = '<svg width="10" height="10" viewBox="0 0 16 16" fill="currentColor" style="vertical-align:middle"><path d="M1 1h14l-5.5 6.5V14l-3-2V7.5z"/></svg>';
+  const fxicon = '<svg width="10" height="10" viewBox="0 0 16 16" fill="currentColor" style="vertical-align:middle"><path d="M1 1h14l-5.5 6.5V14l-3-2V7.5z"/><line x1="2" y1="14" x2="14" y2="2" stroke="currentColor" stroke-width="2"/></svg>';
+  function txnFilterBtn(type, val, rawVal) {
+    const active = (type === 'team' && usageTeamFilters.includes(rawVal)) ||
+                   (type === 'agent' && usageAgentIds.includes(rawVal)) ||
+                   (type === 'tool' && usageToolIds.includes(rawVal));
+    if (active) return `<span class="txn-filter-icon txn-filter-active" onclick="removeFilterItem('${type}','${val}',event)" title="Remove from filter">${fxicon}</span>`;
+    return `<span class="txn-filter-icon" onclick="filterFromTxn('${type}','${val}',event)" title="Filter by ${type}">${ficon}</span>`;
+  }
+  const eff = effectiveFilters();
+  const hasTeamFilter = eff.teams.length > 0;
+  const hasAgentFilter = eff.agents.length > 0;
+  const hasToolFilter = eff.tools.length > 0;
+  tbody.innerHTML = txnAll.map(t => {
     const isNew = prevTimestamp && t.timestamp > prevTimestamp;
+    const teamRaw = resolveAgentTeam(t.agent_id);
+    const team = esc(teamRaw);
+    const teamExcl = hasTeamFilter && !eff.teams.includes(teamRaw) ? ' txn-excluded' : '';
+    const agentExcl = hasAgentFilter && !eff.agents.includes(t.agent_id) ? ' txn-excluded' : '';
+    const toolExcl = hasToolFilter && !eff.tools.includes(t.tool_id) ? ' txn-excluded' : '';
     return `<tr${isNew ? ' class="txn-new"' : ''}>
     <td style="white-space:nowrap">${fmtTime(t.timestamp)}</td>
-    <td>${esc(resolveAgentName(t.agent_id))}</td>
-    <td>${esc(resolveToolName(t.tool_id))}</td>
+    <td class="txn-filterable${teamExcl}">${team}${txnFilterBtn('team', esc(teamRaw), teamRaw)}</td>
+    <td class="txn-filterable${agentExcl}">${esc(resolveAgentName(t.agent_id))}${txnFilterBtn('agent', t.agent_id, t.agent_id)}</td>
+    <td class="txn-filterable${toolExcl}">${esc(resolveToolName(t.tool_id))}${txnFilterBtn('tool', t.tool_id, t.tool_id)}</td>
     <td>${esc(t.method)}</td>
     <td style="color:${t.success ? 'var(--success)' : 'var(--danger)'}">${t.status_code}</td>
     <td>${t.latency_ms}ms</td>
     <td>$${(t.cost || 0).toFixed(4)}</td>
   </tr>`;
   }).join('');
-  renderUsageChart(txns);
+  const rangeEnd = txnOffset + txnAll.length;
+  const displayTotal = txnTotal > 0 ? txnTotal : rangeEnd;
+  pag.style.display = 'flex';
+  document.getElementById('txn-page-info').textContent = txnAll.length ? `${txnOffset + 1}–${rangeEnd} of ${displayTotal}` : 'No results';
+  document.getElementById('txn-prev').disabled = txnOffset <= 0;
+  document.getElementById('txn-next').disabled = !txnNextCursor;
 }
 
 // --- Usage ---
 function viewTeamUsage(teamName) {
-  usageAgentId = null;
-  usageAgentName = null;
-  usageToolId = null;
-  usageToolName = null;
-  usageTeamFilter = teamName;
-  document.getElementById('usage-agent-select').value = '';
-  document.getElementById('usage-tool-select').value = '';
-  document.getElementById('usage-team-select').value = teamName;
+  usageAgentIds = [];
+  usageToolIds = [];
+  usageTeamFilters = [teamName];
+  syncDropdowns();
+  renderFilterPills();
   navigateTo('usage');
   loadUsage();
 }
 
 function viewAgentUsage(agentId, agentName) {
-  usageToolId = null;
-  usageToolName = null;
-  usageTeamFilter = '';
-  usageAgentId = agentId;
-  usageAgentName = agentName;
-  document.getElementById('usage-tool-select').value = '';
-  document.getElementById('usage-team-select').value = '';
-  document.getElementById('usage-agent-select').value = agentId;
+  usageToolIds = [];
+  usageTeamFilters = [];
+  usageAgentIds = [agentId];
+  syncDropdowns();
+  renderFilterPills();
   navigateTo('usage');
   loadUsage();
 }
 
 function onAgentFilterChange() {
   const sel = document.getElementById('usage-agent-select');
-  usageAgentId = sel.value || null;
-  usageAgentName = sel.value ? sel.options[sel.selectedIndex].text : null;
+  usageAgentIds = sel.value ? [sel.value] : [];
+  renderFilterPills();
   loadUsage();
 }
 
 function onTeamFilterChange() {
   const sel = document.getElementById('usage-team-select');
-  usageTeamFilter = sel.value || '';
+  usageTeamFilters = sel.value ? [sel.value] : [];
+  renderFilterPills();
   loadUsage();
 }
 
@@ -1539,22 +1823,19 @@ function populateAgentFilter() {
 }
 
 function viewToolUsage(toolId, toolName) {
-  usageAgentId = null;
-  usageAgentName = null;
-  usageTeamFilter = '';
-  usageToolId = toolId;
-  usageToolName = toolName;
-  document.getElementById('usage-agent-select').value = '';
-  document.getElementById('usage-team-select').value = '';
-  document.getElementById('usage-tool-select').value = toolId;
+  usageAgentIds = [];
+  usageTeamFilters = [];
+  usageToolIds = [toolId];
+  syncDropdowns();
+  renderFilterPills();
   navigateTo('usage');
   loadUsage();
 }
 
 function onToolFilterChange() {
   const sel = document.getElementById('usage-tool-select');
-  usageToolId = sel.value || null;
-  usageToolName = sel.value ? sel.options[sel.selectedIndex].text : null;
+  usageToolIds = sel.value ? [sel.value] : [];
+  renderFilterPills();
   loadUsage();
 }
 
@@ -1575,50 +1856,54 @@ async function loadUsage() {
   if (from) qs += '&from=' + from;
   if (to) qs += '&to=' + to;
 
+  let baseTxnPrefix, usagePath, txnQs;
   if (isAdmin) {
-    // Admin: use admin usage endpoints
-    let usagePath = '/api/v1/admin/usage';
-    let txnQs = qs;
-
-    // Team filter
-    if (usageTeamFilter) {
-      qs += '&team=' + encodeURIComponent(usageTeamFilter);
-      txnQs += '&team=' + encodeURIComponent(usageTeamFilter);
+    usagePath = '/api/v1/admin/usage';
+    baseTxnPrefix = '/api/v1/admin/usage/transactions?';
+    txnQs = qs;
+    if (usageTeamFilters.length > 0) {
+      const teamParam = '&team=' + encodeURIComponent(usageTeamFilters.join(','));
+      qs += teamParam;
+      txnQs += teamParam;
     }
-
-    if (usageAgentId && usageToolId) {
-      usagePath = '/api/v1/admin/usage/agents/' + usageAgentId + '/tools/' + usageToolId;
-      txnQs += '&agent_id=' + usageAgentId + '&tool_id=' + usageToolId;
-    } else if (usageAgentId) {
-      usagePath = '/api/v1/admin/usage/agents/' + usageAgentId;
-      txnQs += '&agent_id=' + usageAgentId;
-    } else if (usageToolId) {
-      usagePath = '/api/v1/admin/usage/tools/' + usageToolId;
-      txnQs += '&tool_id=' + usageToolId;
+    if (usageAgentIds.length > 0) {
+      const agentParam = '&agent_id=' + encodeURIComponent(usageAgentIds.join(','));
+      qs += agentParam;
+      txnQs += agentParam;
     }
-    try {
-      const [summary, txns] = await Promise.all([
-        api('GET', usagePath + '?' + qs),
-        api('GET', '/api/v1/admin/usage/transactions?limit=50' + txnQs),
-      ]);
-      renderUsageSummary(summary);
-      renderTransactions(txns.transactions || []);
-    } catch (e) { console.error('Failed to load usage', e); }
+    if (usageToolIds.length > 0) {
+      const toolParam = '&tool_id=' + encodeURIComponent(usageToolIds.join(','));
+      qs += toolParam;
+      txnQs += toolParam;
+    }
   } else {
-    // Member: use member usage endpoints (team-scoped)
-    let memberQs = qs;
-    if (usageTeamFilter) {
-      memberQs += '&team=' + encodeURIComponent(usageTeamFilter);
+    usagePath = '/api/v1/member/usage';
+    baseTxnPrefix = '/api/v1/member/usage/transactions?';
+    txnQs = qs;
+    if (usageTeamFilters.length > 0) {
+      txnQs += '&team=' + encodeURIComponent(usageTeamFilters.join(','));
     }
-    try {
-      const [summary, txns] = await Promise.all([
-        api('GET', '/api/v1/member/usage?' + memberQs),
-        api('GET', '/api/v1/member/usage/transactions?limit=50' + memberQs),
-      ]);
-      renderUsageSummary(summary);
-      renderTransactions(txns.transactions || []);
-    } catch (e) { console.error('Failed to load usage', e); }
+    if (usageToolIds.length > 0) {
+      txnQs += '&tool_id=' + encodeURIComponent(usageToolIds.join(','));
+    }
   }
+
+  txnBasePath = baseTxnPrefix + 'limit=' + txnPageSize + txnQs;
+  try {
+    const [summary, tableResp, chartTxns] = await Promise.all([
+      api('GET', usagePath + '?' + qs),
+      api('GET', txnBasePath),
+      api('GET', baseTxnPrefix + 'limit=5000' + txnQs),
+    ]);
+    renderUsageSummary(summary);
+    txnTotal = summary.total_requests || 0;
+    txnAll = tableResp.transactions || [];
+    txnNextCursor = tableResp.next_cursor || null;
+    txnCursorStack = [];
+    txnOffset = 0;
+    renderUsageChart((chartTxns.transactions || chartTxns) || txnAll);
+    renderTxnTable();
+  } catch (e) { console.error('Failed to load usage', e); }
 }
 
 function showUsageLoading() {
@@ -1627,7 +1912,7 @@ function showUsageLoading() {
     document.getElementById(id).innerHTML = '<span class="usage-spinner"></span>';
   });
   document.getElementById('txn-empty').style.display = 'none';
-  document.getElementById('txn-body').innerHTML = '<tr><td colspan="7"><div class="usage-spinner"></div></td></tr>';
+  document.getElementById('txn-body').innerHTML = '<tr><td colspan="8"><div class="usage-spinner"></div></td></tr>';
   document.getElementById('usage-chart').innerHTML = '<div class="usage-spinner"></div>';
 }
 
@@ -1641,21 +1926,30 @@ function renderUsageSummary(summary) {
   document.getElementById('stat-latency').textContent = (summary.avg_latency_ms ?? 0).toFixed(1) + 'ms';
 }
 
-function renderTransactions(txns) {
-  const tbody = document.getElementById('txn-body');
-  const empty = document.getElementById('txn-empty');
-  if (!txns.length) { tbody.innerHTML = ''; empty.style.display = 'block'; renderUsageChart(txns); return; }
-  empty.style.display = 'none';
-  tbody.innerHTML = txns.map(t => `<tr>
-    <td style="white-space:nowrap">${fmtTime(t.timestamp)}</td>
-    <td>${esc(resolveAgentName(t.agent_id))}</td>
-    <td>${esc(resolveToolName(t.tool_id))}</td>
-    <td>${esc(t.method)}</td>
-    <td style="color:${t.success ? 'var(--success)' : 'var(--danger)'}">${t.status_code}</td>
-    <td>${t.latency_ms}ms</td>
-    <td>$${(t.cost || 0).toFixed(4)}</td>
-  </tr>`).join('');
-  renderUsageChart(txns);
+async function txnPrevPage() {
+  if (txnCursorStack.length === 0) return;
+  txnCursorStack.pop(); // remove current page's cursor
+  const prevCursor = txnCursorStack.length > 0 ? txnCursorStack[txnCursorStack.length - 1] : null;
+  let url = txnBasePath;
+  if (prevCursor) url += '&cursor=' + encodeURIComponent(prevCursor);
+  try {
+    const resp = await api('GET', url);
+    txnAll = resp.transactions || [];
+    txnNextCursor = resp.next_cursor || null;
+    txnOffset = Math.max(0, txnOffset - txnPageSize);
+    renderTxnTable();
+  } catch (e) { console.error('Failed to load prev page', e); }
+}
+async function txnNextPage() {
+  if (!txnNextCursor) return;
+  txnCursorStack.push(txnNextCursor);
+  try {
+    const resp = await api('GET', txnBasePath + '&cursor=' + encodeURIComponent(txnNextCursor));
+    txnAll = resp.transactions || [];
+    txnNextCursor = resp.next_cursor || null;
+    txnOffset += txnPageSize;
+    renderTxnTable();
+  } catch (e) { console.error('Failed to load next page', e); }
 }
 
 // --- Users ---
@@ -1752,7 +2046,7 @@ async function submitUser() {
           saveSession();
         }
         loadUsers();
-      } catch (e) { alert('Error: ' + e.message); }
+      } catch (e) { toast('Error: ' + e.message); }
     } else {
       const body = {};
       if (email) body.email = email;
@@ -1763,25 +2057,25 @@ async function submitUser() {
         await api('PUT', '/api/v1/admin/users/' + id, body);
         closeModal('user-modal');
         loadUsers();
-      } catch (e) { alert('Error: ' + e.message); }
+      } catch (e) { toast('Error: ' + e.message); }
     }
   } else {
-    if (!email || !password) { alert('Email and password are required'); return; }
+    if (!email || !password) { toast('Email and password are required'); return; }
     const body = { email, password, name, role };
     try {
       await api('POST', '/api/v1/admin/users', body);
       closeModal('user-modal');
       loadUsers();
-    } catch (e) { alert('Error: ' + e.message); }
+    } catch (e) { toast('Error: ' + e.message); }
   }
 }
 
 async function deleteUser(id, email) {
-  if (!confirm('Delete user "' + email + '"?')) return;
+  if (!await appConfirm('Delete user "' + email + '"?')) return;
   try {
     await api('DELETE', '/api/v1/admin/users/' + id);
     loadUsers();
-  } catch (e) { alert('Error: ' + e.message); }
+  } catch (e) { toast('Error: ' + e.message); }
 }
 
 // --- Helpers ---
@@ -1790,7 +2084,62 @@ function esc(s) { const d = document.createElement('div'); d.textContent = s; re
 function fmtDate(s) { if (!s) return '\u2014'; return new Date(s).toLocaleDateString(); }
 function fmtTime(s) { if (!s) return '\u2014'; const d = new Date(s); return d.toLocaleDateString() + ' ' + d.toLocaleTimeString(); }
 function resolveAgentName(id) { const a = agentsCache.find(a => a.id === id); return a ? a.name : id.slice(0,8); }
+function resolveAgentTeam(id) { const a = agentsCache.find(a => a.id === id); return a ? (a.team || '') : ''; }
 function resolveToolName(id) { const t = toolsCache.find(t => t.id === id); return t ? t.name : id.slice(0,8); }
+
+function filterFromTxn(type, value, event) {
+  if (shiftHeld && value) {
+    // Shift held: toggle in pending set, don't reload yet.
+    const setKey = type === 'team' ? 'teams' : type === 'agent' ? 'agents' : 'tools';
+    if (pendingFilters[setKey].has(value)) {
+      pendingFilters[setKey].delete(value);
+    } else {
+      pendingFilters[setKey].add(value);
+    }
+    // Re-render table and chart to reflect pending strikethrough state.
+    renderTxnTable();
+    renderUsageChart(lastChartTxns);
+    return;
+  }
+  // No shift: single-select toggle (clear all others, set this one or clear if already active).
+  if (type === 'team') {
+    if (!value || (usageTeamFilters.length === 1 && usageTeamFilters[0] === value)) {
+      usageTeamFilters = [];
+    } else {
+      usageTeamFilters = [value];
+    }
+  } else if (type === 'agent') {
+    if (!value || (usageAgentIds.length === 1 && usageAgentIds[0] === value)) {
+      usageAgentIds = [];
+    } else {
+      usageAgentIds = [value];
+    }
+  } else if (type === 'tool') {
+    if (!value || (usageToolIds.length === 1 && usageToolIds[0] === value)) {
+      usageToolIds = [];
+    } else {
+      usageToolIds = [value];
+    }
+  }
+  syncDropdowns();
+  renderFilterPills();
+  loadUsage();
+}
+
+// Remove a single item from the active filter (used by the × icon on active rows).
+function removeFilterItem(type, value, event) {
+  if (shiftHeld) {
+    // During shift, treat as a pending toggle (same as filterFromTxn shift path).
+    filterFromTxn(type, value, event);
+    return;
+  }
+  if (type === 'team') usageTeamFilters = usageTeamFilters.filter(t => t !== value);
+  else if (type === 'agent') usageAgentIds = usageAgentIds.filter(a => a !== value);
+  else if (type === 'tool') usageToolIds = usageToolIds.filter(t => t !== value);
+  syncDropdowns();
+  renderFilterPills();
+  loadUsage();
+}
 
 // Close modals on overlay click
 document.querySelectorAll('.modal-overlay').forEach(el => {
@@ -1809,23 +2158,26 @@ document.getElementById('usage-from').value = weekAgo.toISOString().slice(0, 10)
 // --- Chart ---
 let chartGroup = 'agent';
 let lastChartTxns = [];
-let chartBucket = localStorage.getItem('octroi_chart_bucket') || 'auto';
 let liveLookback = parseInt(localStorage.getItem('octroi_live_lookback')) || 86400000;
 const chartColors = ['#1a1a1a','#2a7','#a80','#c33','#57a','#7a5','#a57','#5a7'];
+function chartColorFor(id) {
+  let h = 0;
+  for (let i = 0; i < id.length; i++) h = ((h << 5) - h + id.charCodeAt(i)) | 0;
+  return chartColors[((h % chartColors.length) + chartColors.length) % chartColors.length];
+}
 
 // Restore persisted selections
-document.getElementById('usage-bucket-select').value = chartBucket;
 document.getElementById('usage-lookback-select').value = String(liveLookback);
 
 function onBucketChange() {
-  chartBucket = document.getElementById('usage-bucket-select').value;
-  localStorage.setItem('octroi_chart_bucket', chartBucket);
+  // User manually picked a bucket — just re-render with current selection.
   renderUsageChart(lastChartTxns);
 }
 
 function onLookbackChange() {
   liveLookback = parseInt(document.getElementById('usage-lookback-select').value);
   localStorage.setItem('octroi_live_lookback', String(liveLookback));
+  lastAutoRange = 0; // reset so bucket auto-syncs to new window
   lastTxnTimestamp = null;
   loadUsage();
 }
@@ -1837,13 +2189,28 @@ function setChartGroup(group) {
   renderUsageChart(lastChartTxns);
 }
 
-function pickBucketMs(range) {
-  if (chartBucket !== 'auto') return parseInt(chartBucket);
-  // Auto: pick sensible default based on data range
+function autoBucketMs(range) {
   if (range <= 600000) return 30000;          // <=10min -> 30s
   if (range <= 3600000) return 300000;        // <=1h -> 5min
   if (range <= 86400000) return 3600000;      // <=1d -> 1h
   return 86400000;                             // >1d -> 1 day
+}
+
+function pickBucketMs(range) {
+  return parseInt(document.getElementById('usage-bucket-select').value);
+}
+
+let lastAutoRange = 0;
+function syncBucketSelect(range) {
+  const best = String(autoBucketMs(range));
+  const bestForLast = String(autoBucketMs(lastAutoRange));
+  const sel = document.getElementById('usage-bucket-select');
+  // Auto-update bucket when the ideal bucket for the range changes,
+  // or on first render (lastAutoRange === 0).
+  if (lastAutoRange === 0 || best !== bestForLast) {
+    sel.value = best;
+  }
+  lastAutoRange = range;
 }
 
 function fmtBucketLabel(d, bucketMs) {
@@ -1856,7 +2223,7 @@ function renderUsageChart(txns) {
   lastChartTxns = txns;
   const container = document.getElementById('usage-chart');
   if (!txns || !txns.length) {
-    container.innerHTML = '<div style="display:flex;align-items:center;justify-content:center;height:100%;color:var(--text2);font-size:12px">No data</div>';
+    container.innerHTML = '<div style="display:flex;align-items:center;justify-content:center;height:180px;color:var(--text2);font-size:12px">No data</div>';
     return;
   }
 
@@ -1867,11 +2234,12 @@ function renderUsageChart(txns) {
   const chartW = W - ML - MR;
   const chartH = H - MT - MB;
 
-  const timestamps = txns.map(t => new Date(t.timestamp).getTime()).sort((a, b) => a - b);
-  const tMin = timestamps[0];
-  const tMax = timestamps[timestamps.length - 1];
-  const range = tMax - tMin;
+  const now = Date.now();
+  const tMin = usageMode === 'live' ? now - liveLookback : Math.min(...txns.map(t => new Date(t.timestamp).getTime()));
+  const tMax = usageMode === 'live' ? now : Math.max(...txns.map(t => new Date(t.timestamp).getTime()));
+  const range = Math.max(tMax - tMin, 1);
 
+  syncBucketSelect(range);
   const bucketMs = pickBucketMs(range);
 
   const bucketStart = Math.floor(tMin / bucketMs) * bucketMs;
@@ -1925,7 +2293,7 @@ function renderUsageChart(txns) {
       if (count === 0) return;
       const barH = (count / yMax) * chartH;
       const y = MT + chartH - yOff - barH;
-      const color = chartColors[gi % chartColors.length];
+      const color = chartColorFor(gid);
       svg += `<rect x="${barX}" y="${y}" width="${barW}" height="${barH}" fill="${color}" rx="1"/>`;
       yOff += barH;
     });
@@ -1944,11 +2312,18 @@ function renderUsageChart(txns) {
   svg += '</svg>';
 
   // Legend
+  const eff = effectiveFilters();
+  const filterType = chartGroup === 'agent' ? 'agent' : 'tool';
+  const activeFilterArr = filterType === 'agent' ? eff.agents : eff.tools;
+  const hasLegendFilter = activeFilterArr.length > 0;
   let legend = '<div class="chart-legend">';
   groups.forEach((gid, gi) => {
-    const color = chartColors[gi % chartColors.length];
+    const color = chartColorFor(gid);
     const name = resolveName(gid);
-    legend += `<div class="chart-legend-item"><span class="chart-legend-swatch" style="background:${color}"></span>${esc(name)}</div>`;
+    const isActive = activeFilterArr.includes(gid);
+    const filterVal = isActive ? '' : gid;
+    const exclClass = hasLegendFilter && !isActive ? ' chart-legend-excluded' : '';
+    legend += `<div class="chart-legend-item${exclClass}" onclick="filterFromTxn('${filterType}','${filterVal}')" style="cursor:pointer"><span class="chart-legend-swatch" style="background:${color}${hasLegendFilter && !isActive ? ';opacity:0.3' : ''}"></span>${esc(name)}</div>`;
   });
   legend += '</div>';
 
@@ -1971,7 +2346,7 @@ function renderUsageChart(txns) {
       groups.forEach((gid, gi) => {
         const count = buckets[bi][gid] || 0;
         total += count;
-        const color = chartColors[gi % chartColors.length];
+        const color = chartColorFor(gid);
         const name = resolveName(gid);
         html += `<div class="tt-row"><span class="tt-swatch" style="background:${color}"></span>${esc(name)}: <strong>${count}</strong></div>`;
       });

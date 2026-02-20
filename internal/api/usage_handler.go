@@ -3,6 +3,7 @@ package api
 import (
 	"net/http"
 	"strconv"
+	"strings"
 	"time"
 
 	"github.com/alecgard/octroi/internal/agent"
@@ -44,14 +45,32 @@ func buildUsageQuery(r *http.Request, isAdmin bool) (*metering.UsageQuery, error
 	q := &metering.UsageQuery{}
 
 	if isAdmin {
-		q.AgentID = r.URL.Query().Get("agent_id")
-		q.ToolID = r.URL.Query().Get("tool_id")
+		if agentParam := r.URL.Query().Get("agent_id"); agentParam != "" {
+			if strings.Contains(agentParam, ",") {
+				q.AgentIDs = strings.Split(agentParam, ",")
+			} else {
+				q.AgentID = agentParam
+			}
+		}
+		if toolParam := r.URL.Query().Get("tool_id"); toolParam != "" {
+			if strings.Contains(toolParam, ",") {
+				q.ToolIDs = strings.Split(toolParam, ",")
+			} else {
+				q.ToolID = toolParam
+			}
+		}
 	} else {
 		agent := auth.AgentFromContext(r.Context())
 		if agent != nil {
 			q.AgentID = agent.ID
 		}
-		q.ToolID = r.URL.Query().Get("tool_id")
+		if toolParam := r.URL.Query().Get("tool_id"); toolParam != "" {
+			if strings.Contains(toolParam, ",") {
+				q.ToolIDs = strings.Split(toolParam, ",")
+			} else {
+				q.ToolID = toolParam
+			}
+		}
 	}
 
 	from, err := parseTimeParam(r.URL.Query().Get("from"))
@@ -104,14 +123,39 @@ func (h *usageHandler) GetUsageAdmin(w http.ResponseWriter, r *http.Request) {
 		return
 	}
 
-	// Team filter: if ?team=X, resolve to agent IDs in that team.
+	// Team filter: if ?team=X (or comma-separated), resolve to agent IDs.
 	if teamFilter := r.URL.Query().Get("team"); teamFilter != "" && q.AgentID == "" {
-		agentIDs, tErr := h.agentStore.ListIDsByTeam(r.Context(), teamFilter)
-		if tErr != nil {
-			writeError(w, http.StatusInternalServerError, "internal_error", "failed to list team agents")
-			return
+		teams := strings.Split(teamFilter, ",")
+		var allAgentIDs []string
+		for _, t := range teams {
+			t = strings.TrimSpace(t)
+			if t == "" {
+				continue
+			}
+			ids, tErr := h.agentStore.ListIDsByTeam(r.Context(), t)
+			if tErr != nil {
+				writeError(w, http.StatusInternalServerError, "internal_error", "failed to list team agents")
+				return
+			}
+			allAgentIDs = append(allAgentIDs, ids...)
 		}
-		q.AgentIDs = agentIDs
+		// Merge with any existing AgentIDs from agent_id param.
+		if len(q.AgentIDs) > 0 {
+			// Intersect: only keep agent IDs that are in both sets.
+			teamSet := make(map[string]bool, len(allAgentIDs))
+			for _, id := range allAgentIDs {
+				teamSet[id] = true
+			}
+			var intersected []string
+			for _, id := range q.AgentIDs {
+				if teamSet[id] {
+					intersected = append(intersected, id)
+				}
+			}
+			q.AgentIDs = intersected
+		} else {
+			q.AgentIDs = allAgentIDs
+		}
 	}
 
 	summary, err := h.store.GetSummary(r.Context(), *q)
@@ -239,12 +283,35 @@ func (h *usageHandler) ListTransactions(w http.ResponseWriter, r *http.Request, 
 	// Team filter for admin.
 	if isAdmin {
 		if teamFilter := r.URL.Query().Get("team"); teamFilter != "" && q.AgentID == "" {
-			agentIDs, tErr := h.agentStore.ListIDsByTeam(r.Context(), teamFilter)
-			if tErr != nil {
-				writeError(w, http.StatusInternalServerError, "internal_error", "failed to list team agents")
-				return
+			teams := strings.Split(teamFilter, ",")
+			var allAgentIDs []string
+			for _, t := range teams {
+				t = strings.TrimSpace(t)
+				if t == "" {
+					continue
+				}
+				ids, tErr := h.agentStore.ListIDsByTeam(r.Context(), t)
+				if tErr != nil {
+					writeError(w, http.StatusInternalServerError, "internal_error", "failed to list team agents")
+					return
+				}
+				allAgentIDs = append(allAgentIDs, ids...)
 			}
-			q.AgentIDs = agentIDs
+			if len(q.AgentIDs) > 0 {
+				teamSet := make(map[string]bool, len(allAgentIDs))
+				for _, id := range allAgentIDs {
+					teamSet[id] = true
+				}
+				var intersected []string
+				for _, id := range q.AgentIDs {
+					if teamSet[id] {
+						intersected = append(intersected, id)
+					}
+				}
+				q.AgentIDs = intersected
+			} else {
+				q.AgentIDs = allAgentIDs
+			}
 		}
 	}
 

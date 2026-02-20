@@ -4,6 +4,7 @@ import (
 	"errors"
 	"net/http"
 	"strconv"
+	"strings"
 
 	"github.com/alecgard/octroi/internal/agent"
 	"github.com/alecgard/octroi/internal/auth"
@@ -312,15 +313,26 @@ func (h *memberHandler) GetUsage(w http.ResponseWriter, r *http.Request) {
 		return
 	}
 
-	// Optional team filter — must be one of user's teams.
+	// Optional team filter — must be one of user's teams (supports comma-separated).
 	teamNames := u.TeamNames()
 	teams := teamNames
 	if teamFilter := r.URL.Query().Get("team"); teamFilter != "" {
-		if !u.InTeam(teamFilter) {
-			writeError(w, http.StatusForbidden, "forbidden", "you are not a member of team "+teamFilter)
-			return
+		filterTeams := strings.Split(teamFilter, ",")
+		var validTeams []string
+		for _, t := range filterTeams {
+			t = strings.TrimSpace(t)
+			if t == "" {
+				continue
+			}
+			if !u.InTeam(t) {
+				writeError(w, http.StatusForbidden, "forbidden", "you are not a member of team "+t)
+				return
+			}
+			validTeams = append(validTeams, t)
 		}
-		teams = []string{teamFilter}
+		if len(validTeams) > 0 {
+			teams = validTeams
+		}
 	}
 
 	agentIDs, err := h.agentStore.ListIDsByTeams(r.Context(), teams)
@@ -331,6 +343,15 @@ func (h *memberHandler) GetUsage(w http.ResponseWriter, r *http.Request) {
 
 	q := metering.UsageQuery{
 		AgentIDs: agentIDs,
+	}
+
+	// Optional tool_id filter (supports comma-separated).
+	if toolParam := r.URL.Query().Get("tool_id"); toolParam != "" {
+		if strings.Contains(toolParam, ",") {
+			q.ToolIDs = strings.Split(toolParam, ",")
+		} else {
+			q.ToolID = toolParam
+		}
 	}
 
 	from, err := parseTimeParam(r.URL.Query().Get("from"))
@@ -364,15 +385,26 @@ func (h *memberHandler) ListTransactions(w http.ResponseWriter, r *http.Request)
 		return
 	}
 
-	// Optional team filter — must be one of user's teams.
+	// Optional team filter — must be one of user's teams (supports comma-separated).
 	teamNames := u.TeamNames()
 	teams := teamNames
 	if teamFilter := r.URL.Query().Get("team"); teamFilter != "" {
-		if !u.InTeam(teamFilter) {
-			writeError(w, http.StatusForbidden, "forbidden", "you are not a member of team "+teamFilter)
-			return
+		filterTeams := strings.Split(teamFilter, ",")
+		var validTeams []string
+		for _, t := range filterTeams {
+			t = strings.TrimSpace(t)
+			if t == "" {
+				continue
+			}
+			if !u.InTeam(t) {
+				writeError(w, http.StatusForbidden, "forbidden", "you are not a member of team "+t)
+				return
+			}
+			validTeams = append(validTeams, t)
 		}
-		teams = []string{teamFilter}
+		if len(validTeams) > 0 {
+			teams = validTeams
+		}
 	}
 
 	agentIDs, err := h.agentStore.ListIDsByTeams(r.Context(), teams)
@@ -384,6 +416,15 @@ func (h *memberHandler) ListTransactions(w http.ResponseWriter, r *http.Request)
 	q := metering.UsageQuery{
 		AgentIDs: agentIDs,
 		Cursor:   r.URL.Query().Get("cursor"),
+	}
+
+	// Optional tool_id filter (supports comma-separated).
+	if toolParam := r.URL.Query().Get("tool_id"); toolParam != "" {
+		if strings.Contains(toolParam, ",") {
+			q.ToolIDs = strings.Split(toolParam, ",")
+		} else {
+			q.ToolID = toolParam
+		}
 	}
 
 	from, err := parseTimeParam(r.URL.Query().Get("from"))
