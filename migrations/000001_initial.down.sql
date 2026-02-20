@@ -1,0 +1,4 @@
+DROP TABLE IF EXISTS transactions;
+DROP TABLE IF EXISTS agent_tool_budgets;
+DROP TABLE IF EXISTS agents;
+DROP TABLE IF EXISTS tools;

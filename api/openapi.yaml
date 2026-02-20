@@ -1,0 +1,1272 @@
+openapi: "3.0.3"
+info:
+  title: Octroi API
+  description: API gateway for AI agent tool access.
+  version: "0.1.0"
+
+servers:
+  - url: /
+    description: Default server
+
+tags:
+  - name: health
+    description: Health check
+  - name: well-known
+    description: Well-known manifest
+  - name: public
+    description: Public unauthenticated endpoints
+  - name: admin-tools
+    description: Admin tool management
+  - name: admin-agents
+    description: Admin agent management
+  - name: admin-budgets
+    description: Admin budget management
+  - name: admin-usage
+    description: Admin usage queries
+  - name: agent
+    description: Agent-authenticated endpoints
+  - name: proxy
+    description: Tool proxy
+
+security: []
+
+paths:
+  # ---------- Health ----------
+  /health:
+    get:
+      operationId: healthCheck
+      tags: [health]
+      summary: Health check
+      responses:
+        "200":
+          description: Service is healthy.
+          content:
+            application/json:
+              schema:
+                type: object
+                properties:
+                  status:
+                    type: string
+                    example: ok
+                required: [status]
+
+  # ---------- Well-known manifest ----------
+  /.well-known/octroi.json:
+    get:
+      operationId: getManifest
+      tags: [well-known]
+      summary: Well-known Octroi manifest
+      responses:
+        "200":
+          description: The Octroi service manifest.
+          content:
+            application/json:
+              schema:
+                $ref: "#/components/schemas/Manifest"
+
+  # ---------- Public: Search tools ----------
+  /api/v1/tools/search:
+    get:
+      operationId: searchTools
+      tags: [public]
+      summary: Search tools
+      parameters:
+        - $ref: "#/components/parameters/QueryQ"
+        - $ref: "#/components/parameters/QueryLimit"
+        - $ref: "#/components/parameters/QueryCursor"
+      responses:
+        "200":
+          description: Paginated list of matching tools.
+          content:
+            application/json:
+              schema:
+                $ref: "#/components/schemas/ToolListResponse"
+        "400":
+          $ref: "#/components/responses/BadRequest"
+        "500":
+          $ref: "#/components/responses/InternalError"
+
+  # ---------- Public: List tools ----------
+  /api/v1/tools:
+    get:
+      operationId: listTools
+      tags: [public]
+      summary: List tools
+      parameters:
+        - $ref: "#/components/parameters/QueryQ"
+        - $ref: "#/components/parameters/QueryLimit"
+        - $ref: "#/components/parameters/QueryCursor"
+      responses:
+        "200":
+          description: Paginated list of tools.
+          content:
+            application/json:
+              schema:
+                $ref: "#/components/schemas/ToolListResponse"
+        "400":
+          $ref: "#/components/responses/BadRequest"
+        "500":
+          $ref: "#/components/responses/InternalError"
+
+  # ---------- Public: Get tool ----------
+  /api/v1/tools/{id}:
+    get:
+      operationId: getTool
+      tags: [public]
+      summary: Get a tool by ID
+      parameters:
+        - $ref: "#/components/parameters/PathToolID"
+      responses:
+        "200":
+          description: The tool (public view, no endpoint or auth_config).
+          content:
+            application/json:
+              schema:
+                $ref: "#/components/schemas/ToolPublic"
+        "400":
+          $ref: "#/components/responses/BadRequest"
+        "404":
+          $ref: "#/components/responses/NotFound"
+        "500":
+          $ref: "#/components/responses/InternalError"
+
+  # ---------- Admin: Tool CRUD ----------
+  /api/v1/admin/tools:
+    post:
+      operationId: createTool
+      tags: [admin-tools]
+      summary: Create a tool
+      security:
+        - AdminBearer: []
+      requestBody:
+        required: true
+        content:
+          application/json:
+            schema:
+              $ref: "#/components/schemas/CreateToolInput"
+      responses:
+        "201":
+          description: Tool created (admin view includes endpoint and auth_config).
+          content:
+            application/json:
+              schema:
+                $ref: "#/components/schemas/ToolAdmin"
+        "400":
+          $ref: "#/components/responses/BadRequest"
+        "401":
+          $ref: "#/components/responses/Unauthorized"
+        "422":
+          $ref: "#/components/responses/ValidationError"
+        "500":
+          $ref: "#/components/responses/InternalError"
+
+  /api/v1/admin/tools/{id}:
+    put:
+      operationId: updateTool
+      tags: [admin-tools]
+      summary: Update a tool
+      security:
+        - AdminBearer: []
+      parameters:
+        - $ref: "#/components/parameters/PathToolID"
+      requestBody:
+        required: true
+        content:
+          application/json:
+            schema:
+              $ref: "#/components/schemas/UpdateToolInput"
+      responses:
+        "200":
+          description: Tool updated (admin view).
+          content:
+            application/json:
+              schema:
+                $ref: "#/components/schemas/ToolAdmin"
+        "400":
+          $ref: "#/components/responses/BadRequest"
+        "401":
+          $ref: "#/components/responses/Unauthorized"
+        "404":
+          $ref: "#/components/responses/NotFound"
+        "422":
+          $ref: "#/components/responses/ValidationError"
+        "500":
+          $ref: "#/components/responses/InternalError"
+    delete:
+      operationId: deleteTool
+      tags: [admin-tools]
+      summary: Delete a tool
+      security:
+        - AdminBearer: []
+      parameters:
+        - $ref: "#/components/parameters/PathToolID"
+      responses:
+        "204":
+          description: Tool deleted.
+        "400":
+          $ref: "#/components/responses/BadRequest"
+        "401":
+          $ref: "#/components/responses/Unauthorized"
+        "404":
+          $ref: "#/components/responses/NotFound"
+        "500":
+          $ref: "#/components/responses/InternalError"
+
+  # ---------- Admin: Agent CRUD ----------
+  /api/v1/admin/agents:
+    post:
+      operationId: createAgent
+      tags: [admin-agents]
+      summary: Create an agent
+      description: Creates an agent and generates an API key. The plaintext key is returned only in this response.
+      security:
+        - AdminBearer: []
+      requestBody:
+        required: true
+        content:
+          application/json:
+            schema:
+              $ref: "#/components/schemas/CreateAgentRequest"
+      responses:
+        "201":
+          description: Agent created. Contains the plaintext API key (shown only once).
+          content:
+            application/json:
+              schema:
+                $ref: "#/components/schemas/CreateAgentResponse"
+        "400":
+          $ref: "#/components/responses/BadRequest"
+        "401":
+          $ref: "#/components/responses/Unauthorized"
+        "422":
+          $ref: "#/components/responses/ValidationError"
+        "500":
+          $ref: "#/components/responses/InternalError"
+    get:
+      operationId: listAgents
+      tags: [admin-agents]
+      summary: List agents
+      security:
+        - AdminBearer: []
+      parameters:
+        - $ref: "#/components/parameters/QueryLimit"
+        - $ref: "#/components/parameters/QueryCursor"
+      responses:
+        "200":
+          description: Paginated list of agents.
+          content:
+            application/json:
+              schema:
+                $ref: "#/components/schemas/AgentListResponse"
+        "400":
+          $ref: "#/components/responses/BadRequest"
+        "401":
+          $ref: "#/components/responses/Unauthorized"
+        "500":
+          $ref: "#/components/responses/InternalError"
+
+  /api/v1/admin/agents/{id}:
+    put:
+      operationId: updateAgent
+      tags: [admin-agents]
+      summary: Update an agent
+      security:
+        - AdminBearer: []
+      parameters:
+        - $ref: "#/components/parameters/PathAgentID"
+      requestBody:
+        required: true
+        content:
+          application/json:
+            schema:
+              $ref: "#/components/schemas/UpdateAgentInput"
+      responses:
+        "200":
+          description: Agent updated.
+          content:
+            application/json:
+              schema:
+                $ref: "#/components/schemas/Agent"
+        "400":
+          $ref: "#/components/responses/BadRequest"
+        "401":
+          $ref: "#/components/responses/Unauthorized"
+        "404":
+          $ref: "#/components/responses/NotFound"
+        "500":
+          $ref: "#/components/responses/InternalError"
+    delete:
+      operationId: deleteAgent
+      tags: [admin-agents]
+      summary: Delete an agent
+      security:
+        - AdminBearer: []
+      parameters:
+        - $ref: "#/components/parameters/PathAgentID"
+      responses:
+        "204":
+          description: Agent deleted.
+        "401":
+          $ref: "#/components/responses/Unauthorized"
+        "500":
+          $ref: "#/components/responses/InternalError"
+
+  # ---------- Admin: Budget management ----------
+  /api/v1/admin/agents/{agentID}/budgets/{toolID}:
+    put:
+      operationId: setBudget
+      tags: [admin-budgets]
+      summary: Set a budget for an agent on a tool
+      security:
+        - AdminBearer: []
+      parameters:
+        - $ref: "#/components/parameters/PathBudgetAgentID"
+        - $ref: "#/components/parameters/PathBudgetToolID"
+      requestBody:
+        required: true
+        content:
+          application/json:
+            schema:
+              $ref: "#/components/schemas/SetBudgetInput"
+      responses:
+        "200":
+          description: Budget set.
+          content:
+            application/json:
+              schema:
+                $ref: "#/components/schemas/Budget"
+        "400":
+          $ref: "#/components/responses/BadRequest"
+        "401":
+          $ref: "#/components/responses/Unauthorized"
+        "500":
+          $ref: "#/components/responses/InternalError"
+    get:
+      operationId: getBudget
+      tags: [admin-budgets]
+      summary: Get budget for an agent on a tool
+      security:
+        - AdminBearer: []
+      parameters:
+        - $ref: "#/components/parameters/PathBudgetAgentID"
+        - $ref: "#/components/parameters/PathBudgetToolID"
+      responses:
+        "200":
+          description: The budget.
+          content:
+            application/json:
+              schema:
+                $ref: "#/components/schemas/Budget"
+        "400":
+          $ref: "#/components/responses/BadRequest"
+        "401":
+          $ref: "#/components/responses/Unauthorized"
+        "404":
+          $ref: "#/components/responses/NotFound"
+        "500":
+          $ref: "#/components/responses/InternalError"
+
+  /api/v1/admin/agents/{agentID}/budgets:
+    get:
+      operationId: listBudgets
+      tags: [admin-budgets]
+      summary: List all budgets for an agent
+      security:
+        - AdminBearer: []
+      parameters:
+        - $ref: "#/components/parameters/PathBudgetAgentID"
+      responses:
+        "200":
+          description: List of budgets.
+          content:
+            application/json:
+              schema:
+                $ref: "#/components/schemas/BudgetListResponse"
+        "400":
+          $ref: "#/components/responses/BadRequest"
+        "401":
+          $ref: "#/components/responses/Unauthorized"
+        "500":
+          $ref: "#/components/responses/InternalError"
+
+  # ---------- Admin: Usage queries ----------
+  /api/v1/admin/usage:
+    get:
+      operationId: getUsageAdmin
+      tags: [admin-usage]
+      summary: Get usage summary (admin)
+      description: Query usage summary across all or filtered agents and tools.
+      security:
+        - AdminBearer: []
+      parameters:
+        - name: agent_id
+          in: query
+          schema:
+            type: string
+          description: Filter by agent ID.
+        - name: tool_id
+          in: query
+          schema:
+            type: string
+          description: Filter by tool ID.
+        - $ref: "#/components/parameters/QueryFrom"
+        - $ref: "#/components/parameters/QueryTo"
+        - $ref: "#/components/parameters/QueryLimit"
+        - $ref: "#/components/parameters/QueryCursor"
+      responses:
+        "200":
+          description: Usage summary.
+          content:
+            application/json:
+              schema:
+                $ref: "#/components/schemas/UsageSummary"
+        "400":
+          $ref: "#/components/responses/BadRequest"
+        "401":
+          $ref: "#/components/responses/Unauthorized"
+        "500":
+          $ref: "#/components/responses/InternalError"
+
+  /api/v1/admin/usage/agents/{agentID}:
+    get:
+      operationId: getUsageByAgent
+      tags: [admin-usage]
+      summary: Get usage summary for a specific agent
+      security:
+        - AdminBearer: []
+      parameters:
+        - $ref: "#/components/parameters/PathBudgetAgentID"
+        - $ref: "#/components/parameters/QueryFrom"
+        - $ref: "#/components/parameters/QueryTo"
+      responses:
+        "200":
+          description: Usage summary for the agent.
+          content:
+            application/json:
+              schema:
+                $ref: "#/components/schemas/UsageSummary"
+        "400":
+          $ref: "#/components/responses/BadRequest"
+        "401":
+          $ref: "#/components/responses/Unauthorized"
+        "500":
+          $ref: "#/components/responses/InternalError"
+
+  /api/v1/admin/usage/tools/{toolID}:
+    get:
+      operationId: getUsageByTool
+      tags: [admin-usage]
+      summary: Get usage summary for a specific tool
+      security:
+        - AdminBearer: []
+      parameters:
+        - $ref: "#/components/parameters/PathBudgetToolID"
+        - $ref: "#/components/parameters/QueryFrom"
+        - $ref: "#/components/parameters/QueryTo"
+      responses:
+        "200":
+          description: Usage summary for the tool.
+          content:
+            application/json:
+              schema:
+                $ref: "#/components/schemas/UsageSummary"
+        "400":
+          $ref: "#/components/responses/BadRequest"
+        "401":
+          $ref: "#/components/responses/Unauthorized"
+        "500":
+          $ref: "#/components/responses/InternalError"
+
+  /api/v1/admin/usage/agents/{agentID}/tools/{toolID}:
+    get:
+      operationId: getUsageByAgentTool
+      tags: [admin-usage]
+      summary: Get usage summary for a specific agent and tool combination
+      security:
+        - AdminBearer: []
+      parameters:
+        - $ref: "#/components/parameters/PathBudgetAgentID"
+        - $ref: "#/components/parameters/PathBudgetToolID"
+        - $ref: "#/components/parameters/QueryFrom"
+        - $ref: "#/components/parameters/QueryTo"
+      responses:
+        "200":
+          description: Usage summary for the agent-tool pair.
+          content:
+            application/json:
+              schema:
+                $ref: "#/components/schemas/UsageSummary"
+        "400":
+          $ref: "#/components/responses/BadRequest"
+        "401":
+          $ref: "#/components/responses/Unauthorized"
+        "500":
+          $ref: "#/components/responses/InternalError"
+
+  /api/v1/admin/usage/transactions:
+    get:
+      operationId: listTransactionsAdmin
+      tags: [admin-usage]
+      summary: List transactions (admin)
+      description: Admin can filter by any agent_id and tool_id.
+      security:
+        - AdminBearer: []
+      parameters:
+        - name: agent_id
+          in: query
+          schema:
+            type: string
+          description: Filter by agent ID.
+        - name: tool_id
+          in: query
+          schema:
+            type: string
+          description: Filter by tool ID.
+        - $ref: "#/components/parameters/QueryFrom"
+        - $ref: "#/components/parameters/QueryTo"
+        - $ref: "#/components/parameters/QueryLimit"
+        - $ref: "#/components/parameters/QueryCursor"
+      responses:
+        "200":
+          description: Paginated list of transactions.
+          content:
+            application/json:
+              schema:
+                $ref: "#/components/schemas/TransactionListResponse"
+        "400":
+          $ref: "#/components/responses/BadRequest"
+        "401":
+          $ref: "#/components/responses/Unauthorized"
+        "500":
+          $ref: "#/components/responses/InternalError"
+
+  # ---------- Agent-authed: Self ----------
+  /api/v1/agents/me:
+    get:
+      operationId: getSelfAgent
+      tags: [agent]
+      summary: Get the authenticated agent
+      security:
+        - AgentBearer: []
+      responses:
+        "200":
+          description: The authenticated agent.
+          content:
+            application/json:
+              schema:
+                $ref: "#/components/schemas/Agent"
+        "401":
+          $ref: "#/components/responses/Unauthorized"
+        "500":
+          $ref: "#/components/responses/InternalError"
+
+  # ---------- Agent-authed: Usage ----------
+  /api/v1/usage:
+    get:
+      operationId: getUsage
+      tags: [agent]
+      summary: Get usage summary for the authenticated agent
+      security:
+        - AgentBearer: []
+      parameters:
+        - name: tool_id
+          in: query
+          schema:
+            type: string
+          description: Filter by tool ID.
+        - $ref: "#/components/parameters/QueryFrom"
+        - $ref: "#/components/parameters/QueryTo"
+        - $ref: "#/components/parameters/QueryLimit"
+        - $ref: "#/components/parameters/QueryCursor"
+      responses:
+        "200":
+          description: Usage summary scoped to the authenticated agent.
+          content:
+            application/json:
+              schema:
+                $ref: "#/components/schemas/UsageSummary"
+        "400":
+          $ref: "#/components/responses/BadRequest"
+        "401":
+          $ref: "#/components/responses/Unauthorized"
+        "500":
+          $ref: "#/components/responses/InternalError"
+
+  /api/v1/usage/transactions:
+    get:
+      operationId: listTransactions
+      tags: [agent]
+      summary: List transactions for the authenticated agent
+      security:
+        - AgentBearer: []
+      parameters:
+        - name: tool_id
+          in: query
+          schema:
+            type: string
+          description: Filter by tool ID.
+        - $ref: "#/components/parameters/QueryFrom"
+        - $ref: "#/components/parameters/QueryTo"
+        - $ref: "#/components/parameters/QueryLimit"
+        - $ref: "#/components/parameters/QueryCursor"
+      responses:
+        "200":
+          description: Paginated list of transactions scoped to the authenticated agent.
+          content:
+            application/json:
+              schema:
+                $ref: "#/components/schemas/TransactionListResponse"
+        "400":
+          $ref: "#/components/responses/BadRequest"
+        "401":
+          $ref: "#/components/responses/Unauthorized"
+        "500":
+          $ref: "#/components/responses/InternalError"
+
+  # ---------- Proxy ----------
+  /proxy/{toolID}/{path}:
+    get:
+      operationId: proxyGet
+      tags: [proxy]
+      summary: Proxy a GET request to a tool
+      security:
+        - AgentBearer: []
+      parameters:
+        - $ref: "#/components/parameters/PathProxyToolID"
+        - $ref: "#/components/parameters/PathProxyPath"
+      responses:
+        "200":
+          description: Proxied response from the upstream tool.
+        "401":
+          $ref: "#/components/responses/Unauthorized"
+        "429":
+          $ref: "#/components/responses/RateLimited"
+        "502":
+          description: Bad gateway; upstream tool error.
+    post:
+      operationId: proxyPost
+      tags: [proxy]
+      summary: Proxy a POST request to a tool
+      security:
+        - AgentBearer: []
+      parameters:
+        - $ref: "#/components/parameters/PathProxyToolID"
+        - $ref: "#/components/parameters/PathProxyPath"
+      requestBody:
+        description: Arbitrary request body forwarded to the upstream tool.
+        content:
+          application/json:
+            schema:
+              type: object
+          "*/*":
+            schema:
+              type: string
+              format: binary
+      responses:
+        "200":
+          description: Proxied response from the upstream tool.
+        "401":
+          $ref: "#/components/responses/Unauthorized"
+        "429":
+          $ref: "#/components/responses/RateLimited"
+        "502":
+          description: Bad gateway; upstream tool error.
+    put:
+      operationId: proxyPut
+      tags: [proxy]
+      summary: Proxy a PUT request to a tool
+      security:
+        - AgentBearer: []
+      parameters:
+        - $ref: "#/components/parameters/PathProxyToolID"
+        - $ref: "#/components/parameters/PathProxyPath"
+      requestBody:
+        description: Arbitrary request body forwarded to the upstream tool.
+        content:
+          application/json:
+            schema:
+              type: object
+          "*/*":
+            schema:
+              type: string
+              format: binary
+      responses:
+        "200":
+          description: Proxied response from the upstream tool.
+        "401":
+          $ref: "#/components/responses/Unauthorized"
+        "429":
+          $ref: "#/components/responses/RateLimited"
+        "502":
+          description: Bad gateway; upstream tool error.
+    patch:
+      operationId: proxyPatch
+      tags: [proxy]
+      summary: Proxy a PATCH request to a tool
+      security:
+        - AgentBearer: []
+      parameters:
+        - $ref: "#/components/parameters/PathProxyToolID"
+        - $ref: "#/components/parameters/PathProxyPath"
+      requestBody:
+        description: Arbitrary request body forwarded to the upstream tool.
+        content:
+          application/json:
+            schema:
+              type: object
+          "*/*":
+            schema:
+              type: string
+              format: binary
+      responses:
+        "200":
+          description: Proxied response from the upstream tool.
+        "401":
+          $ref: "#/components/responses/Unauthorized"
+        "429":
+          $ref: "#/components/responses/RateLimited"
+        "502":
+          description: Bad gateway; upstream tool error.
+    delete:
+      operationId: proxyDelete
+      tags: [proxy]
+      summary: Proxy a DELETE request to a tool
+      security:
+        - AgentBearer: []
+      parameters:
+        - $ref: "#/components/parameters/PathProxyToolID"
+        - $ref: "#/components/parameters/PathProxyPath"
+      responses:
+        "200":
+          description: Proxied response from the upstream tool.
+        "401":
+          $ref: "#/components/responses/Unauthorized"
+        "429":
+          $ref: "#/components/responses/RateLimited"
+        "502":
+          description: Bad gateway; upstream tool error.
+
+components:
+  # ---------- Security schemes ----------
+  securitySchemes:
+    AdminBearer:
+      type: http
+      scheme: bearer
+      description: Admin API key passed as a Bearer token.
+    AgentBearer:
+      type: http
+      scheme: bearer
+      description: Agent API key passed as a Bearer token.
+
+  # ---------- Reusable parameters ----------
+  parameters:
+    PathToolID:
+      name: id
+      in: path
+      required: true
+      schema:
+        type: string
+      description: Tool ID.
+    PathAgentID:
+      name: id
+      in: path
+      required: true
+      schema:
+        type: string
+      description: Agent ID.
+    PathBudgetAgentID:
+      name: agentID
+      in: path
+      required: true
+      schema:
+        type: string
+      description: Agent ID.
+    PathBudgetToolID:
+      name: toolID
+      in: path
+      required: true
+      schema:
+        type: string
+      description: Tool ID.
+    PathProxyToolID:
+      name: toolID
+      in: path
+      required: true
+      schema:
+        type: string
+      description: ID of the tool to proxy to.
+    PathProxyPath:
+      name: path
+      in: path
+      required: true
+      schema:
+        type: string
+      description: Remaining path forwarded to the upstream tool.
+    QueryQ:
+      name: q
+      in: query
+      schema:
+        type: string
+      description: Free-text search query.
+    QueryLimit:
+      name: limit
+      in: query
+      schema:
+        type: integer
+        minimum: 1
+      description: Maximum number of items to return.
+    QueryCursor:
+      name: cursor
+      in: query
+      schema:
+        type: string
+      description: Opaque cursor for fetching the next page.
+    QueryFrom:
+      name: from
+      in: query
+      schema:
+        type: string
+      description: Start date/time filter (YYYY-MM-DD or RFC 3339).
+    QueryTo:
+      name: to
+      in: query
+      schema:
+        type: string
+      description: End date/time filter (YYYY-MM-DD or RFC 3339).
+
+  # ---------- Reusable responses ----------
+  responses:
+    BadRequest:
+      description: Bad request.
+      content:
+        application/json:
+          schema:
+            $ref: "#/components/schemas/ErrorEnvelope"
+    Unauthorized:
+      description: Unauthorized.
+      content:
+        application/json:
+          schema:
+            $ref: "#/components/schemas/ErrorEnvelope"
+    NotFound:
+      description: Resource not found.
+      content:
+        application/json:
+          schema:
+            $ref: "#/components/schemas/ErrorEnvelope"
+    ValidationError:
+      description: Validation error.
+      content:
+        application/json:
+          schema:
+            $ref: "#/components/schemas/ErrorEnvelope"
+    InternalError:
+      description: Internal server error.
+      content:
+        application/json:
+          schema:
+            $ref: "#/components/schemas/ErrorEnvelope"
+    RateLimited:
+      description: Rate limit exceeded.
+      content:
+        application/json:
+          schema:
+            $ref: "#/components/schemas/ErrorEnvelope"
+
+  # ---------- Schemas ----------
+  schemas:
+    # --- Error ---
+    ErrorEnvelope:
+      type: object
+      required: [error]
+      properties:
+        error:
+          $ref: "#/components/schemas/ErrorDetail"
+    ErrorDetail:
+      type: object
+      required: [code, message]
+      properties:
+        code:
+          type: string
+          example: not_found
+        message:
+          type: string
+          example: tool not found
+
+    # --- Manifest ---
+    Manifest:
+      type: object
+      properties:
+        name:
+          type: string
+          example: Octroi
+        description:
+          type: string
+        version:
+          type: string
+          example: "0.1.0"
+        api_base:
+          type: string
+          example: /api/v1
+        auth:
+          type: object
+          properties:
+            type:
+              type: string
+              example: bearer
+            header:
+              type: string
+              example: Authorization
+        endpoints:
+          type: object
+          properties:
+            tools:
+              type: string
+            tools_search:
+              type: string
+            agents:
+              type: string
+            usage:
+              type: string
+            proxy:
+              type: string
+        health:
+          type: string
+
+    # --- Tool (public view, endpoint and auth_config hidden) ---
+    ToolPublic:
+      type: object
+      properties:
+        id:
+          type: string
+        name:
+          type: string
+        description:
+          type: string
+        auth_type:
+          type: string
+        tags:
+          type: array
+          items:
+            type: string
+        pricing_model:
+          type: string
+        pricing_amount:
+          type: number
+          format: double
+        pricing_currency:
+          type: string
+        rate_limit:
+          type: integer
+        budget_limit:
+          type: number
+          format: double
+        budget_window:
+          type: string
+        created_at:
+          type: string
+          format: date-time
+        updated_at:
+          type: string
+          format: date-time
+
+    # --- Tool (admin view, includes endpoint and auth_config) ---
+    ToolAdmin:
+      type: object
+      properties:
+        id:
+          type: string
+        name:
+          type: string
+        description:
+          type: string
+        endpoint:
+          type: string
+        auth_type:
+          type: string
+        auth_config:
+          type: object
+          additionalProperties:
+            type: string
+        tags:
+          type: array
+          items:
+            type: string
+        pricing_model:
+          type: string
+        pricing_amount:
+          type: number
+          format: double
+        pricing_currency:
+          type: string
+        rate_limit:
+          type: integer
+        budget_limit:
+          type: number
+          format: double
+        budget_window:
+          type: string
+        created_at:
+          type: string
+          format: date-time
+        updated_at:
+          type: string
+          format: date-time
+
+    # --- Tool inputs ---
+    CreateToolInput:
+      type: object
+      required: [name, description, endpoint, auth_type]
+      properties:
+        name:
+          type: string
+        description:
+          type: string
+        endpoint:
+          type: string
+        auth_type:
+          type: string
+        auth_config:
+          type: object
+          additionalProperties:
+            type: string
+        tags:
+          type: array
+          items:
+            type: string
+        pricing_model:
+          type: string
+        pricing_amount:
+          type: number
+          format: double
+        pricing_currency:
+          type: string
+        rate_limit:
+          type: integer
+        budget_limit:
+          type: number
+          format: double
+        budget_window:
+          type: string
+
+    UpdateToolInput:
+      type: object
+      description: All fields are optional. Only provided fields are applied.
+      properties:
+        name:
+          type: string
+        description:
+          type: string
+        endpoint:
+          type: string
+        auth_type:
+          type: string
+        auth_config:
+          type: object
+          additionalProperties:
+            type: string
+        tags:
+          type: array
+          items:
+            type: string
+        pricing_model:
+          type: string
+        pricing_amount:
+          type: number
+          format: double
+        pricing_currency:
+          type: string
+        rate_limit:
+          type: integer
+        budget_limit:
+          type: number
+          format: double
+        budget_window:
+          type: string
+
+    ToolListResponse:
+      type: object
+      required: [tools]
+      properties:
+        tools:
+          type: array
+          items:
+            $ref: "#/components/schemas/ToolPublic"
+        next_cursor:
+          type: string
+          description: Opaque cursor for the next page. Absent when there are no more results.
+
+    # --- Agent ---
+    Agent:
+      type: object
+      properties:
+        id:
+          type: string
+        name:
+          type: string
+        api_key_prefix:
+          type: string
+        team:
+          type: string
+        rate_limit:
+          type: integer
+        created_at:
+          type: string
+          format: date-time
+
+    CreateAgentRequest:
+      type: object
+      required: [name]
+      properties:
+        name:
+          type: string
+        team:
+          type: string
+        rate_limit:
+          type: integer
+
+    CreateAgentResponse:
+      type: object
+      properties:
+        id:
+          type: string
+        name:
+          type: string
+        api_key_prefix:
+          type: string
+        api_key:
+          type: string
+          description: Plaintext API key. Only returned once at creation time.
+        team:
+          type: string
+        rate_limit:
+          type: integer
+        created_at:
+          type: string
+          format: date-time
+
+    UpdateAgentInput:
+      type: object
+      description: All fields are optional. Only provided fields are applied.
+      properties:
+        name:
+          type: string
+        team:
+          type: string
+        rate_limit:
+          type: integer
+
+    AgentListResponse:
+      type: object
+      required: [agents]
+      properties:
+        agents:
+          type: array
+          items:
+            $ref: "#/components/schemas/Agent"
+        next_cursor:
+          type: string
+          description: Opaque cursor for the next page. Absent when there are no more results.
+
+    # --- Budget ---
+    Budget:
+      type: object
+      properties:
+        id:
+          type: string
+        agent_id:
+          type: string
+        tool_id:
+          type: string
+        daily_limit:
+          type: number
+          format: double
+        monthly_limit:
+          type: number
+          format: double
+
+    SetBudgetInput:
+      type: object
+      properties:
+        daily_limit:
+          type: number
+          format: double
+        monthly_limit:
+          type: number
+          format: double
+
+    BudgetListResponse:
+      type: object
+      required: [budgets]
+      properties:
+        budgets:
+          type: array
+          items:
+            $ref: "#/components/schemas/Budget"
+
+    # --- Usage / Metering ---
+    UsageSummary:
+      type: object
+      properties:
+        total_requests:
+          type: integer
+          format: int64
+        total_cost:
+          type: number
+          format: double
+        success_count:
+          type: integer
+          format: int64
+        error_count:
+          type: integer
+          format: int64
+        avg_latency_ms:
+          type: number
+          format: double
+
+    Transaction:
+      type: object
+      properties:
+        id:
+          type: string
+        agent_id:
+          type: string
+        tool_id:
+          type: string
+        timestamp:
+          type: string
+          format: date-time
+        method:
+          type: string
+        path:
+          type: string
+        status_code:
+          type: integer
+        latency_ms:
+          type: integer
+          format: int64
+        request_size:
+          type: integer
+          format: int64
+        response_size:
+          type: integer
+          format: int64
+        success:
+          type: boolean
+        cost:
+          type: number
+          format: double
+        error:
+          type: string
+
+    TransactionListResponse:
+      type: object
+      required: [transactions]
+      properties:
+        transactions:
+          type: array
+          items:
+            $ref: "#/components/schemas/Transaction"
+        next_cursor:
+          type: string
+          description: Opaque cursor for the next page. Absent when there are no more results.

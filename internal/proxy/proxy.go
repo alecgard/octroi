@@ -1,0 +1,213 @@
+package proxy
+
+import (
+	"context"
+	"encoding/json"
+	"fmt"
+	"io"
+	"net/http"
+	"strings"
+	"time"
+
+	"github.com/alecgard/octroi/internal/auth"
+	"github.com/alecgard/octroi/internal/metering"
+	"github.com/alecgard/octroi/internal/registry"
+	"github.com/go-chi/chi/v5"
+)
+
+// ToolStore is the interface for looking up tools by ID.
+type ToolStore interface {
+	GetByID(ctx context.Context, id string) (*registry.Tool, error)
+}
+
+// BudgetChecker is the interface for checking agent and global tool budgets.
+type BudgetChecker interface {
+	CheckBudget(ctx context.Context, agentID, toolID string) (allowed bool, remainingDaily float64, remainingMonthly float64, err error)
+	CheckToolGlobalBudget(ctx context.Context, toolID string) (allowed bool, remaining float64, err error)
+}
+
+// MeteringRecorder is the interface for recording transactions.
+type MeteringRecorder interface {
+	Record(tx metering.Transaction)
+}
+
+// Handler proxies requests to tool endpoints.
+type Handler struct {
+	tools          ToolStore
+	budgets        BudgetChecker
+	collector      MeteringRecorder
+	client         *http.Client
+	maxRequestSize int64
+}
+
+// NewHandler creates a new proxy handler.
+func NewHandler(toolStore ToolStore, budgetStore BudgetChecker, collector MeteringRecorder, timeout time.Duration, maxRequestSize int64) *Handler {
+	return &Handler{
+		tools:          toolStore,
+		budgets:        budgetStore,
+		collector:      collector,
+		client:         &http.Client{Timeout: timeout},
+		maxRequestSize: maxRequestSize,
+	}
+}
+
+// ServeHTTP handles proxy requests.
+func (h *Handler) ServeHTTP(w http.ResponseWriter, r *http.Request) {
+	toolID := chi.URLParam(r, "toolID")
+	if toolID == "" {
+		writeError(w, http.StatusBadRequest, "bad_request", "missing tool ID")
+		return
+	}
+
+	// Look up tool.
+	tool, err := h.tools.GetByID(r.Context(), toolID)
+	if err != nil {
+		writeError(w, http.StatusNotFound, "not_found", "tool not found")
+		return
+	}
+
+	// Extract agent from context.
+	agent := auth.AgentFromContext(r.Context())
+	if agent == nil {
+		writeError(w, http.StatusUnauthorized, "unauthorized", "missing agent credentials")
+		return
+	}
+
+	// Check per-agent budget.
+	allowed, _, _, err := h.budgets.CheckBudget(r.Context(), agent.ID, tool.ID)
+	if err == nil && !allowed {
+		writeError(w, http.StatusForbidden, "budget_exceeded", "agent budget exceeded for this tool")
+		return
+	}
+
+	// Check global tool budget.
+	globalAllowed, _, err := h.budgets.CheckToolGlobalBudget(r.Context(), tool.ID)
+	if err == nil && !globalAllowed {
+		writeError(w, http.StatusForbidden, "budget_exceeded", "global tool budget exceeded")
+		return
+	}
+
+	// Build the upstream path by stripping the /proxy/{toolID} prefix.
+	proxyPrefix := fmt.Sprintf("/proxy/%s", toolID)
+	upstreamPath := strings.TrimPrefix(r.URL.Path, proxyPrefix)
+	if upstreamPath == "" {
+		upstreamPath = "/"
+	}
+	targetURL := strings.TrimRight(tool.Endpoint, "/") + upstreamPath
+	if r.URL.RawQuery != "" {
+		targetURL += "?" + r.URL.RawQuery
+	}
+
+	// Enforce max request body size.
+	var body io.Reader
+	if r.Body != nil {
+		body = io.LimitReader(r.Body, h.maxRequestSize+1)
+	}
+
+	outReq, err := http.NewRequestWithContext(r.Context(), r.Method, targetURL, body)
+	if err != nil {
+		writeError(w, http.StatusBadGateway, "proxy_error", "failed to build upstream request")
+		return
+	}
+
+	// Forward headers, excluding Authorization, Host, Connection.
+	skipHeaders := map[string]bool{
+		"Authorization": true,
+		"Host":          true,
+		"Connection":    true,
+	}
+	for key, values := range r.Header {
+		if skipHeaders[key] {
+			continue
+		}
+		for _, v := range values {
+			outReq.Header.Add(key, v)
+		}
+	}
+
+	// Inject tool auth credentials.
+	switch tool.AuthType {
+	case "bearer":
+		outReq.Header.Set("Authorization", "Bearer "+tool.AuthConfig["key"])
+	case "header":
+		headerName := tool.AuthConfig["header_name"]
+		if headerName != "" {
+			outReq.Header.Set(headerName, tool.AuthConfig["key"])
+		}
+	case "none":
+		// No auth injection.
+	}
+
+	// Execute the upstream request.
+	start := time.Now()
+	resp, err := h.client.Do(outReq)
+	latency := time.Since(start)
+
+	if err != nil {
+		h.recordTransaction(agent.ID, tool, r, 502, latency, 0, 0, false)
+		writeError(w, http.StatusBadGateway, "proxy_error", "upstream request failed")
+		return
+	}
+	defer resp.Body.Close()
+
+	// Copy response headers.
+	for key, values := range resp.Header {
+		for _, v := range values {
+			w.Header().Add(key, v)
+		}
+	}
+	w.WriteHeader(resp.StatusCode)
+
+	// Copy response body.
+	responseSize, _ := io.Copy(w, resp.Body)
+
+	// Determine request size from Content-Length header, or 0.
+	requestSize := r.ContentLength
+	if requestSize < 0 {
+		requestSize = 0
+	}
+
+	success := resp.StatusCode >= 200 && resp.StatusCode < 300
+	h.recordTransaction(agent.ID, tool, r, resp.StatusCode, latency, requestSize, responseSize, success)
+}
+
+func (h *Handler) recordTransaction(agentID string, tool *registry.Tool, r *http.Request, statusCode int, latency time.Duration, requestSize int64, responseSize int64, success bool) {
+	cost := 0.0
+	if tool.PricingModel == "per_request" {
+		cost = tool.PricingAmount
+	}
+
+	h.collector.Record(metering.Transaction{
+		AgentID:      agentID,
+		ToolID:       tool.ID,
+		Timestamp:    time.Now().UTC(),
+		Method:       r.Method,
+		Path:         r.URL.Path,
+		StatusCode:   statusCode,
+		LatencyMs:    latency.Milliseconds(),
+		RequestSize:  requestSize,
+		ResponseSize: responseSize,
+		Success:      success,
+		Cost:         cost,
+	})
+}
+
+type proxyError struct {
+	Error proxyErrorBody `json:"error"`
+}
+
+type proxyErrorBody struct {
+	Code    string `json:"code"`
+	Message string `json:"message"`
+}
+
+func writeError(w http.ResponseWriter, status int, code, message string) {
+	w.Header().Set("Content-Type", "application/json")
+	w.WriteHeader(status)
+	_ = json.NewEncoder(w).Encode(proxyError{
+		Error: proxyErrorBody{
+			Code:    code,
+			Message: message,
+		},
+	})
+}
