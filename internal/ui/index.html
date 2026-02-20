@@ -6,21 +6,19 @@
 <title>Octroi Admin</title>
 <style>
 :root {
-  --bg: #0f1117;
-  --surface: #1a1d27;
-  --surface2: #242836;
-  --border: #2e3348;
-  --text: #e1e4ed;
-  --text2: #8b90a0;
-  --accent: #6c7aff;
-  --accent-hover: #8590ff;
-  --danger: #ff5c6a;
-  --danger-hover: #ff7a85;
-  --success: #34d399;
-  --warn: #fbbf24;
-  --radius: 8px;
-  --font: -apple-system, BlinkMacSystemFont, 'Segoe UI', Roboto, sans-serif;
-  --mono: 'SF Mono', 'Fira Code', 'Cascadia Code', monospace;
+  --bg: #ffffff;
+  --surface: #f5f5f0;
+  --surface2: #eaeae5;
+  --border: #d0d0c8;
+  --text: #1a1a1a;
+  --text2: #707068;
+  --accent: #1a1a1a;
+  --accent-hover: #444;
+  --danger: #c33;
+  --danger-hover: #e44;
+  --success: #2a7;
+  --warn: #a80;
+  --font: 'SF Mono', 'Cascadia Code', 'Fira Code', 'JetBrains Mono', 'Consolas', monospace;
 }
 *, *::before, *::after { box-sizing: border-box; margin: 0; padding: 0; }
 body {
@@ -28,34 +26,35 @@ body {
   background: var(--bg);
   color: var(--text);
   min-height: 100vh;
+  font-size: 12px;
+  line-height: 1.5;
 }
 /* Top Bar */
 .topbar {
   display: flex;
   align-items: center;
-  gap: 16px;
-  padding: 12px 24px;
+  gap: 12px;
+  padding: 8px 16px;
   background: var(--surface);
   border-bottom: 1px solid var(--border);
   position: sticky;
   top: 0;
   z-index: 100;
 }
-.topbar h1 { font-size: 18px; font-weight: 700; letter-spacing: -0.5px; }
+.topbar h1 { font-size: 12px; font-weight: 700; text-transform: uppercase; letter-spacing: 1px; }
 .topbar .spacer { flex: 1; }
 .topbar input[type="password"] {
-  background: var(--surface2);
+  background: var(--bg);
   border: 1px solid var(--border);
   color: var(--text);
-  padding: 6px 12px;
-  border-radius: var(--radius);
-  font-size: 13px;
-  width: 280px;
-  font-family: var(--mono);
+  padding: 4px 8px;
+  font-size: 12px;
+  width: 240px;
+  font-family: var(--font);
 }
 .topbar input::placeholder { color: var(--text2); }
 .status-dot {
-  width: 8px; height: 8px; border-radius: 50%;
+  width: 6px; height: 6px; border-radius: 50%;
   background: var(--danger);
   transition: background 0.2s;
 }
@@ -64,26 +63,28 @@ body {
 button {
   font-family: var(--font);
   cursor: pointer;
-  border: none;
-  border-radius: var(--radius);
-  font-size: 13px;
+  border: 1px solid var(--border);
+  font-size: 11px;
   font-weight: 500;
-  padding: 7px 14px;
-  transition: background 0.15s, opacity 0.15s;
+  padding: 4px 10px;
+  background: var(--bg);
+  color: var(--text);
+  transition: background 0.1s;
 }
-button:disabled { opacity: 0.5; cursor: not-allowed; }
-.btn-primary { background: var(--accent); color: #fff; }
-.btn-primary:hover:not(:disabled) { background: var(--accent-hover); }
-.btn-danger { background: var(--danger); color: #fff; }
-.btn-danger:hover:not(:disabled) { background: var(--danger-hover); }
-.btn-ghost { background: transparent; color: var(--text2); border: 1px solid var(--border); }
-.btn-ghost:hover:not(:disabled) { color: var(--text); border-color: var(--text2); }
-.btn-sm { padding: 4px 10px; font-size: 12px; }
+button:hover:not(:disabled) { background: var(--surface2); }
+button:disabled { opacity: 0.4; cursor: not-allowed; }
+.btn-primary { background: var(--accent); color: #fff; border-color: var(--accent); }
+.btn-primary:hover:not(:disabled) { background: var(--accent-hover); border-color: var(--accent-hover); }
+.btn-danger { background: var(--bg); color: var(--danger); border-color: var(--danger); }
+.btn-danger:hover:not(:disabled) { background: #fef0f0; }
+.btn-ghost { background: transparent; color: var(--text2); }
+.btn-ghost:hover:not(:disabled) { color: var(--text); background: var(--surface); }
+.btn-sm { padding: 2px 8px; font-size: 11px; }
 /* Tabs */
 .tabs {
   display: flex;
   gap: 0;
-  padding: 0 24px;
+  padding: 0 16px;
   background: var(--surface);
   border-bottom: 1px solid var(--border);
 }
@@ -92,55 +93,55 @@ button:disabled { opacity: 0.5; cursor: not-allowed; }
   color: var(--text2);
   border: none;
   border-bottom: 2px solid transparent;
-  border-radius: 0;
-  padding: 12px 20px;
-  font-size: 14px;
+  padding: 8px 16px;
+  font-size: 11px;
   font-weight: 500;
+  text-transform: uppercase;
+  letter-spacing: 0.5px;
 }
-.tab-btn:hover { color: var(--text); }
-.tab-btn.active { color: var(--accent); border-bottom-color: var(--accent); }
+.tab-btn:hover { color: var(--text); background: none; }
+.tab-btn.active { color: var(--text); border-bottom-color: var(--text); font-weight: 700; }
 /* Content */
-.content { padding: 24px; max-width: 1200px; margin: 0 auto; }
+.content { padding: 16px; max-width: 1200px; margin: 0 auto; }
 .tab-panel { display: none; }
 .tab-panel.active { display: block; }
 /* Tables */
-table { width: 100%; border-collapse: collapse; font-size: 13px; }
+table { width: 100%; border-collapse: collapse; font-size: 12px; }
 thead th {
   text-align: left;
-  padding: 10px 12px;
+  padding: 6px 8px;
   color: var(--text2);
-  font-weight: 500;
-  font-size: 12px;
+  font-weight: 600;
+  font-size: 10px;
   text-transform: uppercase;
-  letter-spacing: 0.5px;
-  border-bottom: 1px solid var(--border);
+  letter-spacing: 0.8px;
+  border-bottom: 2px solid var(--border);
 }
 tbody td {
-  padding: 10px 12px;
-  border-bottom: 1px solid var(--border);
+  padding: 5px 8px;
+  border-bottom: 1px solid var(--surface2);
   vertical-align: top;
 }
-tbody tr:hover { background: var(--surface2); }
-.mono { font-family: var(--mono); font-size: 12px; }
+tbody tr:hover { background: var(--surface); }
+.mono { font-family: var(--font); font-size: 12px; }
 /* Cards */
-.cards { display: grid; grid-template-columns: repeat(auto-fill, minmax(200px, 1fr)); gap: 16px; margin-bottom: 24px; }
+.cards { display: grid; grid-template-columns: repeat(auto-fill, minmax(180px, 1fr)); gap: 12px; margin-bottom: 16px; }
 .card {
   background: var(--surface);
   border: 1px solid var(--border);
-  border-radius: var(--radius);
-  padding: 16px;
+  padding: 12px;
 }
-.card .label { font-size: 12px; color: var(--text2); margin-bottom: 4px; }
-.card .value { font-size: 24px; font-weight: 700; }
+.card .label { font-size: 10px; color: var(--text2); margin-bottom: 2px; text-transform: uppercase; letter-spacing: 0.5px; }
+.card .value { font-size: 20px; font-weight: 700; }
 /* Toolbar */
-.toolbar { display: flex; align-items: center; gap: 12px; margin-bottom: 16px; flex-wrap: wrap; }
-.toolbar h2 { font-size: 16px; font-weight: 600; }
+.toolbar { display: flex; align-items: center; gap: 10px; margin-bottom: 12px; flex-wrap: wrap; }
+.toolbar h2 { font-size: 11px; font-weight: 700; text-transform: uppercase; letter-spacing: 1px; }
 /* Modal */
 .modal-overlay {
   display: none;
   position: fixed;
   inset: 0;
-  background: rgba(0,0,0,0.6);
+  background: rgba(0,0,0,0.3);
   z-index: 200;
   justify-content: center;
   align-items: flex-start;
@@ -148,66 +149,65 @@ tbody tr:hover { background: var(--surface2); }
 }
 .modal-overlay.open { display: flex; }
 .modal {
-  background: var(--surface);
+  background: var(--bg);
   border: 1px solid var(--border);
-  border-radius: 12px;
   width: 100%;
-  max-width: 560px;
+  max-width: 520px;
   max-height: calc(100vh - 120px);
   overflow-y: auto;
-  padding: 24px;
+  padding: 16px;
 }
-.modal h3 { font-size: 16px; font-weight: 600; margin-bottom: 16px; }
-.form-group { margin-bottom: 14px; }
+.modal h3 { font-size: 11px; font-weight: 700; text-transform: uppercase; letter-spacing: 1px; margin-bottom: 12px; }
+.form-group { margin-bottom: 10px; }
 .form-group label {
   display: block;
-  font-size: 12px;
+  font-size: 10px;
   color: var(--text2);
-  margin-bottom: 4px;
-  font-weight: 500;
+  margin-bottom: 3px;
+  font-weight: 600;
+  text-transform: uppercase;
+  letter-spacing: 0.5px;
 }
 .form-group input, .form-group select, .form-group textarea {
   width: 100%;
-  background: var(--surface2);
+  background: var(--bg);
   border: 1px solid var(--border);
   color: var(--text);
-  padding: 8px 12px;
-  border-radius: var(--radius);
-  font-size: 13px;
+  padding: 5px 8px;
+  font-size: 12px;
   font-family: var(--font);
 }
-.form-group textarea { font-family: var(--mono); min-height: 60px; resize: vertical; }
+.form-group textarea { min-height: 50px; resize: vertical; }
 .form-group input:focus, .form-group select:focus, .form-group textarea:focus {
   outline: none;
-  border-color: var(--accent);
+  border-color: var(--text);
 }
-.form-row { display: grid; grid-template-columns: 1fr 1fr; gap: 12px; }
-.modal-actions { display: flex; justify-content: flex-end; gap: 8px; margin-top: 20px; }
+.form-row { display: grid; grid-template-columns: 1fr 1fr; gap: 10px; }
+.modal-actions { display: flex; justify-content: flex-end; gap: 6px; margin-top: 14px; }
 /* Banner */
 .banner {
   background: var(--surface);
-  border: 1px solid var(--accent);
-  border-radius: var(--radius);
-  padding: 12px 16px;
-  margin-bottom: 16px;
-  font-size: 13px;
+  border: 1px solid var(--border);
+  border-left: 3px solid var(--success);
+  padding: 8px 12px;
+  margin-bottom: 12px;
+  font-size: 12px;
   display: none;
 }
 .banner.show { display: block; }
-.banner .key-value { font-family: var(--mono); font-size: 14px; font-weight: 600; color: var(--accent); user-select: all; }
+.banner .key-value { font-weight: 700; color: var(--text); user-select: all; }
 /* Filters */
-.filters { display: flex; gap: 12px; align-items: center; flex-wrap: wrap; }
+.filters { display: flex; gap: 8px; align-items: center; flex-wrap: wrap; }
 .filters input[type="date"], .filters select {
-  background: var(--surface2);
+  background: var(--bg);
   border: 1px solid var(--border);
   color: var(--text);
-  padding: 6px 10px;
-  border-radius: var(--radius);
-  font-size: 13px;
+  padding: 4px 8px;
+  font-size: 12px;
   font-family: var(--font);
 }
 /* Empty state */
-.empty { text-align: center; padding: 40px; color: var(--text2); }
+.empty { text-align: center; padding: 32px; color: var(--text2); font-size: 12px; }
 /* Login prompt */
 #login-prompt {
   display: flex;
@@ -215,14 +215,17 @@ tbody tr:hover { background: var(--surface2); }
   justify-content: center;
   height: 60vh;
   color: var(--text2);
-  font-size: 15px;
+  font-size: 12px;
 }
+/* Links */
+a { color: var(--text); }
+a:hover { color: var(--text2); }
 </style>
 </head>
 <body>
 <!-- Top Bar -->
 <div class="topbar">
-  <h1>Octroi</h1>
+  <h1>octroi</h1>
   <div class="spacer"></div>
   <span class="status-dot" id="status-dot"></span>
   <input type="password" id="admin-key" placeholder="Admin key" autocomplete="off">
@@ -231,40 +234,18 @@ tbody tr:hover { background: var(--surface2); }
 
 <!-- Tabs -->
 <div class="tabs" id="tab-bar" style="display:none">
-  <button class="tab-btn active" data-tab="tools">Tools</button>
-  <button class="tab-btn" data-tab="agents">Agents</button>
+  <button class="tab-btn active" data-tab="agents">Agents</button>
+  <button class="tab-btn" data-tab="tools">Tools</button>
   <button class="tab-btn" data-tab="usage">Usage</button>
 </div>
 
 <!-- Login Prompt -->
-<div id="login-prompt">Enter your admin key and click Connect to begin.</div>
+<div id="login-prompt">$ enter admin key to connect _</div>
 
 <!-- Content -->
 <div class="content" id="main-content" style="display:none">
-  <!-- Tools Tab -->
-  <div class="tab-panel active" id="tab-tools">
-    <div class="toolbar">
-      <h2>Tools</h2>
-      <div class="spacer" style="flex:1"></div>
-      <button class="btn-primary" onclick="openToolModal()">+ Create Tool</button>
-    </div>
-    <table>
-      <thead>
-        <tr>
-          <th>Name</th>
-          <th>Endpoint</th>
-          <th>Auth</th>
-          <th>Rate Limit</th>
-          <th></th>
-        </tr>
-      </thead>
-      <tbody id="tools-body"></tbody>
-    </table>
-    <div class="empty" id="tools-empty" style="display:none">No tools registered yet.</div>
-  </div>
-
   <!-- Agents Tab -->
-  <div class="tab-panel" id="tab-agents">
+  <div class="tab-panel active" id="tab-agents">
     <div class="banner" id="agent-key-banner">
       API key (shown once, copy now): <span class="key-value" id="agent-key-value"></span>
     </div>
@@ -287,6 +268,28 @@ tbody tr:hover { background: var(--surface2); }
       <tbody id="agents-body"></tbody>
     </table>
     <div class="empty" id="agents-empty" style="display:none">No agents created yet.</div>
+  </div>
+
+  <!-- Tools Tab -->
+  <div class="tab-panel" id="tab-tools">
+    <div class="toolbar">
+      <h2>Tools</h2>
+      <div class="spacer" style="flex:1"></div>
+      <button class="btn-primary" onclick="openToolModal()">+ Create Tool</button>
+    </div>
+    <table>
+      <thead>
+        <tr>
+          <th>Name</th>
+          <th>Endpoint</th>
+          <th>Auth</th>
+          <th>Rate Limit</th>
+          <th></th>
+        </tr>
+      </thead>
+      <tbody id="tools-body"></tbody>
+    </table>
+    <div class="empty" id="tools-empty" style="display:none">No tools registered yet.</div>
   </div>
 
   <!-- Usage Tab -->
@@ -493,7 +496,7 @@ document.querySelectorAll('.tab-btn').forEach(btn => {
 let toolsCache = [];
 async function loadTools() {
   try {
-    const data = await api('GET', '/api/v1/tools?limit=100');
+    const data = await api('GET', '/api/v1/admin/tools?limit=100');
     toolsCache = data.tools || [];
     renderTools();
     populateToolFilter();
@@ -506,7 +509,7 @@ function renderTools() {
   if (!toolsCache.length) { tbody.innerHTML = ''; empty.style.display = 'block'; return; }
   empty.style.display = 'none';
   tbody.innerHTML = toolsCache.map(t => `<tr>
-    <td><a href="#" onclick="viewToolUsage('${t.id}','${esc(t.name)}');return false" style="color:var(--accent);text-decoration:none;font-weight:600">${esc(t.name)}</a><br><span style="color:var(--text2);font-size:12px">${esc(t.description || '')}</span></td>
+    <td><a href="#" onclick="viewToolUsage('${t.id}','${esc(t.name)}');return false" style="text-decoration:none;font-weight:700;border-bottom:1px solid var(--border)">${esc(t.name)}</a><br><span style="color:var(--text2);font-size:11px">${esc(t.description || '')}</span></td>
     <td class="mono">${esc(t.endpoint || '—')}</td>
     <td>${esc(t.auth_type || 'none')}</td>
     <td>${t.rate_limit || '—'}</td>
@@ -600,7 +603,7 @@ function renderAgents() {
   if (!agentsCache.length) { tbody.innerHTML = ''; empty.style.display = 'block'; return; }
   empty.style.display = 'none';
   tbody.innerHTML = agentsCache.map(a => `<tr>
-    <td><a href="#" onclick="viewAgentUsage('${a.id}','${esc(a.name)}');return false" style="color:var(--accent);text-decoration:none;font-weight:600">${esc(a.name)}</a></td>
+    <td><a href="#" onclick="viewAgentUsage('${a.id}','${esc(a.name)}');return false" style="text-decoration:none;font-weight:700;border-bottom:1px solid var(--border)">${esc(a.name)}</a></td>
     <td>${esc(a.team || '—')}</td>
     <td class="mono">${esc(a.api_key_prefix || '—')}</td>
     <td>${a.rate_limit || '—'}</td>

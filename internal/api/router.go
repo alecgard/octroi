@@ -69,6 +69,7 @@ func NewRouter(deps RouterDeps) http.Handler {
 		ar.Use(auth.AdminAuthMiddleware(deps.AdminKey))
 
 		// Tool management.
+		ar.Get("/tools", tools.AdminListTools)
 		ar.Post("/tools", tools.CreateTool)
 		ar.Put("/tools/{id}", tools.UpdateTool)
 		ar.Delete("/tools/{id}", tools.DeleteTool)

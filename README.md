@@ -1,4 +1,6 @@
-# Octroi
+<p>
+  <img src="assets/logo.svg" alt="OCTROI"/>
+</p>
 
 A gateway that sits between AI agents and the tools/APIs they consume, providing discovery, authenticated proxying, rate limiting, budget enforcement, and usage metering.
 

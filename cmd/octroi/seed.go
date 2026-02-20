@@ -40,17 +40,43 @@ func runSeed(cmd *cobra.Command, args []string) error {
 	toolService := registry.NewService(toolStore)
 	agentStore := agent.NewStore(pool)
 
-	tool, err := toolService.Create(ctx, registry.CreateToolInput{
-		Name:        "CoinGecko Crypto Prices",
-		Description: "Get cryptocurrency prices, market data, and historical charts. Free API, no authentication required.",
-		Endpoint:    "https://api.coingecko.com",
-		AuthType:    "none",
-		PricingModel: "free",
-	})
+	// Check if demo data already exists.
+	existingTools, _, err := toolService.List(ctx, registry.ToolListParams{Query: "CoinGecko", Limit: 1})
 	if err != nil {
-		return fmt.Errorf("creating demo tool: %w", err)
+		return fmt.Errorf("checking existing tools: %w", err)
 	}
-	slog.Info("created demo tool", "id", tool.ID, "name", tool.Name)
+	existingAgents, _, err := agentStore.List(ctx, agent.AgentListParams{Limit: 1})
+	if err != nil {
+		return fmt.Errorf("checking existing agents: %w", err)
+	}
+
+	if len(existingTools) > 0 && len(existingAgents) > 0 {
+		slog.Info("demo data already exists, skipping seed")
+		return nil
+	}
+
+	var tool *registry.Tool
+	if len(existingTools) == 0 {
+		tool, err = toolService.Create(ctx, registry.CreateToolInput{
+			Name:         "CoinGecko Crypto Prices",
+			Description:  "Get cryptocurrency prices, market data, and historical charts. Free API, no authentication required.",
+			Endpoint:     "https://api.coingecko.com",
+			AuthType:     "none",
+			PricingModel: "free",
+		})
+		if err != nil {
+			return fmt.Errorf("creating demo tool: %w", err)
+		}
+		slog.Info("created demo tool", "id", tool.ID, "name", tool.Name)
+	} else {
+		tool = existingTools[0]
+		slog.Info("demo tool already exists", "id", tool.ID)
+	}
+
+	if len(existingAgents) > 0 {
+		slog.Info("demo agent already exists, skipping")
+		return nil
+	}
 
 	apiKey, plaintext, err := auth.GenerateAPIKey()
 	if err != nil {
@@ -58,11 +84,11 @@ func runSeed(cmd *cobra.Command, args []string) error {
 	}
 
 	ag, err := agentStore.Create(ctx, agent.CreateAgentInput{
-		Name:       "demo-agent",
-		APIKeyHash: apiKey.Hash,
+		Name:         "demo-agent",
+		APIKeyHash:   apiKey.Hash,
 		APIKeyPrefix: apiKey.Prefix,
-		Team:       "demo",
-		RateLimit:  120,
+		Team:         "demo",
+		RateLimit:    120,
 	})
 	if err != nil {
 		return fmt.Errorf("creating demo agent: %w", err)

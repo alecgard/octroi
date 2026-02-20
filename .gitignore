@@ -29,6 +29,3 @@ pgdata/
 
 # Go
 vendor/
-
-# Product docs (private)
-product/

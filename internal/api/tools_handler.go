@@ -146,6 +146,40 @@ func (h *toolsHandler) GetTool(w http.ResponseWriter, r *http.Request) {
 	writeJSON(w, http.StatusOK, tool)
 }
 
+// AdminListTools handles GET /api/v1/admin/tools (admin view with endpoint/auth_config).
+func (h *toolsHandler) AdminListTools(w http.ResponseWriter, r *http.Request) {
+	params := registry.ToolListParams{
+		Cursor: r.URL.Query().Get("cursor"),
+		Query:  r.URL.Query().Get("q"),
+	}
+	if limitStr := r.URL.Query().Get("limit"); limitStr != "" {
+		l, err := strconv.Atoi(limitStr)
+		if err != nil || l < 1 {
+			writeError(w, http.StatusBadRequest, "invalid_limit", "limit must be a positive integer")
+			return
+		}
+		params.Limit = l
+	}
+
+	tools, nextCursor, err := h.service.List(r.Context(), params)
+	if err != nil {
+		writeError(w, http.StatusInternalServerError, "internal_error", "failed to list tools")
+		return
+	}
+
+	views := make([]map[string]interface{}, len(tools))
+	for i, t := range tools {
+		views[i] = adminToolView(t)
+	}
+	resp := map[string]interface{}{
+		"tools": views,
+	}
+	if nextCursor != "" {
+		resp["next_cursor"] = nextCursor
+	}
+	writeJSON(w, http.StatusOK, resp)
+}
+
 // adminToolView returns a map that includes endpoint and auth_config for admin responses.
 func adminToolView(t *registry.Tool) map[string]interface{} {
 	return map[string]interface{}{
