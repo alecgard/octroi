@@ -262,3 +262,13 @@ func (h *usageHandler) ListTransactions(w http.ResponseWriter, r *http.Request, 
 	}
 	writeJSON(w, http.StatusOK, resp)
 }
+
+// GetToolCallCounts handles GET /api/v1/admin/usage/tools/calls (admin).
+func (h *usageHandler) GetToolCallCounts(w http.ResponseWriter, r *http.Request) {
+	counts, err := h.store.GetToolCallCounts(r.Context())
+	if err != nil {
+		writeError(w, http.StatusInternalServerError, "internal_error", "failed to get tool call counts")
+		return
+	}
+	writeJSON(w, http.StatusOK, map[string]interface{}{"counts": counts})
+}

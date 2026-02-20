@@ -19,16 +19,17 @@ import (
 
 // RouterDeps holds all dependencies for the API router.
 type RouterDeps struct {
-	ToolService *registry.Service
-	ToolStore   *registry.Store
-	AgentStore  *agent.Store
-	BudgetStore *agent.BudgetStore
-	MeterStore  *metering.Store
-	Collector   *metering.Collector
-	Auth        *auth.Service
-	Limiter     *ratelimit.Limiter
-	Proxy     *proxy.Handler
-	UserStore *user.Store
+	ToolService        *registry.Service
+	ToolStore          *registry.Store
+	AgentStore         *agent.Store
+	BudgetStore        *agent.BudgetStore
+	MeterStore         *metering.Store
+	Collector          *metering.Collector
+	Auth               *auth.Service
+	Limiter            *ratelimit.Limiter
+	Proxy              *proxy.Handler
+	UserStore          *user.Store
+	ToolRateLimitStore *ratelimit.ToolRateLimitStore
 }
 
 // NewRouter builds the chi router with all routes and middleware.
@@ -109,6 +110,7 @@ func NewRouter(deps RouterDeps) http.Handler {
 		// Admin usage queries.
 		ar.Get("/usage", usage.GetUsageAdmin)
 		ar.Get("/usage/agents/{agentID}", usage.GetUsageByAgent)
+		ar.Get("/usage/tools/calls", usage.GetToolCallCounts)
 		ar.Get("/usage/tools/{toolID}", usage.GetUsageByTool)
 		ar.Get("/usage/agents/{agentID}/tools/{toolID}", usage.GetUsageByAgentTool)
 		ar.Get("/usage/transactions", func(w http.ResponseWriter, r *http.Request) {
@@ -122,6 +124,14 @@ func NewRouter(deps RouterDeps) http.Handler {
 			ar.Get("/users", users.ListUsers)
 			ar.Put("/users/{id}", users.UpdateUser)
 			ar.Delete("/users/{id}", users.DeleteUser)
+		}
+
+		// Tool rate limit overrides.
+		if deps.ToolRateLimitStore != nil {
+			trl := newToolRateLimitsHandler(deps.ToolRateLimitStore, deps.ToolStore)
+			ar.Get("/tools/{toolID}/rate-limits", trl.ListToolRateLimits)
+			ar.Put("/tools/{toolID}/rate-limits", trl.SetToolRateLimit)
+			ar.Delete("/tools/{toolID}/rate-limits/{scope}/{scopeID}", trl.DeleteToolRateLimit)
 		}
 
 		// Teams (admin).

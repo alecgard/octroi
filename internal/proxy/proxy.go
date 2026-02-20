@@ -31,11 +31,17 @@ type MeteringRecorder interface {
 	Record(tx metering.Transaction)
 }
 
+// ToolRateLimitChecker is the interface for checking per-tool rate limits.
+type ToolRateLimitChecker interface {
+	CheckToolRateLimit(ctx context.Context, toolID, team, agentID string) (allowed bool, limit, remaining int, resetAt time.Time, err error)
+}
+
 // Handler proxies requests to tool endpoints.
 type Handler struct {
 	tools          ToolStore
 	budgets        BudgetChecker
 	collector      MeteringRecorder
+	toolRateLimits ToolRateLimitChecker
 	client         *http.Client
 	maxRequestSize int64
 }
@@ -49,6 +55,11 @@ func NewHandler(toolStore ToolStore, budgetStore BudgetChecker, collector Meteri
 		client:         &http.Client{Timeout: timeout},
 		maxRequestSize: maxRequestSize,
 	}
+}
+
+// SetToolRateLimitChecker sets the optional tool rate limit checker.
+func (h *Handler) SetToolRateLimitChecker(checker ToolRateLimitChecker) {
+	h.toolRateLimits = checker
 }
 
 // ServeHTTP handles proxy requests.
@@ -71,6 +82,22 @@ func (h *Handler) ServeHTTP(w http.ResponseWriter, r *http.Request) {
 	if agent == nil {
 		writeError(w, http.StatusUnauthorized, "unauthorized", "missing agent credentials")
 		return
+	}
+
+	// Check per-tool rate limits (global / team / agent scopes).
+	if h.toolRateLimits != nil {
+		tlAllowed, tlLimit, tlRemaining, tlResetAt, tlErr := h.toolRateLimits.CheckToolRateLimit(r.Context(), tool.ID, agent.Team, agent.ID)
+		if tlErr == nil {
+			if tlLimit > 0 {
+				w.Header().Set("X-Tool-RateLimit-Limit", fmt.Sprintf("%d", tlLimit))
+				w.Header().Set("X-Tool-RateLimit-Remaining", fmt.Sprintf("%d", tlRemaining))
+				w.Header().Set("X-Tool-RateLimit-Reset", fmt.Sprintf("%d", tlResetAt.Unix()))
+			}
+			if !tlAllowed {
+				writeError(w, http.StatusTooManyRequests, "tool_rate_limited", "tool rate limit exceeded")
+				return
+			}
+		}
 	}
 
 	// Check per-agent budget.

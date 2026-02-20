@@ -3,7 +3,8 @@
 <head>
 <meta charset="UTF-8">
 <meta name="viewport" content="width=device-width, initial-scale=1.0">
-<title>Octroi Admin</title>
+<title>Octroi</title>
+<link rel="icon" type="image/svg+xml" href="data:image/svg+xml,%3Csvg xmlns='http://www.w3.org/2000/svg' width='32' height='32' viewBox='0 0 32 32'%3E%3Crect width='32' height='32' fill='%231a1a1a' rx='6'/%3E%3Ctext x='16' y='23' font-family='SF Mono,Cascadia Code,Fira Code,monospace' font-size='20' font-weight='700' fill='%23f5f5f0' text-anchor='middle'%3EO%3C/text%3E%3C/svg%3E">
 <style>
 :root {
   --bg: #ffffff;
@@ -447,7 +448,7 @@ a:hover { color: var(--text2); }
           <th>Name</th>
           <th id="tools-endpoint-th">Endpoint</th>
           <th>Auth</th>
-          <th>Rate Limit</th>
+          <th>Total Calls</th>
           <th id="tools-actions-th"></th>
         </tr>
       </thead>
@@ -598,9 +599,17 @@ a:hover { color: var(--text2); }
         </select>
       </div>
       <div class="form-group">
-        <label>Rate Limit (req/min)</label>
+        <label title="Max requests per minute across ALL agents combined. A shared ceiling for this tool.">Global Rate Limit (req/min)</label>
         <input type="number" id="tool-rate-limit" placeholder="0">
       </div>
+    </div>
+    <div class="form-group" id="tool-rate-overrides-section" style="display:none">
+      <label title="Max requests per minute shared by all agents on a team. Must also stay within the global limit.">Team Rate Limit Overrides</label>
+      <div id="tool-team-overrides"></div>
+      <button type="button" class="btn-ghost" onclick="addToolRateOverrideRow('team')" style="font-size:12px;margin-top:4px">+ Add Team Override</button>
+      <label style="margin-top:8px" title="Max requests per minute for a single agent. Must also stay within team and global limits.">Agent Rate Limit Overrides</label>
+      <div id="tool-agent-overrides"></div>
+      <button type="button" class="btn-ghost" onclick="addToolRateOverrideRow('agent')" style="font-size:12px;margin-top:4px">+ Add Agent Override</button>
     </div>
     <div class="form-group">
       <label>Auth Config (JSON)</label>
@@ -763,6 +772,7 @@ let usageLoading = false;
 let agentsCache = [];
 let toolsCache = [];
 let teamsCache = [];
+let toolCallCounts = {};
 let usersCache = [];
 
 // --- API helpers ---
@@ -978,6 +988,14 @@ async function loadTools() {
     toolsCache = data.tools || [];
     renderTools();
     populateToolFilter();
+    // Load total call counts for the tools table.
+    if (isAdmin) {
+      try {
+        const counts = await api('GET', '/api/v1/admin/usage/tools/calls');
+        toolCallCounts = counts.counts || {};
+        renderTools();
+      } catch (e2) { console.error('Failed to load tool call counts', e2); }
+    }
   } catch (e) { console.error('Failed to load tools', e); }
 }
 
@@ -994,7 +1012,7 @@ function renderTools() {
     <td><a href="#" onclick="viewToolUsage('${t.id}','${esc(t.name)}');return false" style="text-decoration:none;font-weight:700;border-bottom:1px solid var(--border)">${esc(t.name)}</a><br><span style="color:var(--text2);font-size:11px">${esc(t.description || '')}</span></td>
     <td class="mono">${isAdmin ? esc(t.endpoint || '\u2014') : esc(t.pricing_model || 'free')}</td>
     <td>${esc(t.auth_type || 'none')}</td>
-    <td>${t.rate_limit || '\u2014'}</td>
+    <td>${toolCallCounts[t.id] != null ? Number(toolCallCounts[t.id]).toLocaleString() : '\u2014'}</td>
     <td style="white-space:nowrap">
       <button class="btn-ghost btn-sm" onclick="editTool('${t.id}')"${disAttr}>Edit</button>
       <button class="btn-danger btn-sm" onclick="deleteTool('${t.id}','${esc(t.name)}')"${disAttr}>Delete</button>
@@ -1005,6 +1023,8 @@ function renderTools() {
     document.getElementById('tools-endpoint-th').textContent = 'Pricing';
   }
 }
+
+let toolRateOverridesOriginal = []; // track original overrides for diff on save
 
 function openToolModal(tool) {
   document.getElementById('tool-edit-id').value = tool ? tool.id : '';
@@ -1021,7 +1041,52 @@ function openToolModal(tool) {
   document.getElementById('tool-pricing-currency').value = tool ? tool.pricing_currency || '' : '';
   document.getElementById('tool-budget-limit').value = tool ? tool.budget_limit || '' : '';
   document.getElementById('tool-budget-window').value = tool ? tool.budget_window || '' : '';
+
+  // Rate limit overrides.
+  document.getElementById('tool-team-overrides').innerHTML = '';
+  document.getElementById('tool-agent-overrides').innerHTML = '';
+  toolRateOverridesOriginal = [];
+  const overridesSection = document.getElementById('tool-rate-overrides-section');
+  if (tool && tool.id) {
+    overridesSection.style.display = '';
+    loadToolRateOverrides(tool.id);
+  } else {
+    overridesSection.style.display = 'none';
+  }
+
   document.getElementById('tool-modal').classList.add('open');
+}
+
+async function loadToolRateOverrides(toolID) {
+  try {
+    const data = await api('GET', '/api/v1/admin/tools/' + toolID + '/rate-limits');
+    toolRateOverridesOriginal = data.overrides || [];
+    document.getElementById('tool-team-overrides').innerHTML = '';
+    document.getElementById('tool-agent-overrides').innerHTML = '';
+    for (const o of toolRateOverridesOriginal) {
+      addToolRateOverrideRow(o.scope, o.scope_id, o.rate_limit);
+    }
+  } catch (e) { console.error('Failed to load tool rate overrides', e); }
+}
+
+function addToolRateOverrideRow(scope, scopeIdVal, rateVal) {
+  const container = document.getElementById(scope === 'team' ? 'tool-team-overrides' : 'tool-agent-overrides');
+  const row = document.createElement('div');
+  row.style.cssText = 'display:flex;gap:6px;align-items:center;margin-top:4px';
+  row.dataset.scope = scope;
+
+  let selectHtml = '';
+  if (scope === 'team') {
+    const options = teamsCache.map(t => '<option value="' + t.name + '"' + (t.name === scopeIdVal ? ' selected' : '') + '>' + t.name + '</option>').join('');
+    selectHtml = '<select class="override-scope-id" style="flex:1">' + (scopeIdVal && !teamsCache.find(t => t.name === scopeIdVal) ? '<option value="' + scopeIdVal + '" selected>' + scopeIdVal + '</option>' : '') + options + '</select>';
+  } else {
+    const options = agentsCache.map(a => '<option value="' + a.id + '"' + (a.id === scopeIdVal ? ' selected' : '') + '>' + a.name + '</option>').join('');
+    selectHtml = '<select class="override-scope-id" style="flex:1">' + (scopeIdVal && !agentsCache.find(a => a.id === scopeIdVal) ? '<option value="' + scopeIdVal + '" selected>' + scopeIdVal + '</option>' : '') + options + '</select>';
+  }
+  row.innerHTML = selectHtml +
+    '<input type="number" class="override-rate" placeholder="req/min" value="' + (rateVal || '') + '" style="width:100px">' +
+    '<button type="button" class="btn-ghost" onclick="this.parentElement.remove()" style="font-size:12px;padding:2px 6px;color:var(--danger)">✕</button>';
+  container.appendChild(row);
 }
 
 async function editTool(id) {
@@ -1052,12 +1117,43 @@ async function submitTool() {
   try {
     if (id) {
       await api('PUT', '/api/v1/admin/tools/' + id, body);
+      await saveToolRateOverrides(id);
     } else {
-      await api('POST', '/api/v1/admin/tools', body);
+      const created = await api('POST', '/api/v1/admin/tools', body);
+      // No overrides to save for a new tool (user can edit after creation).
     }
     closeModal('tool-modal');
     loadTools();
   } catch (e) { alert('Error: ' + e.message); }
+}
+
+async function saveToolRateOverrides(toolID) {
+  // Collect current overrides from DOM.
+  const currentOverrides = [];
+  for (const container of [document.getElementById('tool-team-overrides'), document.getElementById('tool-agent-overrides')]) {
+    for (const row of container.children) {
+      const scope = row.dataset.scope;
+      const scopeId = row.querySelector('.override-scope-id').value;
+      const rate = parseInt(row.querySelector('.override-rate').value) || 0;
+      if (scopeId && rate > 0) {
+        currentOverrides.push({ scope, scope_id: scopeId, rate_limit: rate });
+      }
+    }
+  }
+
+  // Determine which original overrides were removed.
+  const basePath = '/api/v1/admin/tools/' + toolID + '/rate-limits';
+  for (const orig of toolRateOverridesOriginal) {
+    const stillExists = currentOverrides.find(c => c.scope === orig.scope && c.scope_id === orig.scope_id);
+    if (!stillExists) {
+      try { await api('DELETE', basePath + '/' + orig.scope + '/' + encodeURIComponent(orig.scope_id)); } catch(e) { console.error('delete override failed', e); }
+    }
+  }
+
+  // Upsert current overrides.
+  for (const o of currentOverrides) {
+    try { await api('PUT', basePath, o); } catch(e) { console.error('set override failed', e); }
+  }
 }
 
 async function deleteTool(id, name) {

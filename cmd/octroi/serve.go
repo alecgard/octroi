@@ -68,7 +68,11 @@ func runServe(cmd *cobra.Command, args []string) error {
 	limiter := ratelimit.New(cfg.RateLimit.Default, cfg.RateLimit.Window)
 	authService := auth.NewService(agent.NewAuthAdapter(agentStore))
 
+	toolRateLimitStore := ratelimit.NewToolRateLimitStore(pool)
+	toolRateLimiter := ratelimit.NewToolRateLimiter(toolRateLimitStore, limiter)
+
 	proxyHandler := proxy.NewHandler(toolStore, budgetStore, collector, cfg.Proxy.Timeout, cfg.Proxy.MaxRequestSize)
+	proxyHandler.SetToolRateLimitChecker(toolRateLimiter)
 
 	router := api.NewRouter(api.RouterDeps{
 		ToolService: toolService,
@@ -79,8 +83,9 @@ func runServe(cmd *cobra.Command, args []string) error {
 		Collector:   collector,
 		Auth:        authService,
 		Limiter:     limiter,
-		Proxy:     proxyHandler,
-		UserStore: userStore,
+		Proxy:              proxyHandler,
+		UserStore:          userStore,
+		ToolRateLimitStore: toolRateLimitStore,
 	})
 
 	srv := &http.Server{

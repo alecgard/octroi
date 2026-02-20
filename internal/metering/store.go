@@ -95,6 +95,27 @@ func (s *Store) GetSummary(ctx context.Context, q UsageQuery) (*UsageSummary, er
 	return &summary, nil
 }
 
+// GetToolCallCounts returns the total number of transactions per tool for all tools.
+func (s *Store) GetToolCallCounts(ctx context.Context) (map[string]int64, error) {
+	rows, err := s.pool.Query(ctx,
+		`SELECT tool_id, COUNT(*) FROM transactions GROUP BY tool_id`)
+	if err != nil {
+		return nil, fmt.Errorf("querying tool call counts: %w", err)
+	}
+	defer rows.Close()
+
+	counts := make(map[string]int64)
+	for rows.Next() {
+		var toolID string
+		var count int64
+		if err := rows.Scan(&toolID, &count); err != nil {
+			return nil, fmt.Errorf("scanning tool call count: %w", err)
+		}
+		counts[toolID] = count
+	}
+	return counts, rows.Err()
+}
+
 // ListTransactions returns a page of transactions matching the query filters,
 // ordered by timestamp DESC, id DESC. It uses cursor-based pagination and
 // returns the next cursor (empty string if no more results).
