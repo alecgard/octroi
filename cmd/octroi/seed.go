@@ -5,12 +5,15 @@ import (
 	"context"
 	"fmt"
 	"log/slog"
+	"math/rand"
 	"os"
 	"strings"
+	"time"
 
 	"github.com/alecgard/octroi/internal/agent"
 	"github.com/alecgard/octroi/internal/auth"
 	"github.com/alecgard/octroi/internal/config"
+	"github.com/alecgard/octroi/internal/metering"
 	"github.com/alecgard/octroi/internal/registry"
 	"github.com/alecgard/octroi/internal/user"
 	"github.com/jackc/pgx/v5/pgxpool"
@@ -145,48 +148,107 @@ func runSeed(cmd *cobra.Command, args []string) error {
 		}
 	}
 
-	// Seed demo agent (skip if one named "demo-agent" already exists).
-	existingAgents, _, _ := agentStore.List(ctx, agent.AgentListParams{Limit: 100})
-	hasDemoAgent := false
-	for _, a := range existingAgents {
-		if a.Name == "demo-agent" {
-			hasDemoAgent = true
-			break
-		}
+	// Seed demo agents (skip each if already exists).
+	demoAgents := []struct {
+		Name    string
+		Team    string
+		EnvKey  string
+	}{
+		{"demo-agent", "alpha", "OCTROI_DEMO_AGENT_KEY"},
+		{"scraper-bot", "beta", ""},
 	}
 
-	if !hasDemoAgent {
+	existingAgents, _, _ := agentStore.List(ctx, agent.AgentListParams{Limit: 100})
+	agentByName := make(map[string]*agent.Agent, len(existingAgents))
+	for _, a := range existingAgents {
+		agentByName[a.Name] = a
+	}
+
+	for _, da := range demoAgents {
+		if existing, ok := agentByName[da.Name]; ok {
+			slog.Info("agent already exists, skipping", "name", da.Name)
+			_ = existing
+			continue
+		}
 		apiKey, plaintext, err := auth.GenerateAPIKey()
 		if err != nil {
 			return fmt.Errorf("generating api key: %w", err)
 		}
-
 		ag, err := agentStore.Create(ctx, agent.CreateAgentInput{
-			Name:         "demo-agent",
+			Name:         da.Name,
 			APIKeyHash:   apiKey.Hash,
 			APIKeyPrefix: apiKey.Prefix,
-			Team:         "alpha",
+			Team:         da.Team,
 			RateLimit:    120,
 		})
 		if err != nil {
-			return fmt.Errorf("creating demo agent: %w", err)
+			return fmt.Errorf("creating agent %q: %w", da.Name, err)
 		}
-
-		slog.Info("created demo agent", "id", ag.ID, "name", ag.Name)
-		fmt.Printf("\nDemo Agent: %s (%s)\n", ag.Name, ag.ID)
-		fmt.Printf("API Key:    %s\n", plaintext)
-		if firstTool != nil {
+		agentByName[da.Name] = ag
+		slog.Info("created agent", "id", ag.ID, "name", ag.Name)
+		fmt.Printf("\nAgent: %s (%s)\n", ag.Name, ag.ID)
+		fmt.Printf("API Key: %s\n", plaintext)
+		if da.EnvKey != "" {
+			if err := setEnvKey(".env", da.EnvKey, plaintext); err != nil {
+				slog.Warn("could not write agent key to .env", "error", err)
+			} else {
+				slog.Info("wrote agent key to .env", "key", da.EnvKey)
+			}
+		}
+		if firstTool != nil && da.Name == "demo-agent" {
 			fmt.Printf("\nTry it:\n")
 			fmt.Printf("  curl -H 'Authorization: Bearer %s' http://localhost:8080/proxy/%s/api/v3/simple/price?ids=bitcoin&vs_currencies=usd\n", plaintext, firstTool.ID)
 		}
+	}
 
-		if err := setEnvKey(".env", "OCTROI_DEMO_AGENT_KEY", plaintext); err != nil {
-			slog.Warn("could not write demo agent key to .env", "error", err)
-		} else {
-			slog.Info("wrote OCTROI_DEMO_AGENT_KEY to .env")
+	// Seed sample transactions (spread over the last 24 hours).
+	meterStore := metering.NewStore(pool)
+	// Refresh tool list to get all tool IDs.
+	allTools, _, _ := toolService.List(ctx, registry.ToolListParams{Limit: 100})
+	if len(allTools) > 0 && len(agentByName) > 0 {
+		var agents []*agent.Agent
+		for _, a := range agentByName {
+			agents = append(agents, a)
 		}
-	} else {
-		slog.Info("demo-agent already exists, skipping")
+
+		methods := []string{"GET", "GET", "GET", "POST"}
+		paths := []string{"/api/v1/data", "/api/v1/query", "/api/v1/search", "/api/v1/submit"}
+		statuses := []int{200, 200, 200, 200, 200, 200, 200, 200, 201, 400, 500}
+
+		rng := rand.New(rand.NewSource(42))
+		now := time.Now()
+		var txns []metering.Transaction
+
+		for i := 0; i < 120; i++ {
+			ag := agents[rng.Intn(len(agents))]
+			tool := allTools[rng.Intn(len(allTools))]
+			status := statuses[rng.Intn(len(statuses))]
+			method := methods[rng.Intn(len(methods))]
+			path := paths[rng.Intn(len(paths))]
+			latency := int64(20 + rng.Intn(480))
+			cost := float64(rng.Intn(50)) / 10000.0
+			ts := now.Add(-time.Duration(rng.Intn(24*60)) * time.Minute)
+
+			txns = append(txns, metering.Transaction{
+				AgentID:      ag.ID,
+				ToolID:       tool.ID,
+				Timestamp:    ts,
+				Method:       method,
+				Path:         path,
+				StatusCode:   status,
+				LatencyMs:    latency,
+				RequestSize:  int64(100 + rng.Intn(900)),
+				ResponseSize: int64(200 + rng.Intn(4800)),
+				Success:      status < 400,
+				Cost:         cost,
+			})
+		}
+
+		if err := meterStore.BatchInsert(ctx, txns); err != nil {
+			slog.Warn("could not seed transactions", "error", err)
+		} else {
+			slog.Info("seeded transactions", "count", len(txns))
+		}
 	}
 
 	// Seed users (skip each if email already exists).

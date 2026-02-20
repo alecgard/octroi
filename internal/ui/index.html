@@ -198,13 +198,15 @@ tbody tr:hover { background: var(--surface); }
 .banner .key-value { font-weight: 700; color: var(--text); user-select: all; }
 /* Filters */
 .filters { display: flex; gap: 8px; align-items: center; flex-wrap: wrap; }
-.filters input[type="date"], .filters select {
+.filters input[type="date"], .filters select, select.styled-select {
   background: var(--bg);
   border: 1px solid var(--border);
   color: var(--text);
-  padding: 4px 8px;
-  font-size: 12px;
+  padding: 3px 8px;
+  font-size: 11px;
+  font-weight: 500;
   font-family: var(--font);
+  height: 24px;
 }
 /* Empty state */
 .empty { text-align: center; padding: 32px; color: var(--text2); font-size: 12px; }
@@ -246,6 +248,7 @@ a:hover { color: var(--text2); }
   font-size: 11px;
   font-weight: 500;
   padding: 3px 12px;
+  height: 24px;
   color: var(--text2);
   cursor: pointer;
   display: flex;
@@ -313,6 +316,49 @@ a:hover { color: var(--text2); }
   color: var(--text2);
   font-size: 11px;
 }
+/* Tooltip */
+.has-tooltip { position: relative; cursor: help; }
+.has-tooltip .tip {
+  display: none; position: absolute; bottom: 100%; left: 50%; transform: translateX(-50%);
+  background: var(--text); color: var(--bg); padding: 4px 8px; font-size: 10px;
+  font-weight: 400; text-transform: none; letter-spacing: 0; white-space: nowrap;
+  z-index: 10; margin-bottom: 4px;
+}
+.has-tooltip:hover .tip { display: block; }
+/* Search */
+.tab-search {
+  background: var(--bg); border: 1px solid var(--border); color: var(--text);
+  padding: 3px 8px; font-size: 11px; font-family: var(--font); height: 24px; width: 180px;
+}
+.tab-search:focus { outline: none; border-color: var(--text); }
+.tab-search::placeholder { color: var(--text2); }
+/* Chart */
+.chart-label { font-family: var(--font); font-size: 9px; fill: var(--text2); }
+.chart-tick { stroke: var(--border); stroke-dasharray: 3,3; }
+.chart-legend { display: flex; gap: 12px; flex-wrap: wrap; margin-top: 6px; font-size: 10px; color: var(--text2); }
+.chart-legend-item { display: flex; align-items: center; gap: 4px; cursor: default; }
+.chart-legend-swatch { width: 10px; height: 10px; display: inline-block; }
+.chart-tooltip {
+  position: absolute; pointer-events: none; z-index: 50;
+  background: var(--bg); border: 1px solid var(--border);
+  padding: 6px 10px; font-size: 11px; font-family: var(--font);
+  box-shadow: 0 2px 6px rgba(0,0,0,0.08); white-space: nowrap;
+}
+.chart-tooltip .tt-time { font-weight: 700; margin-bottom: 3px; }
+.chart-tooltip .tt-row { display: flex; align-items: center; gap: 5px; line-height: 1.6; }
+.chart-tooltip .tt-swatch { width: 8px; height: 8px; display: inline-block; }
+#usage-chart { position: relative; }
+/* Spinner */
+@keyframes spin { to { transform: rotate(360deg); } }
+.usage-spinner {
+  display: flex; align-items: center; justify-content: center; gap: 8px;
+  padding: 24px; color: var(--text2); font-size: 11px;
+}
+.usage-spinner::before {
+  content: ''; width: 14px; height: 14px;
+  border: 2px solid var(--border); border-top-color: var(--text);
+  border-radius: 50%; animation: spin 0.6s linear infinite;
+}
 
 </style>
 </head>
@@ -363,8 +409,12 @@ a:hover { color: var(--text2); }
     <div class="banner" id="agent-key-banner">
       API key (shown once, copy now): <span class="key-value" id="agent-key-value"></span>
     </div>
-    <div style="display:flex;align-items:center;margin-bottom:8px">
+    <div style="display:flex;align-items:center;margin-bottom:8px;gap:8px">
       <h2 class="toolbar-title">Agents</h2>
+      <input type="text" class="tab-search" id="agents-search" placeholder="Search agents..." oninput="renderAgents()">
+      <select class="styled-select" id="agents-team-filter" onchange="renderAgents()">
+        <option value="">All teams</option>
+      </select>
       <div style="flex:1"></div>
       <button class="btn-primary" onclick="openAgentModal()">+ Create Agent</button>
     </div>
@@ -373,7 +423,7 @@ a:hover { color: var(--text2); }
         <tr>
           <th>Name</th>
           <th>Team</th>
-          <th>Rate Limit</th>
+          <th class="has-tooltip">Rate Limit (req/min)<span class="tip">Global limit for this agent across all tools</span></th>
           <th>Created</th>
           <th></th>
         </tr>
@@ -385,8 +435,9 @@ a:hover { color: var(--text2); }
 
   <!-- Tools Tab -->
   <div class="tab-panel" id="tab-tools">
-    <div style="display:flex;align-items:center;margin-bottom:8px">
+    <div style="display:flex;align-items:center;margin-bottom:8px;gap:8px">
       <h2 class="toolbar-title">Tools</h2>
+      <input type="text" class="tab-search" id="tools-search" placeholder="Search tools..." oninput="renderTools()">
       <div style="flex:1"></div>
       <button class="btn-primary" id="tools-create-btn" onclick="openToolModal()">+ Create Tool</button>
     </div>
@@ -407,8 +458,9 @@ a:hover { color: var(--text2); }
 
   <!-- Teams Tab -->
   <div class="tab-panel" id="tab-teams">
-    <div style="display:flex;align-items:center;margin-bottom:8px">
+    <div style="display:flex;align-items:center;margin-bottom:8px;gap:8px">
       <h2 class="toolbar-title">Teams</h2>
+      <input type="text" class="tab-search" id="teams-search" placeholder="Search teams..." oninput="renderTeams()">
       <div style="flex:1"></div>
       <button class="btn-primary" id="teams-create-btn" onclick="openCreateTeamModal()">+ Create Team</button>
     </div>
@@ -438,6 +490,14 @@ a:hover { color: var(--text2); }
         <input type="date" id="usage-to">
         <button class="btn-ghost" onclick="loadUsage()">Apply</button>
       </div>
+      <select id="usage-lookback-select" class="styled-select" onchange="onLookbackChange()">
+        <option value="300000">Lookback: 5 min</option>
+        <option value="900000">Lookback: 15 min</option>
+        <option value="3600000">Lookback: 1 hour</option>
+        <option value="21600000">Lookback: 6 hours</option>
+        <option value="86400000">Lookback: 24 hours</option>
+        <option value="604800000">Lookback: 7 days</option>
+      </select>
       <div class="usage-mode-toggle">
         <button class="mode-btn active" id="mode-live" onclick="setUsageMode('live')"><span class="live-dot"></span> Live</button>
         <button class="mode-btn" id="mode-hist" onclick="setUsageMode('historical')">Historical</button>
@@ -449,6 +509,24 @@ a:hover { color: var(--text2); }
       <div class="card"><div class="label">Success / Error</div><div class="value" id="stat-results">&mdash;</div></div>
       <div class="card"><div class="label">Avg Latency</div><div class="value" id="stat-latency">&mdash;</div></div>
     </div>
+    <div style="display:flex;align-items:center;gap:8px;margin-bottom:8px">
+      <h3 style="font-size:14px;font-weight:600">Requests Over Time</h3>
+      <div style="flex:1"></div>
+      <select id="usage-bucket-select" class="styled-select" onchange="onBucketChange()">
+        <option value="auto">Bucket: auto</option>
+        <option value="30000">Bucket: 30 sec</option>
+        <option value="60000">Bucket: 1 min</option>
+        <option value="300000">Bucket: 5 min</option>
+        <option value="900000">Bucket: 15 min</option>
+        <option value="3600000">Bucket: 1 hour</option>
+        <option value="86400000">Bucket: 1 day</option>
+      </select>
+      <div class="usage-mode-toggle">
+        <button class="mode-btn active" id="chart-by-agent" onclick="setChartGroup('agent')">By Agent</button>
+        <button class="mode-btn" id="chart-by-tool" onclick="setChartGroup('tool')">By Tool</button>
+      </div>
+    </div>
+    <div id="usage-chart" style="width:100%;height:180px;margin-bottom:16px;border:1px solid var(--border);background:var(--surface);overflow:hidden"></div>
     <h3 style="font-size:14px; font-weight:600; margin-bottom:12px;">Transactions</h3>
     <table>
       <thead>
@@ -469,8 +547,9 @@ a:hover { color: var(--text2); }
 
   <!-- Users Tab (org_admin only) -->
   <div class="tab-panel" id="tab-users">
-    <div style="display:flex;align-items:center;margin-bottom:8px">
+    <div style="display:flex;align-items:center;margin-bottom:8px;gap:8px">
       <h2 class="toolbar-title">Users</h2>
+      <input type="text" class="tab-search" id="users-search" placeholder="Search users..." oninput="renderUsers()">
       <div style="flex:1"></div>
       <button class="btn-primary" id="users-create-btn" onclick="openUserModal()">+ Create User</button>
     </div>
@@ -680,6 +759,7 @@ let usageTeamFilter = '';
 let usageMode = 'live'; // 'live' or 'historical'
 let usagePollTimer = null;
 let lastTxnTimestamp = null;
+let usageLoading = false;
 let agentsCache = [];
 let toolsCache = [];
 let teamsCache = [];
@@ -904,11 +984,13 @@ async function loadTools() {
 function renderTools() {
   const tbody = document.getElementById('tools-body');
   const empty = document.getElementById('tools-empty');
-  if (!toolsCache.length) { tbody.innerHTML = ''; empty.style.display = 'block'; return; }
+  const q = (document.getElementById('tools-search').value || '').toLowerCase();
+  const filtered = toolsCache.filter(t => !q || t.name.toLowerCase().includes(q) || (t.description || '').toLowerCase().includes(q));
+  if (!filtered.length) { tbody.innerHTML = ''; empty.style.display = 'block'; return; }
   empty.style.display = 'none';
 
   const disAttr = isAdmin ? '' : ' disabled title="Org admin only"';
-  tbody.innerHTML = toolsCache.map(t => `<tr>
+  tbody.innerHTML = filtered.map(t => `<tr>
     <td><a href="#" onclick="viewToolUsage('${t.id}','${esc(t.name)}');return false" style="text-decoration:none;font-weight:700;border-bottom:1px solid var(--border)">${esc(t.name)}</a><br><span style="color:var(--text2);font-size:11px">${esc(t.description || '')}</span></td>
     <td class="mono">${isAdmin ? esc(t.endpoint || '\u2014') : esc(t.pricing_model || 'free')}</td>
     <td>${esc(t.auth_type || 'none')}</td>
@@ -992,6 +1074,7 @@ async function loadAgents() {
     const path = apiBase() + '/agents?limit=100';
     const data = await api('GET', path);
     agentsCache = data.agents || [];
+    populateAgentsTeamFilter();
     renderAgents();
     populateAgentFilter();
   } catch (e) { console.error('Failed to load agents', e); }
@@ -1000,9 +1083,12 @@ async function loadAgents() {
 function renderAgents() {
   const tbody = document.getElementById('agents-body');
   const empty = document.getElementById('agents-empty');
-  if (!agentsCache.length) { tbody.innerHTML = ''; empty.style.display = 'block'; return; }
+  const q = (document.getElementById('agents-search').value || '').toLowerCase();
+  const teamFilter = document.getElementById('agents-team-filter').value;
+  const filtered = agentsCache.filter(a => (!q || a.name.toLowerCase().includes(q) || (a.team || '').toLowerCase().includes(q)) && (!teamFilter || a.team === teamFilter));
+  if (!filtered.length) { tbody.innerHTML = ''; empty.style.display = 'block'; return; }
   empty.style.display = 'none';
-  tbody.innerHTML = agentsCache.map(a => `<tr>
+  tbody.innerHTML = filtered.map(a => `<tr>
     <td><a href="#" onclick="viewAgentUsage('${a.id}','${esc(a.name)}');return false" style="text-decoration:none;font-weight:700;border-bottom:1px solid var(--border)">${esc(a.name)}</a></td>
     <td>${esc(a.team || '\u2014')}</td>
     <td>${a.rate_limit || '\u2014'}</td>
@@ -1012,6 +1098,14 @@ function renderAgents() {
       <button class="btn-danger btn-sm" onclick="deleteAgent('${a.id}','${esc(a.name)}')">Delete</button>
     </td>
   </tr>`).join('');
+}
+
+function populateAgentsTeamFilter() {
+  const sel = document.getElementById('agents-team-filter');
+  const current = sel.value;
+  const teams = [...new Set(agentsCache.map(a => a.team).filter(Boolean))].sort();
+  sel.innerHTML = '<option value="">All teams</option>' + teams.map(t => `<option value="${esc(t)}">${esc(t)}</option>`).join('');
+  sel.value = current;
 }
 
 function openAgentModal(ag) {
@@ -1100,10 +1194,14 @@ async function loadTeams() {
 function renderTeams() {
   const container = document.getElementById('teams-content');
   const empty = document.getElementById('teams-empty');
-  if (!teamsCache.length) { container.innerHTML = ''; empty.style.display = 'block'; return; }
+  const q = (document.getElementById('teams-search').value || '').toLowerCase();
+  const filtered = teamsCache.filter(t => !q || t.name.toLowerCase().includes(q) ||
+    t.agents.some(a => a.name.toLowerCase().includes(q)) ||
+    t.users.some(u => (u.name || '').toLowerCase().includes(q) || u.email.toLowerCase().includes(q)));
+  if (!filtered.length) { container.innerHTML = ''; empty.style.display = 'block'; return; }
   empty.style.display = 'none';
 
-  container.innerHTML = teamsCache.map(t => {
+  container.innerHTML = filtered.map(t => {
     const canManage = canManageTeam(t.name);
     const agentList = t.agents.length
       ? t.agents.map(a => `<li><strong>${esc(a.name)}</strong></li>`).join('')
@@ -1123,7 +1221,7 @@ function renderTeams() {
     const addBtn = `<button class="btn-ghost btn-sm" onclick="openAddMemberModal('${esc(t.name)}')"${addDis}>+ Add Member</button>`;
 
     return `<div class="team-section">
-      <h3>${esc(t.name)}</h3>
+      <h3><a href="#" onclick="viewTeamUsage('${esc(t.name)}');return false" style="text-decoration:none;border-bottom:1px solid var(--border)">${esc(t.name)}</a></h3>
       <div class="team-sub">Agents (${t.agents.length})</div>
       <ul>${agentList}</ul>
       <div class="team-sub">Users (${t.users.length}) ${addBtn}</div>
@@ -1208,8 +1306,8 @@ function setUsageMode(mode) {
   usageMode = mode;
   document.getElementById('mode-live').classList.toggle('active', mode === 'live');
   document.getElementById('mode-hist').classList.toggle('active', mode === 'historical');
-  const dateControls = document.getElementById('usage-date-controls');
-  dateControls.style.display = mode === 'historical' ? 'flex' : 'none';
+  document.getElementById('usage-date-controls').style.display = mode === 'historical' ? 'flex' : 'none';
+  document.getElementById('usage-lookback-select').style.display = mode === 'live' ? '' : 'none';
   if (mode === 'live') {
     lastTxnTimestamp = null;
     startUsagePoll();
@@ -1229,7 +1327,8 @@ function stopUsagePoll() {
 }
 
 async function loadUsageLive() {
-  const from = new Date(Date.now() - 5 * 60 * 1000).toISOString();
+  if (!usageLoading && lastTxnTimestamp === null) showUsageLoading();
+  const from = new Date(Date.now() - liveLookback).toISOString();
   let qs = '&from=' + encodeURIComponent(from);
 
   if (isAdmin) {
@@ -1276,7 +1375,7 @@ async function loadUsageLive() {
 function renderTransactionsLive(txns) {
   const tbody = document.getElementById('txn-body');
   const empty = document.getElementById('txn-empty');
-  if (!txns.length) { tbody.innerHTML = ''; empty.style.display = 'block'; return; }
+  if (!txns.length) { tbody.innerHTML = ''; empty.style.display = 'block'; renderUsageChart(txns); return; }
   empty.style.display = 'none';
   const prevTimestamp = lastTxnTimestamp;
   if (txns.length) lastTxnTimestamp = txns[0].timestamp;
@@ -1292,12 +1391,31 @@ function renderTransactionsLive(txns) {
     <td>$${(t.cost || 0).toFixed(4)}</td>
   </tr>`;
   }).join('');
+  renderUsageChart(txns);
 }
 
 // --- Usage ---
+function viewTeamUsage(teamName) {
+  usageAgentId = null;
+  usageAgentName = null;
+  usageToolId = null;
+  usageToolName = null;
+  usageTeamFilter = teamName;
+  document.getElementById('usage-agent-select').value = '';
+  document.getElementById('usage-tool-select').value = '';
+  document.getElementById('usage-team-select').value = teamName;
+  navigateTo('usage');
+  loadUsage();
+}
+
 function viewAgentUsage(agentId, agentName) {
+  usageToolId = null;
+  usageToolName = null;
+  usageTeamFilter = '';
   usageAgentId = agentId;
   usageAgentName = agentName;
+  document.getElementById('usage-tool-select').value = '';
+  document.getElementById('usage-team-select').value = '';
   document.getElementById('usage-agent-select').value = agentId;
   navigateTo('usage');
   loadUsage();
@@ -1325,8 +1443,13 @@ function populateAgentFilter() {
 }
 
 function viewToolUsage(toolId, toolName) {
+  usageAgentId = null;
+  usageAgentName = null;
+  usageTeamFilter = '';
   usageToolId = toolId;
   usageToolName = toolName;
+  document.getElementById('usage-agent-select').value = '';
+  document.getElementById('usage-team-select').value = '';
   document.getElementById('usage-tool-select').value = toolId;
   navigateTo('usage');
   loadUsage();
@@ -1349,6 +1472,7 @@ function populateToolFilter() {
 
 async function loadUsage() {
   if (usageMode === 'live') { loadUsageLive(); return; }
+  showUsageLoading();
   const from = document.getElementById('usage-from').value;
   const to = document.getElementById('usage-to').value;
   let qs = '';
@@ -1401,7 +1525,20 @@ async function loadUsage() {
   }
 }
 
+function showUsageLoading() {
+  usageLoading = true;
+  ['stat-requests','stat-cost','stat-results','stat-latency'].forEach(id => {
+    document.getElementById(id).innerHTML = '<span class="usage-spinner"></span>';
+  });
+  document.getElementById('txn-empty').style.display = 'none';
+  document.getElementById('txn-body').innerHTML = '<tr><td colspan="7"><div class="usage-spinner"></div></td></tr>';
+  document.getElementById('usage-chart').innerHTML = '<div class="usage-spinner"></div>';
+}
+
+function hideUsageLoading() { usageLoading = false; }
+
 function renderUsageSummary(summary) {
+  hideUsageLoading();
   document.getElementById('stat-requests').textContent = summary.total_requests ?? 0;
   document.getElementById('stat-cost').textContent = '$' + (summary.total_cost ?? 0).toFixed(4);
   document.getElementById('stat-results').textContent = (summary.success_count ?? 0) + ' / ' + (summary.error_count ?? 0);
@@ -1411,7 +1548,7 @@ function renderUsageSummary(summary) {
 function renderTransactions(txns) {
   const tbody = document.getElementById('txn-body');
   const empty = document.getElementById('txn-empty');
-  if (!txns.length) { tbody.innerHTML = ''; empty.style.display = 'block'; return; }
+  if (!txns.length) { tbody.innerHTML = ''; empty.style.display = 'block'; renderUsageChart(txns); return; }
   empty.style.display = 'none';
   tbody.innerHTML = txns.map(t => `<tr>
     <td style="white-space:nowrap">${fmtTime(t.timestamp)}</td>
@@ -1422,6 +1559,7 @@ function renderTransactions(txns) {
     <td>${t.latency_ms}ms</td>
     <td>$${(t.cost || 0).toFixed(4)}</td>
   </tr>`).join('');
+  renderUsageChart(txns);
 }
 
 // --- Users ---
@@ -1445,9 +1583,11 @@ async function loadUsers() {
 function renderUsers() {
   const tbody = document.getElementById('users-body');
   const empty = document.getElementById('users-empty');
-  if (!usersCache.length) { tbody.innerHTML = ''; empty.style.display = 'block'; return; }
+  const q = (document.getElementById('users-search').value || '').toLowerCase();
+  const filtered = usersCache.filter(u => !q || u.email.toLowerCase().includes(q) || (u.name || '').toLowerCase().includes(q) || (u.role || '').toLowerCase().includes(q));
+  if (!filtered.length) { tbody.innerHTML = ''; empty.style.display = 'block'; return; }
   empty.style.display = 'none';
-  tbody.innerHTML = usersCache.map(u => {
+  tbody.innerHTML = filtered.map(u => {
     const teamsStr = (u.teams && u.teams.length)
       ? u.teams.map(t => t.team + ':' + t.role).join(', ')
       : '\u2014';
@@ -1569,6 +1709,193 @@ const weekAgo = new Date(now);
 weekAgo.setDate(weekAgo.getDate() - 7);
 document.getElementById('usage-to').value = tomorrow.toISOString().slice(0, 10);
 document.getElementById('usage-from').value = weekAgo.toISOString().slice(0, 10);
+
+// --- Chart ---
+let chartGroup = 'agent';
+let lastChartTxns = [];
+let chartBucket = localStorage.getItem('octroi_chart_bucket') || 'auto';
+let liveLookback = parseInt(localStorage.getItem('octroi_live_lookback')) || 86400000;
+const chartColors = ['#1a1a1a','#2a7','#a80','#c33','#57a','#7a5','#a57','#5a7'];
+
+// Restore persisted selections
+document.getElementById('usage-bucket-select').value = chartBucket;
+document.getElementById('usage-lookback-select').value = String(liveLookback);
+
+function onBucketChange() {
+  chartBucket = document.getElementById('usage-bucket-select').value;
+  localStorage.setItem('octroi_chart_bucket', chartBucket);
+  renderUsageChart(lastChartTxns);
+}
+
+function onLookbackChange() {
+  liveLookback = parseInt(document.getElementById('usage-lookback-select').value);
+  localStorage.setItem('octroi_live_lookback', String(liveLookback));
+  lastTxnTimestamp = null;
+  loadUsage();
+}
+
+function setChartGroup(group) {
+  chartGroup = group;
+  document.getElementById('chart-by-agent').classList.toggle('active', group === 'agent');
+  document.getElementById('chart-by-tool').classList.toggle('active', group === 'tool');
+  renderUsageChart(lastChartTxns);
+}
+
+function pickBucketMs(range) {
+  if (chartBucket !== 'auto') return parseInt(chartBucket);
+  // Auto: pick sensible default based on data range
+  if (range <= 600000) return 30000;          // <=10min -> 30s
+  if (range <= 3600000) return 300000;        // <=1h -> 5min
+  if (range <= 86400000) return 3600000;      // <=1d -> 1h
+  return 86400000;                             // >1d -> 1 day
+}
+
+function fmtBucketLabel(d, bucketMs) {
+  if (bucketMs >= 86400000) return (d.getMonth()+1) + '/' + d.getDate();
+  if (bucketMs <= 60000) return d.toLocaleTimeString([], {hour:'2-digit',minute:'2-digit',second:'2-digit'});
+  return d.toLocaleTimeString([], {hour:'2-digit',minute:'2-digit'});
+}
+
+function renderUsageChart(txns) {
+  lastChartTxns = txns;
+  const container = document.getElementById('usage-chart');
+  if (!txns || !txns.length) {
+    container.innerHTML = '<div style="display:flex;align-items:center;justify-content:center;height:100%;color:var(--text2);font-size:12px">No data</div>';
+    return;
+  }
+
+  const rect = container.getBoundingClientRect();
+  const W = rect.width || 600;
+  const H = 180;
+  const ML = 34, MR = 8, MT = 8, MB = 44;
+  const chartW = W - ML - MR;
+  const chartH = H - MT - MB;
+
+  const timestamps = txns.map(t => new Date(t.timestamp).getTime()).sort((a, b) => a - b);
+  const tMin = timestamps[0];
+  const tMax = timestamps[timestamps.length - 1];
+  const range = tMax - tMin;
+
+  const bucketMs = pickBucketMs(range);
+
+  const bucketStart = Math.floor(tMin / bucketMs) * bucketMs;
+  const bucketEnd = Math.floor(tMax / bucketMs) * bucketMs + bucketMs;
+  const numBuckets = Math.max(1, Math.round((bucketEnd - bucketStart) / bucketMs));
+
+  const groupKey = chartGroup === 'agent' ? 'agent_id' : 'tool_id';
+  const resolveName = chartGroup === 'agent' ? resolveAgentName : resolveToolName;
+
+  // Bucket transactions
+  const buckets = [];
+  const groupSet = new Set();
+  for (let i = 0; i < numBuckets; i++) buckets.push({});
+
+  txns.forEach(t => {
+    const ts = new Date(t.timestamp).getTime();
+    const bi = Math.min(Math.floor((ts - bucketStart) / bucketMs), numBuckets - 1);
+    if (bi < 0) return;
+    const gid = t[groupKey];
+    groupSet.add(gid);
+    buckets[bi][gid] = (buckets[bi][gid] || 0) + 1;
+  });
+
+  const groups = Array.from(groupSet);
+  const maxCount = Math.max(1, ...buckets.map(b => groups.reduce((s, g) => s + (b[g] || 0), 0)));
+
+  const yStep = Math.max(1, Math.ceil(maxCount / 4));
+  const yMax = yStep * 4;
+  const yTicks = [];
+  for (let v = 0; v <= yMax; v += yStep) yTicks.push(v);
+
+  // Build SVG
+  let svg = `<svg width="${W}" height="${H}" xmlns="http://www.w3.org/2000/svg" style="font-family:var(--font)">`;
+
+  // Y gridlines + labels
+  yTicks.forEach(v => {
+    const y = MT + chartH - (v / yMax) * chartH;
+    svg += `<line x1="${ML}" y1="${y}" x2="${W - MR}" y2="${y}" class="chart-tick"/>`;
+    svg += `<text x="${ML - 4}" y="${y + 3}" text-anchor="end" class="chart-label">${v}</text>`;
+  });
+
+  // Stacked bars + hover zones
+  const colW = chartW / numBuckets;
+  const barW = Math.max(4, colW - 2);
+
+  for (let i = 0; i < numBuckets; i++) {
+    const barX = ML + i * colW + (colW - barW) / 2;
+    let yOff = 0;
+    groups.forEach((gid, gi) => {
+      const count = buckets[i][gid] || 0;
+      if (count === 0) return;
+      const barH = (count / yMax) * chartH;
+      const y = MT + chartH - yOff - barH;
+      const color = chartColors[gi % chartColors.length];
+      svg += `<rect x="${barX}" y="${y}" width="${barW}" height="${barH}" fill="${color}" rx="1"/>`;
+      yOff += barH;
+    });
+    // Invisible hover zone covering full column
+    svg += `<rect x="${ML + i * colW}" y="${MT}" width="${colW}" height="${chartH}" fill="transparent" data-bucket="${i}" class="chart-hover-zone"/>`;
+  }
+
+  // X-axis labels
+  const labelEvery = Math.max(1, Math.ceil(numBuckets / 8));
+  for (let i = 0; i < numBuckets; i += labelEvery) {
+    const x = ML + i * colW + colW / 2;
+    const d = new Date(bucketStart + i * bucketMs);
+    svg += `<text x="${x}" y="${H - MB + 14}" text-anchor="middle" class="chart-label">${fmtBucketLabel(d, bucketMs)}</text>`;
+  }
+
+  svg += '</svg>';
+
+  // Legend
+  let legend = '<div class="chart-legend">';
+  groups.forEach((gid, gi) => {
+    const color = chartColors[gi % chartColors.length];
+    const name = resolveName(gid);
+    legend += `<div class="chart-legend-item"><span class="chart-legend-swatch" style="background:${color}"></span>${esc(name)}</div>`;
+  });
+  legend += '</div>';
+
+  // Tooltip
+  const tooltipHtml = '<div class="chart-tooltip" id="chart-tooltip" style="display:none"></div>';
+
+  container.innerHTML = tooltipHtml + svg + legend;
+
+  // Attach hover events
+  const tooltip = document.getElementById('chart-tooltip');
+
+  container.addEventListener('mouseleave', () => { tooltip.style.display = 'none'; });
+
+  container.querySelectorAll('.chart-hover-zone').forEach(zone => {
+    zone.addEventListener('mouseenter', () => {
+      const bi = parseInt(zone.dataset.bucket);
+      const d = new Date(bucketStart + bi * bucketMs);
+      let html = `<div class="tt-time">${fmtBucketLabel(d, bucketMs)}</div>`;
+      let total = 0;
+      groups.forEach((gid, gi) => {
+        const count = buckets[bi][gid] || 0;
+        total += count;
+        const color = chartColors[gi % chartColors.length];
+        const name = resolveName(gid);
+        html += `<div class="tt-row"><span class="tt-swatch" style="background:${color}"></span>${esc(name)}: <strong>${count}</strong></div>`;
+      });
+      if (groups.length > 1) {
+        html += `<div class="tt-row" style="border-top:1px solid var(--border);margin-top:2px;padding-top:2px">Total: <strong>${total}</strong></div>`;
+      }
+      tooltip.innerHTML = html;
+      tooltip.style.display = '';
+
+      // Position tooltip near the hovered bar
+      const barCenterX = ML + bi * colW + colW / 2;
+      const ttW = tooltip.offsetWidth;
+      const containerW = container.getBoundingClientRect().width;
+      let left = barCenterX + 12;
+      if (left + ttW > containerW - 4) left = barCenterX - ttW - 12;
+      tooltip.style.left = left + 'px';
+      tooltip.style.top = MT + 'px';
+    });
+  });
+}
 </script>
 </body>
 </html>
