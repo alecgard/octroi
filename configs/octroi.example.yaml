@@ -5,7 +5,7 @@ server:
   write_timeout: 30s
 
 database:
-  url: "postgres://octroi:octroi@localhost:5432/octroi?sslmode=disable"
+  url: "postgres://octroi:octroi@localhost:5433/octroi?sslmode=disable"
 
 auth:
   admin_key: "${OCTROI_ADMIN_KEY}"

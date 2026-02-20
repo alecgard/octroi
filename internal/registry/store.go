@@ -23,7 +23,7 @@ func NewStore(pool *pgxpool.Pool) *Store {
 }
 
 // toolColumns is the full list of columns used in SELECT statements.
-const toolColumns = `id, name, description, endpoint, auth_type, auth_config, tags,
+const toolColumns = `id, name, description, endpoint, auth_type, auth_config,
 	pricing_model, pricing_amount, pricing_currency, rate_limit,
 	budget_limit, budget_window, created_at, updated_at`
 
@@ -38,7 +38,6 @@ func scanTool(row pgx.Row) (*Tool, error) {
 		&t.Endpoint,
 		&t.AuthType,
 		&authConfigJSON,
-		&t.Tags,
 		&t.PricingModel,
 		&t.PricingAmount,
 		&t.PricingCurrency,
@@ -50,9 +49,6 @@ func scanTool(row pgx.Row) (*Tool, error) {
 	)
 	if err != nil {
 		return nil, err
-	}
-	if t.Tags == nil {
-		t.Tags = []string{}
 	}
 	t.AuthConfig = make(map[string]string)
 	if len(authConfigJSON) > 0 {
@@ -71,10 +67,10 @@ func (s *Store) Create(ctx context.Context, input CreateToolInput) (*Tool, error
 	}
 
 	query := fmt.Sprintf(`INSERT INTO tools
-		(name, description, endpoint, auth_type, auth_config, tags,
+		(name, description, endpoint, auth_type, auth_config,
 		 pricing_model, pricing_amount, pricing_currency, rate_limit,
 		 budget_limit, budget_window)
-		VALUES ($1, $2, $3, $4, $5, $6, $7, $8, $9, $10, $11, $12)
+		VALUES ($1, $2, $3, $4, $5, $6, $7, $8, $9, $10, $11)
 		RETURNING %s`, toolColumns)
 
 	row := s.pool.QueryRow(ctx, query,
@@ -83,7 +79,6 @@ func (s *Store) Create(ctx context.Context, input CreateToolInput) (*Tool, error
 		input.Endpoint,
 		input.AuthType,
 		authConfigJSON,
-		input.Tags,
 		input.PricingModel,
 		input.PricingAmount,
 		input.PricingCurrency,
@@ -151,13 +146,6 @@ func (s *Store) List(ctx context.Context, params ToolListParams) ([]*Tool, strin
 		whereClauses = append(whereClauses,
 			fmt.Sprintf("(name ILIKE $%d OR description ILIKE $%d)", argIdx, argIdx))
 		args = append(args, pattern)
-		argIdx++
-	}
-
-	if len(params.Tags) > 0 {
-		whereClauses = append(whereClauses,
-			fmt.Sprintf("tags @> $%d", argIdx))
-		args = append(args, params.Tags)
 		argIdx++
 	}
 
@@ -233,11 +221,6 @@ func (s *Store) Update(ctx context.Context, id string, input UpdateToolInput) (*
 		args = append(args, authConfigJSON)
 		argIdx++
 	}
-	if input.Tags != nil {
-		setClauses = append(setClauses, fmt.Sprintf("tags = $%d", argIdx))
-		args = append(args, *input.Tags)
-		argIdx++
-	}
 	if input.PricingModel != nil {
 		setClauses = append(setClauses, fmt.Sprintf("pricing_model = $%d", argIdx))
 		args = append(args, *input.PricingModel)
@@ -298,8 +281,8 @@ func (s *Store) Delete(ctx context.Context, id string) error {
 	return nil
 }
 
-// Search performs a text search on name and description using ILIKE, and supports
-// array-contains filtering on tags. Results use cursor-based pagination.
+// Search performs a text search on name and description using ILIKE.
+// Results use cursor-based pagination.
 func (s *Store) Search(ctx context.Context, query string, limit int, cursor string) ([]*Tool, string, error) {
 	if limit <= 0 {
 		limit = 20
@@ -323,10 +306,10 @@ func (s *Store) Search(ctx context.Context, query string, limit int, cursor stri
 	if query != "" {
 		pattern := "%" + query + "%"
 		whereClauses = append(whereClauses,
-			fmt.Sprintf("(name ILIKE $%d OR description ILIKE $%d OR $%d = ANY(tags))",
-				argIdx, argIdx, argIdx+1))
-		args = append(args, pattern, query)
-		argIdx += 2
+			fmt.Sprintf("(name ILIKE $%d OR description ILIKE $%d)",
+				argIdx, argIdx))
+		args = append(args, pattern)
+		argIdx++
 	}
 
 	where := ""

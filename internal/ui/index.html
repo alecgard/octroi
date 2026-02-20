@@ -1,0 +1,777 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+<meta charset="UTF-8">
+<meta name="viewport" content="width=device-width, initial-scale=1.0">
+<title>Octroi Admin</title>
+<style>
+:root {
+  --bg: #0f1117;
+  --surface: #1a1d27;
+  --surface2: #242836;
+  --border: #2e3348;
+  --text: #e1e4ed;
+  --text2: #8b90a0;
+  --accent: #6c7aff;
+  --accent-hover: #8590ff;
+  --danger: #ff5c6a;
+  --danger-hover: #ff7a85;
+  --success: #34d399;
+  --warn: #fbbf24;
+  --radius: 8px;
+  --font: -apple-system, BlinkMacSystemFont, 'Segoe UI', Roboto, sans-serif;
+  --mono: 'SF Mono', 'Fira Code', 'Cascadia Code', monospace;
+}
+*, *::before, *::after { box-sizing: border-box; margin: 0; padding: 0; }
+body {
+  font-family: var(--font);
+  background: var(--bg);
+  color: var(--text);
+  min-height: 100vh;
+}
+/* Top Bar */
+.topbar {
+  display: flex;
+  align-items: center;
+  gap: 16px;
+  padding: 12px 24px;
+  background: var(--surface);
+  border-bottom: 1px solid var(--border);
+  position: sticky;
+  top: 0;
+  z-index: 100;
+}
+.topbar h1 { font-size: 18px; font-weight: 700; letter-spacing: -0.5px; }
+.topbar .spacer { flex: 1; }
+.topbar input[type="password"] {
+  background: var(--surface2);
+  border: 1px solid var(--border);
+  color: var(--text);
+  padding: 6px 12px;
+  border-radius: var(--radius);
+  font-size: 13px;
+  width: 280px;
+  font-family: var(--mono);
+}
+.topbar input::placeholder { color: var(--text2); }
+.status-dot {
+  width: 8px; height: 8px; border-radius: 50%;
+  background: var(--danger);
+  transition: background 0.2s;
+}
+.status-dot.connected { background: var(--success); }
+/* Buttons */
+button {
+  font-family: var(--font);
+  cursor: pointer;
+  border: none;
+  border-radius: var(--radius);
+  font-size: 13px;
+  font-weight: 500;
+  padding: 7px 14px;
+  transition: background 0.15s, opacity 0.15s;
+}
+button:disabled { opacity: 0.5; cursor: not-allowed; }
+.btn-primary { background: var(--accent); color: #fff; }
+.btn-primary:hover:not(:disabled) { background: var(--accent-hover); }
+.btn-danger { background: var(--danger); color: #fff; }
+.btn-danger:hover:not(:disabled) { background: var(--danger-hover); }
+.btn-ghost { background: transparent; color: var(--text2); border: 1px solid var(--border); }
+.btn-ghost:hover:not(:disabled) { color: var(--text); border-color: var(--text2); }
+.btn-sm { padding: 4px 10px; font-size: 12px; }
+/* Tabs */
+.tabs {
+  display: flex;
+  gap: 0;
+  padding: 0 24px;
+  background: var(--surface);
+  border-bottom: 1px solid var(--border);
+}
+.tab-btn {
+  background: none;
+  color: var(--text2);
+  border: none;
+  border-bottom: 2px solid transparent;
+  border-radius: 0;
+  padding: 12px 20px;
+  font-size: 14px;
+  font-weight: 500;
+}
+.tab-btn:hover { color: var(--text); }
+.tab-btn.active { color: var(--accent); border-bottom-color: var(--accent); }
+/* Content */
+.content { padding: 24px; max-width: 1200px; margin: 0 auto; }
+.tab-panel { display: none; }
+.tab-panel.active { display: block; }
+/* Tables */
+table { width: 100%; border-collapse: collapse; font-size: 13px; }
+thead th {
+  text-align: left;
+  padding: 10px 12px;
+  color: var(--text2);
+  font-weight: 500;
+  font-size: 12px;
+  text-transform: uppercase;
+  letter-spacing: 0.5px;
+  border-bottom: 1px solid var(--border);
+}
+tbody td {
+  padding: 10px 12px;
+  border-bottom: 1px solid var(--border);
+  vertical-align: top;
+}
+tbody tr:hover { background: var(--surface2); }
+.mono { font-family: var(--mono); font-size: 12px; }
+/* Cards */
+.cards { display: grid; grid-template-columns: repeat(auto-fill, minmax(200px, 1fr)); gap: 16px; margin-bottom: 24px; }
+.card {
+  background: var(--surface);
+  border: 1px solid var(--border);
+  border-radius: var(--radius);
+  padding: 16px;
+}
+.card .label { font-size: 12px; color: var(--text2); margin-bottom: 4px; }
+.card .value { font-size: 24px; font-weight: 700; }
+/* Toolbar */
+.toolbar { display: flex; align-items: center; gap: 12px; margin-bottom: 16px; flex-wrap: wrap; }
+.toolbar h2 { font-size: 16px; font-weight: 600; }
+/* Modal */
+.modal-overlay {
+  display: none;
+  position: fixed;
+  inset: 0;
+  background: rgba(0,0,0,0.6);
+  z-index: 200;
+  justify-content: center;
+  align-items: flex-start;
+  padding: 60px 24px;
+}
+.modal-overlay.open { display: flex; }
+.modal {
+  background: var(--surface);
+  border: 1px solid var(--border);
+  border-radius: 12px;
+  width: 100%;
+  max-width: 560px;
+  max-height: calc(100vh - 120px);
+  overflow-y: auto;
+  padding: 24px;
+}
+.modal h3 { font-size: 16px; font-weight: 600; margin-bottom: 16px; }
+.form-group { margin-bottom: 14px; }
+.form-group label {
+  display: block;
+  font-size: 12px;
+  color: var(--text2);
+  margin-bottom: 4px;
+  font-weight: 500;
+}
+.form-group input, .form-group select, .form-group textarea {
+  width: 100%;
+  background: var(--surface2);
+  border: 1px solid var(--border);
+  color: var(--text);
+  padding: 8px 12px;
+  border-radius: var(--radius);
+  font-size: 13px;
+  font-family: var(--font);
+}
+.form-group textarea { font-family: var(--mono); min-height: 60px; resize: vertical; }
+.form-group input:focus, .form-group select:focus, .form-group textarea:focus {
+  outline: none;
+  border-color: var(--accent);
+}
+.form-row { display: grid; grid-template-columns: 1fr 1fr; gap: 12px; }
+.modal-actions { display: flex; justify-content: flex-end; gap: 8px; margin-top: 20px; }
+/* Banner */
+.banner {
+  background: var(--surface);
+  border: 1px solid var(--accent);
+  border-radius: var(--radius);
+  padding: 12px 16px;
+  margin-bottom: 16px;
+  font-size: 13px;
+  display: none;
+}
+.banner.show { display: block; }
+.banner .key-value { font-family: var(--mono); font-size: 14px; font-weight: 600; color: var(--accent); user-select: all; }
+/* Filters */
+.filters { display: flex; gap: 12px; align-items: center; flex-wrap: wrap; }
+.filters input[type="date"], .filters select {
+  background: var(--surface2);
+  border: 1px solid var(--border);
+  color: var(--text);
+  padding: 6px 10px;
+  border-radius: var(--radius);
+  font-size: 13px;
+  font-family: var(--font);
+}
+/* Empty state */
+.empty { text-align: center; padding: 40px; color: var(--text2); }
+/* Login prompt */
+#login-prompt {
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  height: 60vh;
+  color: var(--text2);
+  font-size: 15px;
+}
+</style>
+</head>
+<body>
+<!-- Top Bar -->
+<div class="topbar">
+  <h1>Octroi</h1>
+  <div class="spacer"></div>
+  <span class="status-dot" id="status-dot"></span>
+  <input type="password" id="admin-key" placeholder="Admin key" autocomplete="off">
+  <button class="btn-primary" id="connect-btn" onclick="connect()">Connect</button>
+</div>
+
+<!-- Tabs -->
+<div class="tabs" id="tab-bar" style="display:none">
+  <button class="tab-btn active" data-tab="tools">Tools</button>
+  <button class="tab-btn" data-tab="agents">Agents</button>
+  <button class="tab-btn" data-tab="usage">Usage</button>
+</div>
+
+<!-- Login Prompt -->
+<div id="login-prompt">Enter your admin key and click Connect to begin.</div>
+
+<!-- Content -->
+<div class="content" id="main-content" style="display:none">
+  <!-- Tools Tab -->
+  <div class="tab-panel active" id="tab-tools">
+    <div class="toolbar">
+      <h2>Tools</h2>
+      <div class="spacer" style="flex:1"></div>
+      <button class="btn-primary" onclick="openToolModal()">+ Create Tool</button>
+    </div>
+    <table>
+      <thead>
+        <tr>
+          <th>Name</th>
+          <th>Endpoint</th>
+          <th>Auth</th>
+          <th>Rate Limit</th>
+          <th></th>
+        </tr>
+      </thead>
+      <tbody id="tools-body"></tbody>
+    </table>
+    <div class="empty" id="tools-empty" style="display:none">No tools registered yet.</div>
+  </div>
+
+  <!-- Agents Tab -->
+  <div class="tab-panel" id="tab-agents">
+    <div class="banner" id="agent-key-banner">
+      API key (shown once, copy now): <span class="key-value" id="agent-key-value"></span>
+    </div>
+    <div class="toolbar">
+      <h2>Agents</h2>
+      <div class="spacer" style="flex:1"></div>
+      <button class="btn-primary" onclick="openAgentModal()">+ Create Agent</button>
+    </div>
+    <table>
+      <thead>
+        <tr>
+          <th>Name</th>
+          <th>Team</th>
+          <th>Key Prefix</th>
+          <th>Rate Limit</th>
+          <th>Created</th>
+          <th></th>
+        </tr>
+      </thead>
+      <tbody id="agents-body"></tbody>
+    </table>
+    <div class="empty" id="agents-empty" style="display:none">No agents created yet.</div>
+  </div>
+
+  <!-- Usage Tab -->
+  <div class="tab-panel" id="tab-usage">
+    <div class="toolbar">
+      <h2>Usage</h2>
+      <div class="spacer" style="flex:1"></div>
+      <div class="filters">
+        <select id="usage-agent-select" onchange="onAgentFilterChange()">
+          <option value="">All agents</option>
+        </select>
+        <select id="usage-tool-select" onchange="onToolFilterChange()">
+          <option value="">All tools</option>
+        </select>
+        <input type="date" id="usage-from">
+        <span style="color:var(--text2)">to</span>
+        <input type="date" id="usage-to">
+        <button class="btn-ghost" onclick="loadUsage()">Apply</button>
+      </div>
+    </div>
+    <div class="cards" id="usage-cards">
+      <div class="card"><div class="label">Total Requests</div><div class="value" id="stat-requests">—</div></div>
+      <div class="card"><div class="label">Total Cost</div><div class="value" id="stat-cost">—</div></div>
+      <div class="card"><div class="label">Success / Error</div><div class="value" id="stat-results">—</div></div>
+      <div class="card"><div class="label">Avg Latency</div><div class="value" id="stat-latency">—</div></div>
+    </div>
+    <h3 style="font-size:14px; font-weight:600; margin-bottom:12px;">Transactions</h3>
+    <table>
+      <thead>
+        <tr>
+          <th>Time</th>
+          <th>Agent</th>
+          <th>Tool</th>
+          <th>Method</th>
+          <th>Status</th>
+          <th>Latency</th>
+          <th>Cost</th>
+        </tr>
+      </thead>
+      <tbody id="txn-body"></tbody>
+    </table>
+    <div class="empty" id="txn-empty" style="display:none">No transactions found.</div>
+  </div>
+</div>
+
+<!-- Tool Modal -->
+<div class="modal-overlay" id="tool-modal">
+  <div class="modal">
+    <h3 id="tool-modal-title">Create Tool</h3>
+    <input type="hidden" id="tool-edit-id">
+    <div class="form-group">
+      <label>Name *</label>
+      <input type="text" id="tool-name" placeholder="e.g. OpenAI GPT-4">
+    </div>
+    <div class="form-group">
+      <label>Description *</label>
+      <input type="text" id="tool-description" placeholder="What this tool does">
+    </div>
+    <div class="form-group">
+      <label>Endpoint *</label>
+      <input type="url" id="tool-endpoint" placeholder="https://api.example.com/v1">
+    </div>
+    <div class="form-row">
+      <div class="form-group">
+        <label>Auth Type *</label>
+        <select id="tool-auth-type">
+          <option value="none">none</option>
+          <option value="bearer">bearer</option>
+          <option value="header">header</option>
+          <option value="query">query</option>
+        </select>
+      </div>
+      <div class="form-group">
+        <label>Rate Limit (req/min)</label>
+        <input type="number" id="tool-rate-limit" placeholder="0">
+      </div>
+    </div>
+    <div class="form-group">
+      <label>Auth Config (JSON)</label>
+      <textarea id="tool-auth-config" placeholder='{"token": "sk-..."}'></textarea>
+    </div>
+    <div class="form-row">
+      <div class="form-group">
+        <label>Pricing Model</label>
+        <select id="tool-pricing-model">
+          <option value="">none</option>
+          <option value="per_request">per_request</option>
+          <option value="per_token">per_token</option>
+        </select>
+      </div>
+      <div class="form-group">
+        <label>Pricing Amount</label>
+        <input type="number" step="any" id="tool-pricing-amount" placeholder="0.00">
+      </div>
+    </div>
+    <div class="form-row">
+      <div class="form-group">
+        <label>Pricing Currency</label>
+        <input type="text" id="tool-pricing-currency" placeholder="USD">
+      </div>
+      <div class="form-group">
+        <label>Budget Limit</label>
+        <input type="number" step="any" id="tool-budget-limit" placeholder="0.00">
+      </div>
+    </div>
+    <div class="form-group">
+      <label>Budget Window</label>
+      <input type="text" id="tool-budget-window" placeholder="e.g. daily, monthly">
+    </div>
+    <div class="modal-actions">
+      <button class="btn-ghost" onclick="closeModal('tool-modal')">Cancel</button>
+      <button class="btn-primary" id="tool-submit-btn" onclick="submitTool()">Create</button>
+    </div>
+  </div>
+</div>
+
+<!-- Agent Modal -->
+<div class="modal-overlay" id="agent-modal">
+  <div class="modal">
+    <h3 id="agent-modal-title">Create Agent</h3>
+    <input type="hidden" id="agent-edit-id">
+    <div class="form-group">
+      <label>Name *</label>
+      <input type="text" id="agent-name" placeholder="e.g. my-scraper">
+    </div>
+    <div class="form-row">
+      <div class="form-group">
+        <label>Team</label>
+        <input type="text" id="agent-team" placeholder="e.g. backend">
+      </div>
+      <div class="form-group">
+        <label>Rate Limit (req/min)</label>
+        <input type="number" id="agent-rate-limit" placeholder="0">
+      </div>
+    </div>
+    <div class="modal-actions">
+      <button class="btn-ghost" onclick="closeModal('agent-modal')">Cancel</button>
+      <button class="btn-primary" id="agent-submit-btn" onclick="submitAgent()">Create</button>
+    </div>
+  </div>
+</div>
+
+<script>
+let adminKey = localStorage.getItem('octroi_admin_key') || '';
+let connected = false;
+
+// --- API helpers ---
+function api(method, path, body) {
+  const opts = {
+    method,
+    headers: { 'Authorization': 'Bearer ' + adminKey, 'Content-Type': 'application/json' },
+  };
+  if (body) opts.body = JSON.stringify(body);
+  return fetch(path, opts).then(async r => {
+    if (r.status === 204) return null;
+    const data = await r.json();
+    if (!r.ok) throw new Error((data.error && data.error.message) || r.statusText);
+    return data;
+  });
+}
+
+// --- Connect ---
+async function connect() {
+  adminKey = document.getElementById('admin-key').value.trim();
+  if (!adminKey) return;
+  try {
+    // Test connection by listing agents
+    await api('GET', '/api/v1/admin/agents?limit=1');
+    localStorage.setItem('octroi_admin_key', adminKey);
+    connected = true;
+    document.getElementById('status-dot').classList.add('connected');
+    document.getElementById('login-prompt').style.display = 'none';
+    document.getElementById('tab-bar').style.display = 'flex';
+    document.getElementById('main-content').style.display = 'block';
+    document.getElementById('connect-btn').textContent = 'Connected';
+    document.getElementById('connect-btn').disabled = true;
+    loadTools();
+    loadAgents();
+    loadUsage();
+  } catch (e) {
+    alert('Connection failed: ' + e.message);
+  }
+}
+
+document.getElementById('admin-key').addEventListener('keydown', e => { if (e.key === 'Enter') connect(); });
+
+// Auto-connect if key is stored
+if (adminKey) {
+  document.getElementById('admin-key').value = adminKey;
+  connect();
+}
+
+// --- Tabs ---
+document.querySelectorAll('.tab-btn').forEach(btn => {
+  btn.addEventListener('click', () => {
+    document.querySelectorAll('.tab-btn').forEach(b => b.classList.remove('active'));
+    document.querySelectorAll('.tab-panel').forEach(p => p.classList.remove('active'));
+    btn.classList.add('active');
+    document.getElementById('tab-' + btn.dataset.tab).classList.add('active');
+  });
+});
+
+// --- Tools ---
+let toolsCache = [];
+async function loadTools() {
+  try {
+    const data = await api('GET', '/api/v1/tools?limit=100');
+    toolsCache = data.tools || [];
+    renderTools();
+    populateToolFilter();
+  } catch (e) { console.error('Failed to load tools', e); }
+}
+
+function renderTools() {
+  const tbody = document.getElementById('tools-body');
+  const empty = document.getElementById('tools-empty');
+  if (!toolsCache.length) { tbody.innerHTML = ''; empty.style.display = 'block'; return; }
+  empty.style.display = 'none';
+  tbody.innerHTML = toolsCache.map(t => `<tr>
+    <td><a href="#" onclick="viewToolUsage('${t.id}','${esc(t.name)}');return false" style="color:var(--accent);text-decoration:none;font-weight:600">${esc(t.name)}</a><br><span style="color:var(--text2);font-size:12px">${esc(t.description || '')}</span></td>
+    <td class="mono">${esc(t.endpoint || '—')}</td>
+    <td>${esc(t.auth_type || 'none')}</td>
+    <td>${t.rate_limit || '—'}</td>
+    <td style="white-space:nowrap">
+      <button class="btn-ghost btn-sm" onclick="editTool('${t.id}')">Edit</button>
+      <button class="btn-danger btn-sm" onclick="deleteTool('${t.id}','${esc(t.name)}')">Delete</button>
+    </td>
+  </tr>`).join('');
+}
+
+function openToolModal(tool) {
+  document.getElementById('tool-edit-id').value = tool ? tool.id : '';
+  document.getElementById('tool-modal-title').textContent = tool ? 'Edit Tool' : 'Create Tool';
+  document.getElementById('tool-submit-btn').textContent = tool ? 'Save' : 'Create';
+  document.getElementById('tool-name').value = tool ? tool.name : '';
+  document.getElementById('tool-description').value = tool ? tool.description : '';
+  document.getElementById('tool-endpoint').value = tool ? tool.endpoint || '' : '';
+  document.getElementById('tool-auth-type').value = tool ? tool.auth_type || 'none' : 'none';
+  document.getElementById('tool-rate-limit').value = tool ? tool.rate_limit || '' : '';
+  document.getElementById('tool-auth-config').value = tool && tool.auth_config ? JSON.stringify(tool.auth_config) : '';
+  document.getElementById('tool-pricing-model').value = tool ? tool.pricing_model || '' : '';
+  document.getElementById('tool-pricing-amount').value = tool ? tool.pricing_amount || '' : '';
+  document.getElementById('tool-pricing-currency').value = tool ? tool.pricing_currency || '' : '';
+  document.getElementById('tool-budget-limit').value = tool ? tool.budget_limit || '' : '';
+  document.getElementById('tool-budget-window').value = tool ? tool.budget_window || '' : '';
+  document.getElementById('tool-modal').classList.add('open');
+}
+
+async function editTool(id) {
+  // Fetch full tool details via admin create/update cache — we use the public endpoint
+  // but the cached version from list won't have endpoint/auth_config.
+  // For editing, just load from cache; endpoint/auth_config will be blank for existing tools
+  // unless they were just created in this session. User can re-enter if needed.
+  const tool = toolsCache.find(t => t.id === id);
+  if (tool) openToolModal(tool);
+}
+
+async function submitTool() {
+  const id = document.getElementById('tool-edit-id').value;
+  let authConfig = {};
+  const authConfigRaw = document.getElementById('tool-auth-config').value.trim();
+  if (authConfigRaw) {
+    try { authConfig = JSON.parse(authConfigRaw); } catch { alert('Invalid auth config JSON'); return; }
+  }
+  const body = {
+    name: document.getElementById('tool-name').value.trim(),
+    description: document.getElementById('tool-description').value.trim(),
+    endpoint: document.getElementById('tool-endpoint').value.trim(),
+    auth_type: document.getElementById('tool-auth-type').value,
+    auth_config: authConfig,
+    pricing_model: document.getElementById('tool-pricing-model').value,
+    pricing_amount: parseFloat(document.getElementById('tool-pricing-amount').value) || 0,
+    pricing_currency: document.getElementById('tool-pricing-currency').value.trim(),
+    rate_limit: parseInt(document.getElementById('tool-rate-limit').value) || 0,
+    budget_limit: parseFloat(document.getElementById('tool-budget-limit').value) || 0,
+    budget_window: document.getElementById('tool-budget-window').value.trim(),
+  };
+  try {
+    if (id) {
+      await api('PUT', '/api/v1/admin/tools/' + id, body);
+    } else {
+      await api('POST', '/api/v1/admin/tools', body);
+    }
+    closeModal('tool-modal');
+    loadTools();
+  } catch (e) { alert('Error: ' + e.message); }
+}
+
+async function deleteTool(id, name) {
+  if (!confirm('Delete tool "' + name + '"?')) return;
+  try {
+    await api('DELETE', '/api/v1/admin/tools/' + id);
+    loadTools();
+  } catch (e) { alert('Error: ' + e.message); }
+}
+
+// --- Agents ---
+let agentsCache = [];
+async function loadAgents() {
+  try {
+    const data = await api('GET', '/api/v1/admin/agents?limit=100');
+    agentsCache = data.agents || [];
+    renderAgents();
+    populateAgentFilter();
+  } catch (e) { console.error('Failed to load agents', e); }
+}
+
+function renderAgents() {
+  const tbody = document.getElementById('agents-body');
+  const empty = document.getElementById('agents-empty');
+  if (!agentsCache.length) { tbody.innerHTML = ''; empty.style.display = 'block'; return; }
+  empty.style.display = 'none';
+  tbody.innerHTML = agentsCache.map(a => `<tr>
+    <td><a href="#" onclick="viewAgentUsage('${a.id}','${esc(a.name)}');return false" style="color:var(--accent);text-decoration:none;font-weight:600">${esc(a.name)}</a></td>
+    <td>${esc(a.team || '—')}</td>
+    <td class="mono">${esc(a.api_key_prefix || '—')}</td>
+    <td>${a.rate_limit || '—'}</td>
+    <td>${fmtDate(a.created_at)}</td>
+    <td>
+      <button class="btn-danger btn-sm" onclick="deleteAgent('${a.id}','${esc(a.name)}')">Delete</button>
+    </td>
+  </tr>`).join('');
+}
+
+function openAgentModal() {
+  document.getElementById('agent-edit-id').value = '';
+  document.getElementById('agent-name').value = '';
+  document.getElementById('agent-team').value = '';
+  document.getElementById('agent-rate-limit').value = '';
+  document.getElementById('agent-modal').classList.add('open');
+}
+
+async function submitAgent() {
+  const body = {
+    name: document.getElementById('agent-name').value.trim(),
+    team: document.getElementById('agent-team').value.trim(),
+    rate_limit: parseInt(document.getElementById('agent-rate-limit').value) || 0,
+  };
+  try {
+    const res = await api('POST', '/api/v1/admin/agents', body);
+    closeModal('agent-modal');
+    if (res.api_key) {
+      document.getElementById('agent-key-value').textContent = res.api_key;
+      document.getElementById('agent-key-banner').classList.add('show');
+    }
+    loadAgents();
+  } catch (e) { alert('Error: ' + e.message); }
+}
+
+async function deleteAgent(id, name) {
+  if (!confirm('Delete agent "' + name + '"?')) return;
+  try {
+    await api('DELETE', '/api/v1/admin/agents/' + id);
+    loadAgents();
+  } catch (e) { alert('Error: ' + e.message); }
+}
+
+// --- Usage ---
+let usageAgentId = null;
+let usageAgentName = null;
+let usageToolId = null;
+let usageToolName = null;
+
+function viewAgentUsage(agentId, agentName) {
+  usageAgentId = agentId;
+  usageAgentName = agentName;
+  document.getElementById('usage-agent-select').value = agentId;
+  // Switch to usage tab
+  document.querySelectorAll('.tab-btn').forEach(b => b.classList.remove('active'));
+  document.querySelectorAll('.tab-panel').forEach(p => p.classList.remove('active'));
+  document.querySelector('[data-tab="usage"]').classList.add('active');
+  document.getElementById('tab-usage').classList.add('active');
+  loadUsage();
+}
+
+function onAgentFilterChange() {
+  const sel = document.getElementById('usage-agent-select');
+  usageAgentId = sel.value || null;
+  usageAgentName = sel.value ? sel.options[sel.selectedIndex].text : null;
+  loadUsage();
+}
+
+function populateAgentFilter() {
+  const sel = document.getElementById('usage-agent-select');
+  const current = sel.value;
+  sel.innerHTML = '<option value="">All agents</option>' +
+    agentsCache.map(a => `<option value="${a.id}">${esc(a.name)}</option>`).join('');
+  sel.value = current;
+}
+
+function viewToolUsage(toolId, toolName) {
+  usageToolId = toolId;
+  usageToolName = toolName;
+  document.getElementById('usage-tool-select').value = toolId;
+  // Switch to usage tab
+  document.querySelectorAll('.tab-btn').forEach(b => b.classList.remove('active'));
+  document.querySelectorAll('.tab-panel').forEach(p => p.classList.remove('active'));
+  document.querySelector('[data-tab="usage"]').classList.add('active');
+  document.getElementById('tab-usage').classList.add('active');
+  loadUsage();
+}
+
+function onToolFilterChange() {
+  const sel = document.getElementById('usage-tool-select');
+  usageToolId = sel.value || null;
+  usageToolName = sel.value ? sel.options[sel.selectedIndex].text : null;
+  loadUsage();
+}
+
+function populateToolFilter() {
+  const sel = document.getElementById('usage-tool-select');
+  const current = sel.value;
+  sel.innerHTML = '<option value="">All tools</option>' +
+    toolsCache.map(t => `<option value="${t.id}">${esc(t.name)}</option>`).join('');
+  sel.value = current;
+}
+
+async function loadUsage() {
+  const from = document.getElementById('usage-from').value;
+  const to = document.getElementById('usage-to').value;
+  let qs = '';
+  if (from) qs += '&from=' + from;
+  if (to) qs += '&to=' + to;
+  let usagePath = '/api/v1/admin/usage';
+  let txnQs = qs;
+  if (usageAgentId && usageToolId) {
+    usagePath = '/api/v1/admin/usage/agents/' + usageAgentId + '/tools/' + usageToolId;
+    txnQs += '&agent_id=' + usageAgentId + '&tool_id=' + usageToolId;
+  } else if (usageAgentId) {
+    usagePath = '/api/v1/admin/usage/agents/' + usageAgentId;
+    txnQs += '&agent_id=' + usageAgentId;
+  } else if (usageToolId) {
+    usagePath = '/api/v1/admin/usage/tools/' + usageToolId;
+    txnQs += '&tool_id=' + usageToolId;
+  }
+  try {
+    const [summary, txns] = await Promise.all([
+      api('GET', usagePath + '?' + qs),
+      api('GET', '/api/v1/admin/usage/transactions?limit=50' + txnQs),
+    ]);
+    document.getElementById('stat-requests').textContent = summary.total_requests ?? 0;
+    document.getElementById('stat-cost').textContent = '$' + (summary.total_cost ?? 0).toFixed(4);
+    document.getElementById('stat-results').textContent = (summary.success_count ?? 0) + ' / ' + (summary.error_count ?? 0);
+    document.getElementById('stat-latency').textContent = (summary.avg_latency_ms ?? 0).toFixed(1) + 'ms';
+    renderTransactions(txns.transactions || []);
+  } catch (e) { console.error('Failed to load usage', e); }
+}
+
+function renderTransactions(txns) {
+  const tbody = document.getElementById('txn-body');
+  const empty = document.getElementById('txn-empty');
+  if (!txns.length) { tbody.innerHTML = ''; empty.style.display = 'block'; return; }
+  empty.style.display = 'none';
+  tbody.innerHTML = txns.map(t => `<tr>
+    <td style="white-space:nowrap">${fmtTime(t.timestamp)}</td>
+    <td>${esc(resolveAgentName(t.agent_id))}</td>
+    <td>${esc(resolveToolName(t.tool_id))}</td>
+    <td>${esc(t.method)}</td>
+    <td style="color:${t.success ? 'var(--success)' : 'var(--danger)'}">${t.status_code}</td>
+    <td>${t.latency_ms}ms</td>
+    <td>$${(t.cost || 0).toFixed(4)}</td>
+  </tr>`).join('');
+}
+
+// --- Helpers ---
+function closeModal(id) { document.getElementById(id).classList.remove('open'); }
+function esc(s) { const d = document.createElement('div'); d.textContent = s; return d.innerHTML; }
+function fmtDate(s) { if (!s) return '—'; return new Date(s).toLocaleDateString(); }
+function fmtTime(s) { if (!s) return '—'; const d = new Date(s); return d.toLocaleDateString() + ' ' + d.toLocaleTimeString(); }
+function resolveAgentName(id) { const a = agentsCache.find(a => a.id === id); return a ? a.name : id.slice(0,8); }
+function resolveToolName(id) { const t = toolsCache.find(t => t.id === id); return t ? t.name : id.slice(0,8); }
+
+// Close modals on overlay click
+document.querySelectorAll('.modal-overlay').forEach(el => {
+  el.addEventListener('click', e => { if (e.target === el) el.classList.remove('open'); });
+});
+
+// Set default date range to last 7 days (to = tomorrow so today's data is included)
+const now = new Date();
+const tomorrow = new Date(now);
+tomorrow.setDate(tomorrow.getDate() + 1);
+const weekAgo = new Date(now);
+weekAgo.setDate(weekAgo.getDate() - 7);
+document.getElementById('usage-to').value = tomorrow.toISOString().slice(0, 10);
+document.getElementById('usage-from').value = weekAgo.toISOString().slice(0, 10);
+</script>
+</body>
+</html>

@@ -9,32 +9,25 @@ A gateway that sits between AI agents and the tools/APIs they consume, providing
 - Go 1.23+
 - Docker and Docker Compose
 
-### 1. Start Postgres
-
-```bash
-docker compose up -d
-```
-
-### 2. Configure
+### 1. Configure
 
 ```bash
 cp configs/octroi.example.yaml configs/octroi.yaml
-export OCTROI_ADMIN_KEY="my-secret-admin-key"
+cp .env.example .env        # then edit .env with your admin key
 ```
 
-### 3. Run migrations and seed demo data
+### 2. Run
 
 ```bash
-go run ./cmd/octroi migrate --config configs/octroi.yaml
-go run ./cmd/octroi seed --config configs/octroi.yaml
+make dev
 ```
 
-The seed command creates a demo tool (CoinGecko Crypto Prices) and a demo agent, printing the agent API key to stdout. Save it for the examples below.
+This starts Postgres, runs migrations, seeds demo data, and starts the server. The seed command creates a demo tool (CoinGecko Crypto Prices) and a demo agent, printing the agent API key to stdout. Save it for the examples below.
 
-### 4. Start the server
+For production (compiled binary):
 
 ```bash
-go run ./cmd/octroi serve --config configs/octroi.yaml
+make prod
 ```
 
 ### 5. Try it
@@ -63,7 +56,6 @@ curl -X POST http://localhost:8080/api/v1/admin/tools \
     "description": "Current weather data for any city",
     "endpoint": "https://api.weatherapi.com/v1",
     "auth_type": "none",
-    "tags": ["weather", "data"]
   }'
 
 # Register a new agent (admin key required)
@@ -100,7 +92,7 @@ Agent --> Octroi Gateway --> Tool Provider API
 |--------|------|-------------|
 | GET | `/health` | Health check |
 | GET | `/.well-known/octroi.json` | Self-describing manifest |
-| GET | `/api/v1/tools/search?q=` | Search tools by description/tags |
+| GET | `/api/v1/tools/search?q=` | Search tools by name/description |
 | GET | `/api/v1/tools` | List all tools |
 | GET | `/api/v1/tools/{id}` | Get tool details |
 
@@ -132,6 +124,16 @@ Agent --> Octroi Gateway --> Tool Provider API
 | GET | `/api/v1/admin/usage/tools/{toolID}` | Usage by tool |
 | GET | `/api/v1/admin/usage/agents/{agentID}/tools/{toolID}` | Usage by agent+tool |
 | GET | `/api/v1/admin/usage/transactions` | List all transactions |
+
+## Admin UI
+
+Octroi includes a built-in admin dashboard at `/ui` — a single embedded HTML page with no build step or external dependencies.
+
+Navigate to `http://localhost:8080/ui`, enter your admin key, and you can:
+
+- **Tools** — View, create, edit, and delete registered tools
+- **Agents** — Create and delete agents (API key shown once on creation)
+- **Usage** — View summary stats (requests, cost, success/error, latency) and browse the transaction log with date filters
 
 ## Configuration
 

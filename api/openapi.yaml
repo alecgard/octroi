@@ -945,10 +945,6 @@ components:
           type: string
         auth_type:
           type: string
-        tags:
-          type: array
-          items:
-            type: string
         pricing_model:
           type: string
         pricing_amount:
@@ -988,10 +984,6 @@ components:
           type: object
           additionalProperties:
             type: string
-        tags:
-          type: array
-          items:
-            type: string
         pricing_model:
           type: string
         pricing_amount:
@@ -1030,10 +1022,6 @@ components:
           type: object
           additionalProperties:
             type: string
-        tags:
-          type: array
-          items:
-            type: string
         pricing_model:
           type: string
         pricing_amount:
@@ -1064,10 +1052,6 @@ components:
         auth_config:
           type: object
           additionalProperties:
-            type: string
-        tags:
-          type: array
-          items:
             type: string
         pricing_model:
           type: string

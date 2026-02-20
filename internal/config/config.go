@@ -78,7 +78,7 @@ func defaults() *Config {
 			WriteTimeout: 30 * time.Second,
 		},
 		Database: DatabaseConfig{
-			URL: "postgres://octroi:octroi@localhost:5432/octroi?sslmode=disable",
+			URL: "postgres://octroi:octroi@localhost:5433/octroi?sslmode=disable",
 		},
 		Proxy: ProxyConfig{
 			Timeout:        30 * time.Second,

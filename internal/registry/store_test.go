@@ -217,65 +217,6 @@ func TestValidateUpdate(t *testing.T) {
 	}
 }
 
-func TestNormalizeTags(t *testing.T) {
-	tests := []struct {
-		name string
-		tags []string
-		want []string
-	}{
-		{
-			name: "nil tags",
-			tags: nil,
-			want: []string{},
-		},
-		{
-			name: "empty slice",
-			tags: []string{},
-			want: []string{},
-		},
-		{
-			name: "lowercases tags",
-			tags: []string{"API", "Webhook", "TOOL"},
-			want: []string{"api", "webhook", "tool"},
-		},
-		{
-			name: "trims whitespace",
-			tags: []string{"  api  ", " webhook ", "tool"},
-			want: []string{"api", "webhook", "tool"},
-		},
-		{
-			name: "deduplicates tags",
-			tags: []string{"api", "API", "Api"},
-			want: []string{"api"},
-		},
-		{
-			name: "removes empty tags",
-			tags: []string{"api", "", "  ", "webhook"},
-			want: []string{"api", "webhook"},
-		},
-		{
-			name: "combined normalization",
-			tags: []string{"  API ", "api", "Webhook", " WEBHOOK ", "tool", ""},
-			want: []string{"api", "webhook", "tool"},
-		},
-	}
-
-	for _, tt := range tests {
-		t.Run(tt.name, func(t *testing.T) {
-			got := normalizeTags(tt.tags)
-			if len(got) != len(tt.want) {
-				t.Fatalf("normalizeTags() returned %d tags, want %d: got=%v, want=%v",
-					len(got), len(tt.want), got, tt.want)
-			}
-			for i := range got {
-				if got[i] != tt.want[i] {
-					t.Errorf("normalizeTags()[%d] = %q, want %q", i, got[i], tt.want[i])
-				}
-			}
-		})
-	}
-}
-
 func TestCursorEncodeDecode(t *testing.T) {
 	tests := []struct {
 		name string
@@ -425,31 +366,6 @@ func TestServiceUpdateValidation(t *testing.T) {
 				t.Errorf("Service.Update() error = %v, wantErr = %v", err, tt.wantErr)
 			}
 		})
-	}
-}
-
-func TestServiceCreateNormalizesTags(t *testing.T) {
-	// We cannot call store (nil), but we can verify the normalization
-	// path by checking the normalizeTags function is applied correctly.
-	input := CreateToolInput{
-		Name:        "tool",
-		Description: "desc",
-		Endpoint:    "https://example.com",
-		Tags:        []string{"  API ", "api", "Webhook"},
-	}
-
-	// Validate passes
-	if err := validateCreate(input); err != nil {
-		t.Fatalf("unexpected validation error: %v", err)
-	}
-
-	// Normalize
-	normalized := normalizeTags(input.Tags)
-	if len(normalized) != 2 {
-		t.Fatalf("expected 2 normalized tags, got %d: %v", len(normalized), normalized)
-	}
-	if normalized[0] != "api" || normalized[1] != "webhook" {
-		t.Errorf("unexpected normalized tags: %v", normalized)
 	}
 }
 

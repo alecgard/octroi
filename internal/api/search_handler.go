@@ -18,7 +18,7 @@ func newSearchHandler(svc *registry.Service) *searchHandler {
 
 // SearchTools handles GET /api/v1/tools/search?q=...&limit=...&cursor=...
 // This is unauthenticated. Returns tools without endpoint or auth_config
-// (these fields have json:"-" tags on the Tool struct).
+// (endpoint and auth_config have json:"-" on the Tool struct).
 func (h *searchHandler) SearchTools(w http.ResponseWriter, r *http.Request) {
 	q := r.URL.Query().Get("q")
 	cursor := r.URL.Query().Get("cursor")

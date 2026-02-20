@@ -5,7 +5,6 @@ CREATE TABLE tools (
     endpoint TEXT NOT NULL,
     auth_type TEXT NOT NULL DEFAULT 'none',
     auth_config JSONB DEFAULT '{}',
-    tags TEXT[] DEFAULT '{}',
     pricing_model TEXT,
     pricing_amount NUMERIC(12,6) DEFAULT 0,
     pricing_currency TEXT DEFAULT 'USD',

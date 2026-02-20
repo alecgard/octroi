@@ -10,7 +10,6 @@ type Tool struct {
 	Endpoint        string            `json:"-"`
 	AuthType        string            `json:"auth_type"`
 	AuthConfig      map[string]string `json:"-"`
-	Tags            []string          `json:"tags"`
 	PricingModel    string            `json:"pricing_model"`
 	PricingAmount   float64           `json:"pricing_amount"`
 	PricingCurrency string            `json:"pricing_currency"`
@@ -28,7 +27,6 @@ type CreateToolInput struct {
 	Endpoint        string            `json:"endpoint"`
 	AuthType        string            `json:"auth_type"`
 	AuthConfig      map[string]string `json:"auth_config"`
-	Tags            []string          `json:"tags"`
 	PricingModel    string            `json:"pricing_model"`
 	PricingAmount   float64           `json:"pricing_amount"`
 	PricingCurrency string            `json:"pricing_currency"`
@@ -45,7 +43,6 @@ type UpdateToolInput struct {
 	Endpoint        *string            `json:"endpoint"`
 	AuthType        *string            `json:"auth_type"`
 	AuthConfig      *map[string]string `json:"auth_config"`
-	Tags            *[]string          `json:"tags"`
 	PricingModel    *string            `json:"pricing_model"`
 	PricingAmount   *float64           `json:"pricing_amount"`
 	PricingCurrency *string            `json:"pricing_currency"`
@@ -56,8 +53,7 @@ type UpdateToolInput struct {
 
 // ToolListParams controls listing and pagination of tools.
 type ToolListParams struct {
-	Cursor string   `json:"cursor"`
-	Limit  int      `json:"limit"`
-	Query  string   `json:"query"`
-	Tags   []string `json:"tags"`
+	Cursor string `json:"cursor"`
+	Limit  int    `json:"limit"`
+	Query  string `json:"query"`
 }

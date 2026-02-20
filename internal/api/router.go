@@ -11,6 +11,7 @@ import (
 	"github.com/alecgard/octroi/internal/proxy"
 	"github.com/alecgard/octroi/internal/ratelimit"
 	"github.com/alecgard/octroi/internal/registry"
+	"github.com/alecgard/octroi/internal/ui"
 	"github.com/go-chi/chi/v5"
 	chimw "github.com/go-chi/chi/v5/middleware"
 )
@@ -42,6 +43,11 @@ func NewRouter(deps RouterDeps) http.Handler {
 	agents := newAgentsHandler(deps.AgentStore, deps.BudgetStore)
 	search := newSearchHandler(deps.ToolService)
 	usage := newUsageHandler(deps.MeterStore)
+
+	// Admin UI.
+	uiHandler := ui.Handler()
+	r.Handle("/ui", uiHandler)
+	r.Handle("/ui/*", uiHandler)
 
 	// Health check.
 	r.Get("/health", func(w http.ResponseWriter, r *http.Request) {

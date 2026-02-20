@@ -32,12 +32,11 @@ func NewService(store *Store) *Service {
 	return &Service{store: store}
 }
 
-// Create validates the input, normalizes tags, and creates the tool.
+// Create validates the input and creates the tool.
 func (s *Service) Create(ctx context.Context, input CreateToolInput) (*Tool, error) {
 	if err := validateCreate(input); err != nil {
 		return nil, err
 	}
-	input.Tags = normalizeTags(input.Tags)
 	if input.AuthType == "" {
 		input.AuthType = "none"
 	}
@@ -57,14 +56,10 @@ func (s *Service) List(ctx context.Context, params ToolListParams) ([]*Tool, str
 	return s.store.List(ctx, params)
 }
 
-// Update validates the input, normalizes tags if provided, and applies the update.
+// Update validates the input and applies the update.
 func (s *Service) Update(ctx context.Context, id string, input UpdateToolInput) (*Tool, error) {
 	if err := validateUpdate(input); err != nil {
 		return nil, err
-	}
-	if input.Tags != nil {
-		normalized := normalizeTags(*input.Tags)
-		input.Tags = &normalized
 	}
 	return s.store.Update(ctx, id, input)
 }
@@ -74,7 +69,7 @@ func (s *Service) Delete(ctx context.Context, id string) error {
 	return s.store.Delete(ctx, id)
 }
 
-// Search performs a text/tag search across tools.
+// Search performs a text search across tools.
 func (s *Service) Search(ctx context.Context, query string, limit int, cursor string) ([]*Tool, string, error) {
 	return s.store.Search(ctx, query, limit, cursor)
 }
@@ -131,22 +126,3 @@ func validateEndpoint(endpoint string) error {
 	return nil
 }
 
-// normalizeTags lowercases, trims whitespace, and deduplicates tags.
-func normalizeTags(tags []string) []string {
-	if tags == nil {
-		return []string{}
-	}
-	seen := make(map[string]bool, len(tags))
-	out := make([]string, 0, len(tags))
-	for _, tag := range tags {
-		t := strings.ToLower(strings.TrimSpace(tag))
-		if t == "" {
-			continue
-		}
-		if !seen[t] {
-			seen[t] = true
-			out = append(out, t)
-		}
-	}
-	return out
-}

@@ -155,7 +155,6 @@ func adminToolView(t *registry.Tool) map[string]interface{} {
 		"endpoint":         t.Endpoint,
 		"auth_type":        t.AuthType,
 		"auth_config":      t.AuthConfig,
-		"tags":             t.Tags,
 		"pricing_model":    t.PricingModel,
 		"pricing_amount":   t.PricingAmount,
 		"pricing_currency": t.PricingCurrency,
