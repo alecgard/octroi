@@ -1,6 +1,7 @@
 package api
 
 import (
+	"log/slog"
 	"net/http"
 
 	"github.com/alecgard/octroi/internal/auth"
@@ -49,6 +50,15 @@ func (h *authHandler) Login(w http.ResponseWriter, r *http.Request) {
 		return
 	}
 
+	slog.Info("audit",
+		"action", "login",
+		"resource_type", "user",
+		"resource_id", u.ID,
+		"email", u.Email,
+		"ip", clientIP(r),
+		"request_id", RequestIDFromContext(r.Context()),
+	)
+
 	writeJSON(w, http.StatusOK, map[string]interface{}{
 		"token": token,
 		"user": map[string]interface{}{
@@ -86,7 +96,14 @@ func (h *authHandler) Logout(w http.ResponseWriter, r *http.Request) {
 		return
 	}
 
+	caller := auth.UserFromContext(r.Context())
+
 	_ = h.store.DeleteSession(r.Context(), token)
+
+	if caller != nil {
+		auditLog(r, "logout", "user", caller.ID)
+	}
+
 	w.WriteHeader(http.StatusNoContent)
 }
 

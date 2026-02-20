@@ -65,6 +65,8 @@ func (h *agentsHandler) CreateAgent(w http.ResponseWriter, r *http.Request) {
 		return
 	}
 
+	auditLog(r, "create", "agent", ag.ID, "name", ag.Name)
+
 	resp := map[string]interface{}{
 		"id":             ag.ID,
 		"name":           ag.Name,
@@ -101,6 +103,8 @@ func (h *agentsHandler) UpdateAgent(w http.ResponseWriter, r *http.Request) {
 		return
 	}
 
+	auditLog(r, "update", "agent", id)
+
 	writeJSON(w, http.StatusOK, ag)
 }
 
@@ -117,6 +121,8 @@ func (h *agentsHandler) DeleteAgent(w http.ResponseWriter, r *http.Request) {
 		writeError(w, http.StatusInternalServerError, "internal_error", "failed to delete agent")
 		return
 	}
+
+	auditLog(r, "delete", "agent", id)
 
 	w.WriteHeader(http.StatusNoContent)
 }
@@ -193,6 +199,8 @@ func (h *agentsHandler) RegenerateKey(w http.ResponseWriter, r *http.Request) {
 		return
 	}
 
+	auditLog(r, "regenerate_key", "agent", id)
+
 	resp := map[string]interface{}{
 		"id":             ag.ID,
 		"name":           ag.Name,
@@ -233,6 +241,8 @@ func (h *agentsHandler) SetBudget(w http.ResponseWriter, r *http.Request) {
 		writeError(w, http.StatusInternalServerError, "internal_error", "failed to set budget")
 		return
 	}
+
+	auditLog(r, "set_budget", "agent_budget", agentID, "tool_id", toolID)
 
 	writeJSON(w, http.StatusOK, budget)
 }

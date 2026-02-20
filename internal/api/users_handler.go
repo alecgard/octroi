@@ -99,6 +99,8 @@ func (h *usersHandler) CreateUser(w http.ResponseWriter, r *http.Request) {
 		return
 	}
 
+	auditLog(r, "create", "user", u.ID, "email", u.Email)
+
 	writeJSON(w, http.StatusCreated, u)
 }
 
@@ -170,6 +172,8 @@ func (h *usersHandler) UpdateUser(w http.ResponseWriter, r *http.Request) {
 		writeError(w, http.StatusInternalServerError, "internal_error", "failed to update user")
 		return
 	}
+
+	auditLog(r, "update", "user", id)
 
 	writeJSON(w, http.StatusOK, u)
 }
@@ -266,6 +270,8 @@ func (h *usersHandler) ChangePassword(w http.ResponseWriter, r *http.Request) {
 		return
 	}
 
+	auditLog(r, "change_password", "user", caller.ID)
+
 	writeJSON(w, http.StatusOK, map[string]string{"status": "password updated"})
 }
 
@@ -304,6 +310,8 @@ func (h *usersHandler) DeleteUser(w http.ResponseWriter, r *http.Request) {
 		writeError(w, http.StatusInternalServerError, "internal_error", "failed to delete user")
 		return
 	}
+
+	auditLog(r, "delete", "user", id)
 
 	w.WriteHeader(http.StatusNoContent)
 }

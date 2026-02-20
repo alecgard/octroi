@@ -219,6 +219,8 @@ func (h *teamsHandler) AddTeamMember(w http.ResponseWriter, r *http.Request) {
 		return
 	}
 
+	auditLog(r, "add_member", "team", team, "member_id", userID)
+
 	writeJSON(w, http.StatusOK, updated)
 }
 
@@ -297,6 +299,8 @@ func (h *teamsHandler) RemoveTeamMember(w http.ResponseWriter, r *http.Request) 
 		writeError(w, http.StatusInternalServerError, "internal_error", "failed to update user teams")
 		return
 	}
+
+	auditLog(r, "remove_member", "team", team, "member_id", userID)
 
 	writeJSON(w, http.StatusOK, updated)
 }

@@ -128,6 +128,8 @@ func (h *memberHandler) CreateAgent(w http.ResponseWriter, r *http.Request) {
 		return
 	}
 
+	auditLog(r, "create", "agent", ag.ID, "name", ag.Name)
+
 	resp := map[string]interface{}{
 		"id":             ag.ID,
 		"name":           ag.Name,
@@ -183,6 +185,8 @@ func (h *memberHandler) UpdateAgent(w http.ResponseWriter, r *http.Request) {
 		return
 	}
 
+	auditLog(r, "update", "agent", id)
+
 	writeJSON(w, http.StatusOK, ag)
 }
 
@@ -219,6 +223,8 @@ func (h *memberHandler) DeleteAgent(w http.ResponseWriter, r *http.Request) {
 		writeError(w, http.StatusInternalServerError, "internal_error", "failed to delete agent")
 		return
 	}
+
+	auditLog(r, "delete", "agent", id)
 
 	w.WriteHeader(http.StatusNoContent)
 }
@@ -263,6 +269,8 @@ func (h *memberHandler) RegenerateKey(w http.ResponseWriter, r *http.Request) {
 		writeError(w, http.StatusInternalServerError, "internal_error", "failed to regenerate key")
 		return
 	}
+
+	auditLog(r, "regenerate_key", "agent", id)
 
 	writeJSON(w, http.StatusOK, map[string]interface{}{
 		"id":             ag.ID,

@@ -37,6 +37,8 @@ func (h *toolsHandler) CreateTool(w http.ResponseWriter, r *http.Request) {
 		return
 	}
 
+	auditLog(r, "create", "tool", tool.ID, "name", tool.Name)
+
 	// Return full tool including endpoint and auth_config for admin.
 	writeJSON(w, http.StatusCreated, adminToolView(tool))
 }
@@ -69,6 +71,8 @@ func (h *toolsHandler) UpdateTool(w http.ResponseWriter, r *http.Request) {
 		return
 	}
 
+	auditLog(r, "update", "tool", id)
+
 	writeJSON(w, http.StatusOK, adminToolView(tool))
 }
 
@@ -89,6 +93,8 @@ func (h *toolsHandler) DeleteTool(w http.ResponseWriter, r *http.Request) {
 		writeError(w, http.StatusInternalServerError, "internal_error", "failed to delete tool")
 		return
 	}
+
+	auditLog(r, "delete", "tool", id)
 
 	w.WriteHeader(http.StatusNoContent)
 }
