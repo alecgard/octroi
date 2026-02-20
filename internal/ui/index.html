@@ -309,7 +309,7 @@ a:hover { color: var(--text2); }
   background: #2a7;
 }
 .mode-btn.active .live-dot { background: #5fffaa; animation: pulse 1.5s infinite; }
-body.shift-held .mode-btn.active .live-dot { background: #f0c040; animation: none; }
+body.shift-held .mode-btn.active .live-dot, body.chart-paused .mode-btn.active .live-dot { background: #f0c040; animation: none; }
 @keyframes pulse {
   0%, 100% { opacity: 1; }
   50% { opacity: 0.4; }
@@ -907,6 +907,7 @@ let usageMode = 'live'; // 'live' or 'historical'
 let usagePollTimer = null;
 let lastTxnTimestamp = null;
 let usageLoading = false;
+let chartLegendHover = false;
 let txnPageSize = 50;
 let txnAll = []; // current page rows
 let txnNextCursor = null;
@@ -1714,6 +1715,7 @@ function stopUsagePoll() {
 }
 
 async function loadUsageLive() {
+  if (chartLegendHover) return;
   if (!usageLoading && lastTxnTimestamp === null) showUsageLoading();
   const from = new Date(Date.now() - liveLookback).toISOString();
   let qs = '&from=' + encodeURIComponent(from);
@@ -2309,8 +2311,8 @@ function renderUsageChart(txns) {
     buckets[bi][gid] = (buckets[bi][gid] || 0) + 1;
   });
 
-  const groups = Array.from(groupSet);
-  const maxCount = Math.max(1, ...buckets.map(b => groups.reduce((s, g) => s + (b[g] || 0), 0)));
+  const groups = Array.from(groupSet).sort((a, b) => resolveName(a).localeCompare(resolveName(b)));
+  const maxCount = Math.max(1, ...buckets.map(b => Math.max(0, ...groups.map(g => b[g] || 0))));
 
   const yStep = Math.max(1, Math.ceil(maxCount / 4));
   const yMax = yStep * 4;
@@ -2327,30 +2329,37 @@ function renderUsageChart(txns) {
     svg += `<text x="${ML - 4}" y="${y + 3}" text-anchor="end" class="chart-label">${v}</text>`;
   });
 
-  // Stacked bars + hover zones
-  const colW = chartW / numBuckets;
-  const barW = Math.max(4, colW - 2);
+  // Line chart
+  const colW = chartW / Math.max(1, numBuckets - 1);
+  const xFor = i => numBuckets === 1 ? ML + chartW / 2 : ML + i * colW;
+  const yFor = v => MT + chartH - (v / yMax) * chartH;
 
-  for (let i = 0; i < numBuckets; i++) {
-    const barX = ML + i * colW + (colW - barW) / 2;
-    let yOff = 0;
-    groups.forEach((gid, gi) => {
+  groups.forEach(gid => {
+    const color = chartColorFor(gid);
+    const points = [];
+    for (let i = 0; i < numBuckets; i++) {
+      points.push(`${xFor(i)},${yFor(buckets[i][gid] || 0)}`);
+    }
+    svg += `<polyline points="${points.join(' ')}" fill="none" stroke="${color}" stroke-width="1.5" stroke-linejoin="round" data-group="${gid}" class="chart-line"/>`;
+    for (let i = 0; i < numBuckets; i++) {
       const count = buckets[i][gid] || 0;
-      if (count === 0) return;
-      const barH = (count / yMax) * chartH;
-      const y = MT + chartH - yOff - barH;
-      const color = chartColorFor(gid);
-      svg += `<rect x="${barX}" y="${y}" width="${barW}" height="${barH}" fill="${color}" rx="1"/>`;
-      yOff += barH;
-    });
-    // Invisible hover zone covering full column
-    svg += `<rect x="${ML + i * colW}" y="${MT}" width="${colW}" height="${chartH}" fill="transparent" data-bucket="${i}" class="chart-hover-zone"/>`;
+      if (count > 0) {
+        svg += `<circle cx="${xFor(i)}" cy="${yFor(count)}" r="2.5" fill="${color}" data-group="${gid}" class="chart-line"/>`;
+      }
+    }
+  });
+
+  // Invisible hover zones
+  for (let i = 0; i < numBuckets; i++) {
+    const zoneW = numBuckets === 1 ? chartW : colW;
+    const zoneX = numBuckets === 1 ? ML : ML + i * colW - colW / 2;
+    svg += `<rect x="${Math.max(ML, zoneX)}" y="${MT}" width="${Math.min(zoneW, W - MR - Math.max(ML, zoneX))}" height="${chartH}" fill="transparent" data-bucket="${i}" class="chart-hover-zone"/>`;
   }
 
   // X-axis labels
   const labelEvery = Math.max(1, Math.ceil(numBuckets / 8));
   for (let i = 0; i < numBuckets; i += labelEvery) {
-    const x = ML + i * colW + colW / 2;
+    const x = xFor(i);
     const d = new Date(bucketStart + i * bucketMs);
     svg += `<text x="${x}" y="${H - MB + 14}" text-anchor="middle" class="chart-label">${fmtBucketLabel(d, bucketMs)}</text>`;
   }
@@ -2369,7 +2378,7 @@ function renderUsageChart(txns) {
     const isActive = activeFilterArr.includes(gid);
     const filterVal = isActive ? '' : gid;
     const exclClass = hasLegendFilter && !isActive ? ' chart-legend-excluded' : '';
-    legend += `<div class="chart-legend-item${exclClass}" onclick="filterFromTxn('${filterType}','${filterVal}')" style="cursor:pointer"><span class="chart-legend-swatch" style="background:${color}${hasLegendFilter && !isActive ? ';opacity:0.3' : ''}"></span>${esc(name)}</div>`;
+    legend += `<div class="chart-legend-item${exclClass}" data-group="${gid}" onclick="filterFromTxn('${filterType}','${filterVal}')" style="cursor:pointer"><span class="chart-legend-swatch" style="background:${color}${hasLegendFilter && !isActive ? ';opacity:0.3' : ''}"></span>${esc(name)}</div>`;
   });
   legend += '</div>';
 
@@ -2403,13 +2412,34 @@ function renderUsageChart(txns) {
       tooltip.style.display = '';
 
       // Position tooltip near the hovered bar
-      const barCenterX = ML + bi * colW + colW / 2;
+      const barCenterX = xFor(bi);
       const ttW = tooltip.offsetWidth;
       const containerW = container.getBoundingClientRect().width;
       let left = barCenterX + 12;
       if (left + ttW > containerW - 4) left = barCenterX - ttW - 12;
       tooltip.style.left = left + 'px';
       tooltip.style.top = MT + 'px';
+    });
+  });
+
+  // Legend hover: fade other lines
+  container.querySelectorAll('.chart-legend-item').forEach(item => {
+    item.addEventListener('mouseenter', () => {
+      chartLegendHover = true;
+      document.body.classList.add('chart-paused');
+      const gid = item.dataset.group;
+      container.querySelectorAll('.chart-line').forEach(el => {
+        el.style.opacity = el.dataset.group === gid ? '1' : '0.1';
+      });
+      container.querySelectorAll('.chart-legend-item').forEach(li => {
+        li.style.opacity = li.dataset.group === gid ? '1' : '0.3';
+      });
+    });
+    item.addEventListener('mouseleave', () => {
+      chartLegendHover = false;
+      document.body.classList.remove('chart-paused');
+      container.querySelectorAll('.chart-line').forEach(el => { el.style.opacity = ''; });
+      container.querySelectorAll('.chart-legend-item').forEach(li => { li.style.opacity = ''; });
     });
   });
 }
