@@ -8,18 +8,21 @@ import (
 	"strings"
 	"time"
 
+	"github.com/alecgard/octroi/internal/crypto"
 	"github.com/jackc/pgx/v5"
 	"github.com/jackc/pgx/v5/pgxpool"
 )
 
 // Store provides database operations for tool registry management.
 type Store struct {
-	pool *pgxpool.Pool
+	pool   *pgxpool.Pool
+	cipher *crypto.Cipher
 }
 
 // NewStore creates a new Store backed by the given connection pool.
-func NewStore(pool *pgxpool.Pool) *Store {
-	return &Store{pool: pool}
+// An optional cipher encrypts auth_config at rest; nil disables encryption.
+func NewStore(pool *pgxpool.Pool, cipher *crypto.Cipher) *Store {
+	return &Store{pool: pool, cipher: cipher}
 }
 
 // toolColumns is the full list of columns used in SELECT statements.
@@ -27,10 +30,10 @@ const toolColumns = `id, name, description, mode, endpoint, auth_type, auth_conf
 	pricing_model, pricing_amount, pricing_currency, rate_limit,
 	budget_limit, budget_window, created_at, updated_at`
 
-// scanTool scans a single tool row into a Tool struct.
-func scanTool(row pgx.Row) (*Tool, error) {
+// scanTool scans a single tool row into a Tool struct, decrypting auth_config if a cipher is set.
+func (s *Store) scanTool(row pgx.Row) (*Tool, error) {
 	var t Tool
-	var authConfigJSON []byte
+	var authConfigRaw []byte
 	var variablesJSON []byte
 	err := row.Scan(
 		&t.ID,
@@ -39,7 +42,7 @@ func scanTool(row pgx.Row) (*Tool, error) {
 		&t.Mode,
 		&t.Endpoint,
 		&t.AuthType,
-		&authConfigJSON,
+		&authConfigRaw,
 		&variablesJSON,
 		&t.PricingModel,
 		&t.PricingAmount,
@@ -53,12 +56,23 @@ func scanTool(row pgx.Row) (*Tool, error) {
 	if err != nil {
 		return nil, err
 	}
+
 	t.AuthConfig = make(map[string]string)
-	if len(authConfigJSON) > 0 {
-		if err := json.Unmarshal(authConfigJSON, &t.AuthConfig); err != nil {
+	if len(authConfigRaw) > 0 {
+		authJSON := string(authConfigRaw)
+		// Decrypt if cipher is configured. For unencrypted (plain JSON) data,
+		// Decrypt on a nil cipher is a no-op and returns the string as-is.
+		decrypted, err := s.cipher.Decrypt(authJSON)
+		if err != nil {
+			// If decryption fails, the data may be plain JSON (pre-encryption).
+			// Fall back to using the raw value.
+			decrypted = authJSON
+		}
+		if err := json.Unmarshal([]byte(decrypted), &t.AuthConfig); err != nil {
 			return nil, fmt.Errorf("unmarshalling auth_config: %w", err)
 		}
 	}
+
 	t.Variables = make(map[string]string)
 	if len(variablesJSON) > 0 {
 		if err := json.Unmarshal(variablesJSON, &t.Variables); err != nil {
@@ -73,6 +87,10 @@ func (s *Store) Create(ctx context.Context, input CreateToolInput) (*Tool, error
 	authConfigJSON, err := json.Marshal(input.AuthConfig)
 	if err != nil {
 		return nil, fmt.Errorf("marshalling auth_config: %w", err)
+	}
+	authConfigStored, err := s.cipher.Encrypt(string(authConfigJSON))
+	if err != nil {
+		return nil, fmt.Errorf("encrypting auth_config: %w", err)
 	}
 	variablesJSON, err := json.Marshal(input.Variables)
 	if err != nil {
@@ -92,7 +110,7 @@ func (s *Store) Create(ctx context.Context, input CreateToolInput) (*Tool, error
 		input.Mode,
 		input.Endpoint,
 		input.AuthType,
-		authConfigJSON,
+		[]byte(authConfigStored),
 		variablesJSON,
 		input.PricingModel,
 		input.PricingAmount,
@@ -101,14 +119,14 @@ func (s *Store) Create(ctx context.Context, input CreateToolInput) (*Tool, error
 		input.BudgetLimit,
 		input.BudgetWindow,
 	)
-	return scanTool(row)
+	return s.scanTool(row)
 }
 
 // GetByID retrieves a tool by its ID, including endpoint and auth_config.
 func (s *Store) GetByID(ctx context.Context, id string) (*Tool, error) {
 	query := fmt.Sprintf(`SELECT %s FROM tools WHERE id = $1`, toolColumns)
 	row := s.pool.QueryRow(ctx, query, id)
-	return scanTool(row)
+	return s.scanTool(row)
 }
 
 // encodeCursor produces a base64-encoded cursor from a timestamp and ID.
@@ -181,7 +199,7 @@ func (s *Store) List(ctx context.Context, params ToolListParams) ([]*Tool, strin
 
 	var tools []*Tool
 	for rows.Next() {
-		t, err := scanTool(rows)
+		t, err := s.scanTool(rows)
 		if err != nil {
 			return nil, "", fmt.Errorf("scanning tool: %w", err)
 		}
@@ -237,8 +255,12 @@ func (s *Store) Update(ctx context.Context, id string, input UpdateToolInput) (*
 		if err != nil {
 			return nil, fmt.Errorf("marshalling auth_config: %w", err)
 		}
+		authConfigStored, err := s.cipher.Encrypt(string(authConfigJSON))
+		if err != nil {
+			return nil, fmt.Errorf("encrypting auth_config: %w", err)
+		}
 		setClauses = append(setClauses, fmt.Sprintf("auth_config = $%d", argIdx))
-		args = append(args, authConfigJSON)
+		args = append(args, []byte(authConfigStored))
 		argIdx++
 	}
 	if input.Variables != nil {
@@ -295,7 +317,7 @@ func (s *Store) Update(ctx context.Context, id string, input UpdateToolInput) (*
 		strings.Join(setClauses, ", "), argIdx, toolColumns)
 
 	row := s.pool.QueryRow(ctx, query, args...)
-	return scanTool(row)
+	return s.scanTool(row)
 }
 
 // Delete removes a tool by its ID.
@@ -358,7 +380,7 @@ func (s *Store) Search(ctx context.Context, query string, limit int, cursor stri
 
 	var tools []*Tool
 	for rows.Next() {
-		t, err := scanTool(rows)
+		t, err := s.scanTool(rows)
 		if err != nil {
 			return nil, "", fmt.Errorf("scanning tool: %w", err)
 		}

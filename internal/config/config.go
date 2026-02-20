@@ -10,12 +10,17 @@ import (
 )
 
 type Config struct {
-	Server    ServerConfig    `yaml:"server"`
-	Database  DatabaseConfig  `yaml:"database"`
-	Proxy     ProxyConfig     `yaml:"proxy"`
-	Metering  MeteringConfig  `yaml:"metering"`
-	RateLimit RateLimitConfig `yaml:"rate_limit"`
-	CORS      CORSConfig      `yaml:"cors"`
+	Server     ServerConfig     `yaml:"server"`
+	Database   DatabaseConfig   `yaml:"database"`
+	Proxy      ProxyConfig      `yaml:"proxy"`
+	Metering   MeteringConfig   `yaml:"metering"`
+	RateLimit  RateLimitConfig  `yaml:"rate_limit"`
+	CORS       CORSConfig       `yaml:"cors"`
+	Encryption EncryptionConfig `yaml:"encryption"`
+}
+
+type EncryptionConfig struct {
+	Key string `yaml:"key"` // hex-encoded 32-byte AES key
 }
 
 type CORSConfig struct {
@@ -66,7 +71,46 @@ func Load(path string) (*Config, error) {
 
 	applyEnvOverrides(cfg)
 
+	if err := cfg.Validate(); err != nil {
+		return nil, fmt.Errorf("invalid config: %w", err)
+	}
+
 	return cfg, nil
+}
+
+// Validate checks that configuration values are sane.
+func (c *Config) Validate() error {
+	if c.Server.Port < 1 || c.Server.Port > 65535 {
+		return fmt.Errorf("server.port must be between 1 and 65535, got %d", c.Server.Port)
+	}
+	if c.Server.ReadTimeout <= 0 {
+		return fmt.Errorf("server.read_timeout must be positive")
+	}
+	if c.Server.WriteTimeout <= 0 {
+		return fmt.Errorf("server.write_timeout must be positive")
+	}
+	if c.Database.URL == "" {
+		return fmt.Errorf("database.url is required")
+	}
+	if c.Proxy.Timeout <= 0 {
+		return fmt.Errorf("proxy.timeout must be positive")
+	}
+	if c.Proxy.MaxRequestSize <= 0 {
+		return fmt.Errorf("proxy.max_request_size must be positive")
+	}
+	if c.Metering.BatchSize <= 0 {
+		return fmt.Errorf("metering.batch_size must be positive")
+	}
+	if c.Metering.FlushInterval <= 0 {
+		return fmt.Errorf("metering.flush_interval must be positive")
+	}
+	if c.RateLimit.Default < 0 {
+		return fmt.Errorf("rate_limit.default must be non-negative")
+	}
+	if c.RateLimit.Window <= 0 {
+		return fmt.Errorf("rate_limit.window must be positive")
+	}
+	return nil
 }
 
 func defaults() *Config {
@@ -111,6 +155,9 @@ func applyEnvOverrides(cfg *Config) {
 	}
 	if v := os.Getenv("OCTROI_HOST"); v != "" {
 		cfg.Server.Host = v
+	}
+	if v := os.Getenv("OCTROI_ENCRYPTION_KEY"); v != "" {
+		cfg.Encryption.Key = v
 	}
 }
 

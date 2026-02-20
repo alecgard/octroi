@@ -13,6 +13,7 @@ import (
 	"github.com/alecgard/octroi/internal/agent"
 	"github.com/alecgard/octroi/internal/auth"
 	"github.com/alecgard/octroi/internal/config"
+	"github.com/alecgard/octroi/internal/crypto"
 	"github.com/alecgard/octroi/internal/metering"
 	"github.com/alecgard/octroi/internal/registry"
 	"github.com/alecgard/octroi/internal/user"
@@ -152,7 +153,12 @@ func runSeed(cmd *cobra.Command, args []string) error {
 	}
 	defer pool.Close()
 
-	toolStore := registry.NewStore(pool)
+	cipher, err := crypto.NewCipher(cfg.Encryption.Key)
+	if err != nil {
+		return fmt.Errorf("initializing encryption: %w", err)
+	}
+
+	toolStore := registry.NewStore(pool, cipher)
 	toolService := registry.NewService(toolStore)
 	agentStore := agent.NewStore(pool)
 	userStore := user.NewStore(pool)

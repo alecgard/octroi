@@ -263,6 +263,15 @@ func (s *Store) DeleteSession(ctx context.Context, plaintext string) error {
 	return nil
 }
 
+// CleanExpiredSessions deletes all sessions that have expired.
+func (s *Store) CleanExpiredSessions(ctx context.Context) (int64, error) {
+	tag, err := s.pool.Exec(ctx, `DELETE FROM sessions WHERE expires_at < now()`)
+	if err != nil {
+		return 0, fmt.Errorf("cleaning expired sessions: %w", err)
+	}
+	return tag.RowsAffected(), nil
+}
+
 func hashToken(plaintext string) string {
 	h := sha256.Sum256([]byte(plaintext))
 	return hex.EncodeToString(h[:])

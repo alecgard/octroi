@@ -2,6 +2,7 @@ package main
 
 import (
 	"context"
+	"fmt"
 	"log/slog"
 	"net/http"
 	"os"
@@ -13,6 +14,7 @@ import (
 	"github.com/alecgard/octroi/internal/api"
 	"github.com/alecgard/octroi/internal/auth"
 	"github.com/alecgard/octroi/internal/config"
+	"github.com/alecgard/octroi/internal/crypto"
 	"github.com/alecgard/octroi/internal/metering"
 	"github.com/alecgard/octroi/internal/proxy"
 	"github.com/alecgard/octroi/internal/ratelimit"
@@ -55,7 +57,15 @@ func runServe(cmd *cobra.Command, args []string) error {
 	}
 	slog.Info("connected to database")
 
-	toolStore := registry.NewStore(pool)
+	cipher, err := crypto.NewCipher(cfg.Encryption.Key)
+	if err != nil {
+		return fmt.Errorf("initializing encryption: %w", err)
+	}
+	if cipher != nil {
+		slog.Info("auth_config encryption enabled")
+	}
+
+	toolStore := registry.NewStore(pool, cipher)
 	toolService := registry.NewService(toolStore)
 	agentStore := agent.NewStore(pool)
 	budgetStore := agent.NewBudgetStore(pool)
@@ -64,6 +74,25 @@ func runServe(cmd *cobra.Command, args []string) error {
 	go collector.Start(ctx)
 
 	userStore := user.NewStore(pool)
+
+	// Periodic session cleanup every hour.
+	go func() {
+		ticker := time.NewTicker(1 * time.Hour)
+		defer ticker.Stop()
+		for {
+			select {
+			case <-ctx.Done():
+				return
+			case <-ticker.C:
+				n, err := userStore.CleanExpiredSessions(ctx)
+				if err != nil {
+					slog.Warn("session cleanup failed", "error", err)
+				} else if n > 0 {
+					slog.Info("cleaned expired sessions", "count", n)
+				}
+			}
+		}
+	}()
 
 	limiter := ratelimit.New(cfg.RateLimit.Default, cfg.RateLimit.Window)
 	authService := auth.NewService(agent.NewAuthAdapter(agentStore))
