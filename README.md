@@ -2,6 +2,8 @@
   <img src="assets/logo.svg" alt="OCTROI"/>
 </p>
 
+> _octroi (ok-TWAH) — where duties are collected on goods entering a town_
+
 A gateway that sits between AI agents and the tools/APIs they consume, providing discovery, authenticated proxying, rate limiting, budget enforcement, and usage metering.
 
 ## Quickstart

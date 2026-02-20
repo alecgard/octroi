@@ -1,13 +1,20 @@
 -include .env
 export
 
-.PHONY: dev prod clean
+.PHONY: dev dev\:seed prod clean
 
 CONFIG := configs/octroi.yaml
 BIN := octroi
 
-# --- Dev: start Postgres, run migrations + seed, serve with go run ---
+# --- Dev: start Postgres, run migrations, ensure admin, serve with go run ---
 dev:
+	@docker compose up -d --wait
+	@go run ./cmd/octroi migrate --config $(CONFIG)
+	@go run ./cmd/octroi ensure-admin --config $(CONFIG) 2>/dev/null || true
+	OCTROI_DEV=1 go run ./cmd/octroi serve --config $(CONFIG)
+
+# --- Dev with seed data ---
+dev\:seed:
 	@docker compose up -d --wait
 	@go run ./cmd/octroi migrate --config $(CONFIG)
 	@go run ./cmd/octroi seed --config $(CONFIG) 2>/dev/null || true
