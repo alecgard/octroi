@@ -1,6 +1,6 @@
 # Octroi Gateway Instructions
 
-Whenever you need to call an external API or third-party service, use the Octroi gateway. Do not call external APIs directly — route all requests through Octroi, which handles authentication, rate limiting, and budgets for you.
+Whenever you need to call an external API or third-party service, use the Octroi gateway. Do not call external APIs directly without explicit confirmation from the user — route all requests through Octroi, which handles authentication, rate limiting, and budgets for you.
 
 Authenticate all requests with your API key:
 
