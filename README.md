@@ -118,4 +118,4 @@ See [DEVELOPING.md](DEVELOPING.md) for local development setup, architecture, te
 
 ## License
 
-Business Source License 1.1 — see [LICENSE](LICENSE). Free to use, modify, and self-host. Production use is permitted except offering Octroi as a hosted service competing with the Licensed Work. Each release converts to Apache 2.0 after 4 years.
+Business Source License 1.1 — see [LICENSE](LICENSE). Free to use, modify, and self-host. Production use is permitted except offering Octroi as a hosted service competing with the Licensed Work. Each version converts to Apache 2.0 after 4 years.
