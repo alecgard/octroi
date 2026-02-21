@@ -94,6 +94,7 @@ Configure all of these from the **Tools** and **Agents** tabs in the UI.
 - CORS, secure headers, request ID tracing
 - The gateway only proxies to registered tool endpoints — no open proxy
 
+## Octroi CLi
 <details>
 <summary><strong>CLI Reference</strong></summary>
 
