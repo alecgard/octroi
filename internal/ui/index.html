@@ -960,6 +960,7 @@ let usagePollTimer = null;
 let lastTxnTimestamp = null;
 let usageLoading = false;
 let chartLegendHover = false;
+let liveLookback = parseInt(localStorage.getItem('octroi_live_lookback')) || 86400000;
 let txnPageSize = 50;
 let txnAll = []; // current page rows
 let txnNextCursor = null;
@@ -2325,7 +2326,6 @@ document.getElementById('usage-from').value = weekAgo.toISOString().slice(0, 10)
 // --- Chart ---
 let chartGroup = 'agent';
 let lastChartTxns = [];
-let liveLookback = parseInt(localStorage.getItem('octroi_live_lookback')) || 86400000;
 const chartColors = ['#1a1a1a','#2a7','#a80','#c33','#57a','#7a5','#a57','#5a7'];
 function chartColorFor(id) {
   let h = 0;
