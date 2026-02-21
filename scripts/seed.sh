@@ -2,15 +2,27 @@
 #
 # seed.sh — Populate Octroi with realistic seed data and generate live traffic.
 #
-# Creates users, teams, tools, agents, 7 days of historical transactions,
-# then sends live traffic through the proxy until killed (Ctrl-C).
+# Creates users, teams, tools, agents, then sends live traffic through
+# the proxy until killed (Ctrl-C).
 #
-# Requires: curl, jq, psql, bc, python3
-# Usage:    ./scripts/seed.sh [BASE_URL]   (default: http://localhost:8080)
+# Pass --backfill to also generate 350k historical transactions (7 days)
+# before starting live traffic. Requires psql and bc in addition to the
+# base dependencies.
+#
+# Requires: curl, jq, python3 (+ psql, bc with --backfill)
+# Usage:    ./scripts/seed.sh [--backfill] [BASE_URL]
 #
 set -euo pipefail
 
-BASE="${1:-http://localhost:8080}"
+BACKFILL=false
+BASE="http://localhost:8080"
+for arg in "$@"; do
+  case "$arg" in
+    --backfill) BACKFILL=true ;;
+    *)          BASE="$arg" ;;
+  esac
+done
+
 ADMIN_EMAIL="admin@octroi.dev"
 ADMIN_PASS="octroi"
 TOKEN=""
@@ -352,101 +364,101 @@ if [[ -n "$pagerduty_id" ]]; then
 fi
 
 # ===========================================================================
-#  HISTORICAL TRANSACTIONS (last 7 days)
+#  TRAFFIC DEFINITIONS (shared by backfill and live loop)
 # ===========================================================================
-
-echo "==> Generating historical transactions (last 7 days)"
 
 NUM_AGENTS=${#AGENT_IDS[@]}
 NUM_TOOLS=${#TOOL_IDS[@]}
 
-if [[ $NUM_AGENTS -eq 0 || $NUM_TOOLS -eq 0 ]]; then
-  echo "    No agents or tools found, skipping transactions."
-else
-  METHODS=(GET GET GET GET POST POST PUT DELETE)
-  PATHS=(
-    "/api/v1/query"  "/api/v1/data"   "/api/v1/search"  "/api/v1/list"
-    "/api/v1/write"  "/api/v1/submit"  "/api/v1/update"  "/api/v1/delete"
-  )
-  STATUSES=(200 200 200 200 200 200 200 200 200 201 204 400 401 429 500 502 503)
-  NUM_METHODS=${#METHODS[@]}
-  NUM_PATHS=${#PATHS[@]}
-  NUM_STATUSES=${#STATUSES[@]}
+METHODS=(GET GET GET GET POST POST PUT DELETE)
+PATHS=(
+  "/api/v1/query"  "/api/v1/data"   "/api/v1/search"  "/api/v1/list"
+  "/api/v1/write"  "/api/v1/submit"  "/api/v1/update"  "/api/v1/delete"
+)
+STATUSES=(200 200 200 200 200 200 200 200 200 201 204 400 401 429 500 502 503)
+NUM_METHODS=${#METHODS[@]}
+NUM_PATHS=${#PATHS[@]}
+NUM_STATUSES=${#STATUSES[@]}
 
-  # Live mode averages ~1 tx per 1.75s = ~345,600 over 7 days.
-  # Match that density so there's no visible jump when live traffic starts.
+# Simple LCG PRNG for reproducible distribution.
+RNG=48271
+rng() { RNG=$(( (RNG * 48271 + 11) % 2147483647 )); }
+
+# Tool index constants (must match TOOL_NAMES order).
+T_BIGQUERY=0  T_KAFKA=1     T_PROMETHEUS=2  T_LOKI=3
+T_ELASTIC=4   T_REDIS=5     T_PGANALYTICS=6 T_S3=7
+T_VAULT=8     T_PAGERDUTY=9 T_GITHUB=10     T_JIRA=11
+T_SLACK=12    T_SENTRY=13   T_DATADOG=14    T_ARGOCD=15
+T_REGISTRY=16 T_RPC=17
+
+# Build a weighted (agent, tool) pair table. Each entry is "agent_idx tool_idx".
+# The number of times a pair appears determines its probability.
+# An agent's total weight across all its tools = its relative traffic volume.
+# e.g. backend-ops has 35 total entries -> very busy; frontend-perf has 14 -> quieter.
+TRAFFIC=()
+add_pairs() {
+  local agent_idx=$1; shift
+  while [[ $# -ge 2 ]]; do
+    local tool_idx=$1 weight=$2; shift 2
+    for (( _w=0; _w<weight; _w++ )); do
+      TRAFFIC+=("$agent_idx $tool_idx")
+    done
+  done
+}
+
+# Agent 0: backend-dev — writes code, reviews PRs, files bugs (medium volume)
+add_pairs 0   $T_GITHUB 5  $T_JIRA 3  $T_SENTRY 4  $T_ELASTIC 3  $T_REDIS 2  $T_SLACK 1
+# Agent 1: backend-ops — runs services, watches metrics (high volume)
+add_pairs 1   $T_KAFKA 8  $T_PROMETHEUS 6  $T_LOKI 5  $T_REDIS 5  $T_ELASTIC 4  $T_DATADOG 4  $T_PAGERDUTY 2  $T_SLACK 1
+# Agent 2: backend-incidents — firefighting, alerts (high volume, bursty)
+add_pairs 2   $T_PAGERDUTY 7  $T_SLACK 6  $T_PROMETHEUS 5  $T_LOKI 5  $T_SENTRY 4  $T_DATADOG 3  $T_ELASTIC 2
+
+# Agent 3: frontend-dev — builds UI, tracks bugs (medium volume)
+add_pairs 3   $T_GITHUB 5  $T_JIRA 3  $T_SENTRY 5  $T_S3 2  $T_SLACK 1
+# Agent 4: frontend-deploy — ships builds (lower volume)
+add_pairs 4   $T_ARGOCD 5  $T_REGISTRY 5  $T_GITHUB 3  $T_S3 3  $T_SLACK 1
+# Agent 5: frontend-perf — performance monitoring (lower volume)
+add_pairs 5   $T_DATADOG 6  $T_PROMETHEUS 4  $T_ELASTIC 3  $T_SENTRY 3
+
+# Agent 6: infra-provision — spins up infra (low volume)
+add_pairs 6   $T_S3 4  $T_VAULT 5  $T_ARGOCD 4  $T_REGISTRY 3  $T_GITHUB 2
+# Agent 7: infra-monitor — watches everything (high volume)
+add_pairs 7   $T_PROMETHEUS 8  $T_LOKI 6  $T_DATADOG 6  $T_ELASTIC 4  $T_REDIS 2
+# Agent 8: infra-incidents — infra fires (high volume)
+add_pairs 8   $T_PAGERDUTY 6  $T_SLACK 5  $T_PROMETHEUS 5  $T_LOKI 4  $T_DATADOG 4  $T_VAULT 2
+
+# Agent 9: security-audit — compliance checks (low volume)
+add_pairs 9   $T_VAULT 5  $T_GITHUB 4  $T_ELASTIC 3  $T_BIGQUERY 2
+# Agent 10: security-scan — vulnerability scanning (medium volume)
+add_pairs 10  $T_ELASTIC 5  $T_GITHUB 4  $T_REGISTRY 4  $T_VAULT 3  $T_SENTRY 2  $T_DATADOG 2
+# Agent 11: security-incidents — security response (medium volume)
+add_pairs 11  $T_PAGERDUTY 5  $T_SLACK 5  $T_VAULT 4  $T_ELASTIC 3  $T_LOKI 3
+
+# Agent 12: data-pipeline — ETL and streaming (very high volume)
+add_pairs 12  $T_KAFKA 10  $T_BIGQUERY 6  $T_S3 5  $T_PGANALYTICS 5  $T_REDIS 3  $T_RPC 3
+# Agent 13: data-analytics — queries and reports (medium volume)
+add_pairs 13  $T_BIGQUERY 7  $T_PGANALYTICS 5  $T_ELASTIC 4  $T_S3 2  $T_REDIS 2
+# Agent 14: data-etl — batch transforms (high volume)
+add_pairs 14  $T_KAFKA 7  $T_BIGQUERY 5  $T_S3 5  $T_PGANALYTICS 5  $T_REDIS 3
+
+# Agent 15: platform-deploy — ships platform services (medium volume)
+add_pairs 15  $T_ARGOCD 6  $T_REGISTRY 5  $T_GITHUB 4  $T_S3 3  $T_SLACK 1
+# Agent 16: platform-ops — keeps platform running (high volume)
+add_pairs 16  $T_KAFKA 6  $T_PROMETHEUS 6  $T_LOKI 5  $T_REDIS 4  $T_REGISTRY 3  $T_DATADOG 3  $T_RPC 5
+# Agent 17: platform-ci — build pipelines (medium volume)
+add_pairs 17  $T_GITHUB 6  $T_REGISTRY 5  $T_ARGOCD 4  $T_S3 3  $T_SENTRY 2
+
+NUM_TRAFFIC=${#TRAFFIC[@]}
+
+# ===========================================================================
+#  HISTORICAL BACKFILL (optional, --backfill flag)
+# ===========================================================================
+
+if [[ "$BACKFILL" == "true" ]]; then
+  echo "==> Generating historical transactions (last 7 days)"
+
   NUM_TXN=350000
   BATCH_SIZE=5000
-
-  # Simple LCG PRNG for reproducible distribution.
-  RNG=48271
-  rng() { RNG=$(( (RNG * 48271 + 11) % 2147483647 )); }
-
-  # Tool index constants (must match TOOL_NAMES order).
-  T_BIGQUERY=0  T_KAFKA=1     T_PROMETHEUS=2  T_LOKI=3
-  T_ELASTIC=4   T_REDIS=5     T_PGANALYTICS=6 T_S3=7
-  T_VAULT=8     T_PAGERDUTY=9 T_GITHUB=10     T_JIRA=11
-  T_SLACK=12    T_SENTRY=13   T_DATADOG=14    T_ARGOCD=15
-  T_REGISTRY=16 T_RPC=17
-
-  # Build a weighted (agent, tool) pair table. Each entry is "agent_idx tool_idx".
-  # The number of times a pair appears determines its probability.
-  # An agent's total weight across all its tools = its relative traffic volume.
-  # e.g. backend-ops has 35 total entries -> very busy; frontend-perf has 14 -> quieter.
-  TRAFFIC=()
-  add_pairs() {
-    local agent_idx=$1; shift
-    while [[ $# -ge 2 ]]; do
-      local tool_idx=$1 weight=$2; shift 2
-      for (( _w=0; _w<weight; _w++ )); do
-        TRAFFIC+=("$agent_idx $tool_idx")
-      done
-    done
-  }
-
-  # Agent 0: backend-dev — writes code, reviews PRs, files bugs (medium volume)
-  add_pairs 0   $T_GITHUB 5  $T_JIRA 3  $T_SENTRY 4  $T_ELASTIC 3  $T_REDIS 2  $T_SLACK 1
-  # Agent 1: backend-ops — runs services, watches metrics (high volume)
-  add_pairs 1   $T_KAFKA 8  $T_PROMETHEUS 6  $T_LOKI 5  $T_REDIS 5  $T_ELASTIC 4  $T_DATADOG 4  $T_PAGERDUTY 2  $T_SLACK 1
-  # Agent 2: backend-incidents — firefighting, alerts (high volume, bursty)
-  add_pairs 2   $T_PAGERDUTY 7  $T_SLACK 6  $T_PROMETHEUS 5  $T_LOKI 5  $T_SENTRY 4  $T_DATADOG 3  $T_ELASTIC 2
-
-  # Agent 3: frontend-dev — builds UI, tracks bugs (medium volume)
-  add_pairs 3   $T_GITHUB 5  $T_JIRA 3  $T_SENTRY 5  $T_S3 2  $T_SLACK 1
-  # Agent 4: frontend-deploy — ships builds (lower volume)
-  add_pairs 4   $T_ARGOCD 5  $T_REGISTRY 5  $T_GITHUB 3  $T_S3 3  $T_SLACK 1
-  # Agent 5: frontend-perf — performance monitoring (lower volume)
-  add_pairs 5   $T_DATADOG 6  $T_PROMETHEUS 4  $T_ELASTIC 3  $T_SENTRY 3
-
-  # Agent 6: infra-provision — spins up infra (low volume)
-  add_pairs 6   $T_S3 4  $T_VAULT 5  $T_ARGOCD 4  $T_REGISTRY 3  $T_GITHUB 2
-  # Agent 7: infra-monitor — watches everything (high volume)
-  add_pairs 7   $T_PROMETHEUS 8  $T_LOKI 6  $T_DATADOG 6  $T_ELASTIC 4  $T_REDIS 2
-  # Agent 8: infra-incidents — infra fires (high volume)
-  add_pairs 8   $T_PAGERDUTY 6  $T_SLACK 5  $T_PROMETHEUS 5  $T_LOKI 4  $T_DATADOG 4  $T_VAULT 2
-
-  # Agent 9: security-audit — compliance checks (low volume)
-  add_pairs 9   $T_VAULT 5  $T_GITHUB 4  $T_ELASTIC 3  $T_BIGQUERY 2
-  # Agent 10: security-scan — vulnerability scanning (medium volume)
-  add_pairs 10  $T_ELASTIC 5  $T_GITHUB 4  $T_REGISTRY 4  $T_VAULT 3  $T_SENTRY 2  $T_DATADOG 2
-  # Agent 11: security-incidents — security response (medium volume)
-  add_pairs 11  $T_PAGERDUTY 5  $T_SLACK 5  $T_VAULT 4  $T_ELASTIC 3  $T_LOKI 3
-
-  # Agent 12: data-pipeline — ETL and streaming (very high volume)
-  add_pairs 12  $T_KAFKA 10  $T_BIGQUERY 6  $T_S3 5  $T_PGANALYTICS 5  $T_REDIS 3  $T_RPC 3
-  # Agent 13: data-analytics — queries and reports (medium volume)
-  add_pairs 13  $T_BIGQUERY 7  $T_PGANALYTICS 5  $T_ELASTIC 4  $T_S3 2  $T_REDIS 2
-  # Agent 14: data-etl — batch transforms (high volume)
-  add_pairs 14  $T_KAFKA 7  $T_BIGQUERY 5  $T_S3 5  $T_PGANALYTICS 5  $T_REDIS 3
-
-  # Agent 15: platform-deploy — ships platform services (medium volume)
-  add_pairs 15  $T_ARGOCD 6  $T_REGISTRY 5  $T_GITHUB 4  $T_S3 3  $T_SLACK 1
-  # Agent 16: platform-ops — keeps platform running (high volume)
-  add_pairs 16  $T_KAFKA 6  $T_PROMETHEUS 6  $T_LOKI 5  $T_REDIS 4  $T_REGISTRY 3  $T_DATADOG 3  $T_RPC 5
-  # Agent 17: platform-ci — build pipelines (medium volume)
-  add_pairs 17  $T_GITHUB 6  $T_REGISTRY 5  $T_ARGOCD 4  $T_S3 3  $T_SENTRY 2
-
-  NUM_TRAFFIC=${#TRAFFIC[@]}
 
   # Pre-compute cost lookup to avoid calling bc 350k times.
   COST_LOOKUP=()
@@ -507,7 +519,9 @@ echo "Teams:    Backend, Frontend, Infra, Security, Data, Platform"
 echo "Users:    18 users (password: octroi)"
 echo "Agents:   ${#AGENT_IDS[@]} agents"
 echo "Tools:    ${#TOOL_IDS[@]} tools"
-echo "History:  ${NUM_TXN:-0} transactions (last 7 days)"
+if [[ "$BACKFILL" == "true" ]]; then
+  echo "History:  ${NUM_TXN:-0} transactions (last 7 days)"
+fi
 echo ""
 echo "Login:    $ADMIN_EMAIL / octroi"
 echo ""
