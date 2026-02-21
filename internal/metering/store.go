@@ -28,17 +28,21 @@ func (s *Store) BatchInsert(ctx context.Context, txns []Transaction) error {
 		return nil
 	}
 
-	const cols = 12 // number of columns per row (excluding server-generated id)
+	const cols = 13 // number of columns per row (excluding server-generated id)
 	args := make([]any, 0, len(txns)*cols)
 	rows := make([]string, 0, len(txns))
 
 	for i, tx := range txns {
 		base := i * cols
 		rows = append(rows, fmt.Sprintf(
-			"($%d, $%d, $%d, $%d, $%d, $%d, $%d, $%d, $%d, $%d, $%d, $%d)",
+			"($%d, $%d, $%d, $%d, $%d, $%d, $%d, $%d, $%d, $%d, $%d, $%d, $%d)",
 			base+1, base+2, base+3, base+4, base+5, base+6,
-			base+7, base+8, base+9, base+10, base+11, base+12,
+			base+7, base+8, base+9, base+10, base+11, base+12, base+13,
 		))
+		costSource := tx.CostSource
+		if costSource == "" {
+			costSource = "flat"
+		}
 		args = append(args,
 			tx.AgentID,
 			tx.ToolID,
@@ -52,12 +56,13 @@ func (s *Store) BatchInsert(ctx context.Context, txns []Transaction) error {
 			tx.Success,
 			tx.Cost,
 			tx.Error,
+			costSource,
 		)
 	}
 
 	query := `INSERT INTO transactions
 		(agent_id, tool_id, timestamp, method, path, status_code, latency_ms,
-		 request_size, response_size, success, cost, error)
+		 request_size, response_size, success, cost, error, cost_source)
 		VALUES ` + strings.Join(rows, ", ")
 
 	_, err := s.pool.Exec(ctx, query, args...)
@@ -144,7 +149,7 @@ func (s *Store) ListTransactions(ctx context.Context, q UsageQuery) ([]*Transact
 	}
 
 	query := `SELECT id, agent_id, tool_id, timestamp, method, path,
-		status_code, latency_ms, request_size, response_size, success, cost, error
+		status_code, latency_ms, request_size, response_size, success, cost, cost_source, error
 	FROM transactions` + where +
 		` ORDER BY timestamp DESC, id DESC LIMIT $` + strconv.Itoa(len(args)+1)
 	args = append(args, limit+1) // fetch one extra to determine if there's a next page
@@ -161,7 +166,7 @@ func (s *Store) ListTransactions(ctx context.Context, q UsageQuery) ([]*Transact
 		if err := rows.Scan(
 			&tx.ID, &tx.AgentID, &tx.ToolID, &tx.Timestamp,
 			&tx.Method, &tx.Path, &tx.StatusCode, &tx.LatencyMs,
-			&tx.RequestSize, &tx.ResponseSize, &tx.Success, &tx.Cost, &tx.Error,
+			&tx.RequestSize, &tx.ResponseSize, &tx.Success, &tx.Cost, &tx.CostSource, &tx.Error,
 		); err != nil {
 			return nil, "", fmt.Errorf("scanning transaction row: %w", err)
 		}

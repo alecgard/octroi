@@ -65,7 +65,7 @@ Octroi has six core subsystems:
 
 - **Registry** — Tool providers register API endpoints; agents discover them via search or the well-known manifest. Tools can be registered in **Service** mode (static endpoint URL) or **API** mode (template endpoint with variable substitution, e.g. `https://{instance}.atlassian.net/rest/api/3`).
 - **Proxy** — Receives agent requests, strips the gateway prefix, resolves template variables for API-mode tools, injects tool credentials, and forwards to the upstream API.
-- **Metering** — Every proxied request is logged asynchronously (agent, tool, timestamp, latency, status, sizes) using batched writes.
+- **Metering** — Every proxied request is logged asynchronously (agent, tool, timestamp, latency, status, cost, sizes) using batched writes. Supports both flat per-request pricing and upstream-reported costs via the `X-Octroi-Cost` header.
 - **Auth** — Agents authenticate with `octroi_`-prefixed API keys (SHA-256 hashed at rest). Users authenticate via email/password sessions with role-based access (org_admin / member).
 - **Rate Limiting** — In-memory token bucket per agent and per tool, with optional per-tool overrides scoped to teams or individual agents. The stricter limit wins. Returns standard `X-RateLimit-*` headers.
 - **Budget Enforcement** — Per-agent per-tool budgets (daily/monthly) and global per-tool budget caps. Requests are rejected with HTTP 403 when a budget is exceeded.
@@ -143,6 +143,25 @@ Tools support four credential injection methods:
 | `bearer` | Sets `Authorization: Bearer {key}` header |
 | `header` | Sets `{header_name}: {key}` custom header |
 | `query` | Appends `{param_name}={key}` as a URL query parameter (default param: `api_key`) |
+
+## Cost Reporting
+
+By default, Octroi uses flat per-request pricing configured on each tool. For variable-cost tools (e.g. LLM APIs, BigQuery), the upstream service can report the actual cost of each request via a response header:
+
+```
+X-Octroi-Cost: 0.05
+```
+
+The value must be a non-negative number (e.g. `0.0042`, `1.50`). When present and valid, this value overrides the tool's configured `pricing_amount`. If the header is absent, unparseable, or negative, Octroi falls back to the flat per-request price.
+
+Each transaction records a `cost_source` field for observability:
+
+| `cost_source` | Meaning |
+|---------------|---------|
+| `reported` | Cost came from the upstream `X-Octroi-Cost` header |
+| `flat` | Cost came from the tool's configured `pricing_amount` |
+
+The header is passed through to the agent in the proxy response (it's informational, not secret).
 
 ## Testing
 

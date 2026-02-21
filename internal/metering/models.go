@@ -16,6 +16,7 @@ type Transaction struct {
 	ResponseSize int64     `json:"response_size"`
 	Success      bool      `json:"success"`
 	Cost         float64   `json:"cost"`
+	CostSource   string    `json:"cost_source"`
 	Error        string    `json:"error"`
 }
 

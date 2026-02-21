@@ -8,6 +8,7 @@ import (
 	"io"
 	"net"
 	"net/http"
+	"strconv"
 	"strings"
 	"time"
 
@@ -232,7 +233,7 @@ func (h *Handler) ServeHTTP(w http.ResponseWriter, r *http.Request) {
 			h.metrics.IncProxyRequests(tool.ID, tool.Name, agent.ID, r.Method, 502)
 			h.metrics.IncUpstreamError(classifyUpstreamError(err), tool.ID, tool.Name)
 		}
-		h.recordTransaction(agent.ID, tool, r, 502, latency, 0, 0, false)
+		h.recordTransaction(agent.ID, tool, r, 502, latency, 0, 0, false, "")
 		writeError(w, http.StatusBadGateway, "proxy_error", "upstream request failed")
 		return
 	}
@@ -241,6 +242,9 @@ func (h *Handler) ServeHTTP(w http.ResponseWriter, r *http.Request) {
 	if h.metrics != nil {
 		h.metrics.IncProxyRequests(tool.ID, tool.Name, agent.ID, r.Method, resp.StatusCode)
 	}
+
+	// Capture the upstream cost header before copying headers.
+	reportedCostHeader := resp.Header.Get("X-Octroi-Cost")
 
 	// Copy response headers.
 	for key, values := range resp.Header {
@@ -260,12 +264,21 @@ func (h *Handler) ServeHTTP(w http.ResponseWriter, r *http.Request) {
 	}
 
 	success := resp.StatusCode >= 200 && resp.StatusCode < 300
-	h.recordTransaction(agent.ID, tool, r, resp.StatusCode, latency, requestSize, responseSize, success)
+	h.recordTransaction(agent.ID, tool, r, resp.StatusCode, latency, requestSize, responseSize, success, reportedCostHeader)
 }
 
-func (h *Handler) recordTransaction(agentID string, tool *registry.Tool, r *http.Request, statusCode int, latency time.Duration, requestSize int64, responseSize int64, success bool) {
+func (h *Handler) recordTransaction(agentID string, tool *registry.Tool, r *http.Request, statusCode int, latency time.Duration, requestSize int64, responseSize int64, success bool, reportedCostHeader string) {
 	cost := 0.0
-	if tool.PricingModel == "per_request" {
+	costSource := "flat"
+
+	if reportedCostHeader != "" {
+		if parsed, err := strconv.ParseFloat(reportedCostHeader, 64); err == nil && parsed >= 0 {
+			cost = parsed
+			costSource = "reported"
+		} else if tool.PricingModel == "per_request" {
+			cost = tool.PricingAmount
+		}
+	} else if tool.PricingModel == "per_request" {
 		cost = tool.PricingAmount
 	}
 
@@ -281,6 +294,7 @@ func (h *Handler) recordTransaction(agentID string, tool *registry.Tool, r *http
 		ResponseSize: responseSize,
 		Success:      success,
 		Cost:         cost,
+		CostSource:   costSource,
 	})
 }
 

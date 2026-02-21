@@ -76,7 +76,7 @@ Tools are the external APIs your agents will call through the gateway. In the UI
    | `header` | Adds a custom header |
    | `query` | Appends an API key as a query parameter |
 5. Enter the upstream API credentials — these are encrypted at rest
-6. Optionally set pricing, rate limits, and budget caps
+6. Optionally set pricing, rate limits, and budget caps. For variable-cost tools, the upstream can report actual cost per request via the `X-Octroi-Cost` response header — see [DEVELOPING.md](DEVELOPING.md#cost-reporting) for details
 
 ## Teams & Budgets
 

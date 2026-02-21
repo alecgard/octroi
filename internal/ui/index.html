@@ -705,6 +705,7 @@ body.shift-held .txn-filter-pending { background: var(--surface2); }
     <div class="toolbar" style="margin-bottom:4px">
       <h2>Metrics</h2>
     </div>
+    <div style="font-size:11px;color:var(--text2);margin-bottom:8px">In-memory counters for this instance — resets on restart.</div>
     <div id="metrics-cards">
       <div class="empty">Loading metrics...</div>
     </div>
@@ -777,7 +778,6 @@ body.shift-held .txn-filter-pending { background: var(--surface2); }
         <select id="tool-pricing-model">
           <option value="">none</option>
           <option value="per_request">per_request</option>
-          <option value="per_token">per_token</option>
         </select>
       </div>
       <div class="form-group">
@@ -797,7 +797,11 @@ body.shift-held .txn-filter-pending { background: var(--surface2); }
     </div>
     <div class="form-group">
       <label>Budget Window</label>
-      <input type="text" id="tool-budget-window" placeholder="e.g. daily, monthly">
+      <select id="tool-budget-window">
+        <option value="">none</option>
+        <option value="daily">daily</option>
+        <option value="monthly">monthly</option>
+      </select>
     </div>
     <div class="modal-actions">
       <button class="btn-ghost" onclick="closeModal('tool-modal')">Cancel</button>

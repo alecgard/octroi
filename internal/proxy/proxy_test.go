@@ -345,6 +345,134 @@ func TestAPIMode(t *testing.T) {
 	}
 }
 
+func TestReportedCostHeader(t *testing.T) {
+	t.Run("valid cost header", func(t *testing.T) {
+		upstream := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
+			w.Header().Set("X-Octroi-Cost", "0.05")
+			w.WriteHeader(http.StatusOK)
+		}))
+		defer upstream.Close()
+
+		tool := newTestTool(upstream.URL)
+		store := &fakeToolStore{tools: map[string]*registry.Tool{"tool-1": tool}}
+		budgets := &fakeBudgetChecker{agentAllowed: true, globalAllowed: true}
+		collector := &fakeCollector{}
+		handler := NewHandler(store, budgets, collector, 5*time.Second, 1<<20)
+		router := setupRouter(handler)
+
+		req := httptest.NewRequest("GET", "/proxy/tool-1/resource", nil)
+		req = withAgent(req, newTestAgent())
+		rr := httptest.NewRecorder()
+		router.ServeHTTP(rr, req)
+
+		if rr.Code != http.StatusOK {
+			t.Fatalf("expected 200, got %d", rr.Code)
+		}
+		if len(collector.transactions) != 1 {
+			t.Fatalf("expected 1 transaction, got %d", len(collector.transactions))
+		}
+		tx := collector.transactions[0]
+		if tx.Cost != 0.05 {
+			t.Errorf("expected cost 0.05, got %f", tx.Cost)
+		}
+		if tx.CostSource != "reported" {
+			t.Errorf("expected cost_source reported, got %s", tx.CostSource)
+		}
+	})
+
+	t.Run("no cost header falls back to per_request", func(t *testing.T) {
+		upstream := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
+			w.WriteHeader(http.StatusOK)
+		}))
+		defer upstream.Close()
+
+		tool := newTestTool(upstream.URL)
+		store := &fakeToolStore{tools: map[string]*registry.Tool{"tool-1": tool}}
+		budgets := &fakeBudgetChecker{agentAllowed: true, globalAllowed: true}
+		collector := &fakeCollector{}
+		handler := NewHandler(store, budgets, collector, 5*time.Second, 1<<20)
+		router := setupRouter(handler)
+
+		req := httptest.NewRequest("GET", "/proxy/tool-1/resource", nil)
+		req = withAgent(req, newTestAgent())
+		rr := httptest.NewRecorder()
+		router.ServeHTTP(rr, req)
+
+		if rr.Code != http.StatusOK {
+			t.Fatalf("expected 200, got %d", rr.Code)
+		}
+		tx := collector.transactions[0]
+		if tx.Cost != 0.01 {
+			t.Errorf("expected cost 0.01 (per_request fallback), got %f", tx.Cost)
+		}
+		if tx.CostSource != "flat" {
+			t.Errorf("expected cost_source flat, got %s", tx.CostSource)
+		}
+	})
+
+	t.Run("invalid cost header falls back to per_request", func(t *testing.T) {
+		upstream := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
+			w.Header().Set("X-Octroi-Cost", "not-a-number")
+			w.WriteHeader(http.StatusOK)
+		}))
+		defer upstream.Close()
+
+		tool := newTestTool(upstream.URL)
+		store := &fakeToolStore{tools: map[string]*registry.Tool{"tool-1": tool}}
+		budgets := &fakeBudgetChecker{agentAllowed: true, globalAllowed: true}
+		collector := &fakeCollector{}
+		handler := NewHandler(store, budgets, collector, 5*time.Second, 1<<20)
+		router := setupRouter(handler)
+
+		req := httptest.NewRequest("GET", "/proxy/tool-1/resource", nil)
+		req = withAgent(req, newTestAgent())
+		rr := httptest.NewRecorder()
+		router.ServeHTTP(rr, req)
+
+		if rr.Code != http.StatusOK {
+			t.Fatalf("expected 200, got %d", rr.Code)
+		}
+		tx := collector.transactions[0]
+		if tx.Cost != 0.01 {
+			t.Errorf("expected cost 0.01 (per_request fallback), got %f", tx.Cost)
+		}
+		if tx.CostSource != "flat" {
+			t.Errorf("expected cost_source flat, got %s", tx.CostSource)
+		}
+	})
+
+	t.Run("negative cost header falls back to per_request", func(t *testing.T) {
+		upstream := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
+			w.Header().Set("X-Octroi-Cost", "-1.5")
+			w.WriteHeader(http.StatusOK)
+		}))
+		defer upstream.Close()
+
+		tool := newTestTool(upstream.URL)
+		store := &fakeToolStore{tools: map[string]*registry.Tool{"tool-1": tool}}
+		budgets := &fakeBudgetChecker{agentAllowed: true, globalAllowed: true}
+		collector := &fakeCollector{}
+		handler := NewHandler(store, budgets, collector, 5*time.Second, 1<<20)
+		router := setupRouter(handler)
+
+		req := httptest.NewRequest("GET", "/proxy/tool-1/resource", nil)
+		req = withAgent(req, newTestAgent())
+		rr := httptest.NewRecorder()
+		router.ServeHTTP(rr, req)
+
+		if rr.Code != http.StatusOK {
+			t.Fatalf("expected 200, got %d", rr.Code)
+		}
+		tx := collector.transactions[0]
+		if tx.Cost != 0.01 {
+			t.Errorf("expected cost 0.01 (per_request fallback), got %f", tx.Cost)
+		}
+		if tx.CostSource != "flat" {
+			t.Errorf("expected cost_source flat, got %s", tx.CostSource)
+		}
+	})
+}
+
 func TestQueryAuth(t *testing.T) {
 	var receivedQuery string
 	upstream := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {

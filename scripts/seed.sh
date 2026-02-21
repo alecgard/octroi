@@ -542,11 +542,12 @@ fi
 MOCK_PORT=19876
 
 python3 -c "
-import socketserver
+import socketserver, time, random
 from http.server import HTTPServer, BaseHTTPRequestHandler
 socketserver.TCPServer.allow_reuse_address = True
 class H(BaseHTTPRequestHandler):
     def do_ANY(self):
+        time.sleep(random.uniform(0.01, 1.5))
         self.send_response(200)
         self.send_header('Content-Type','application/json')
         self.end_headers()
