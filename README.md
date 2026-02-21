@@ -6,6 +6,10 @@
 
 A self-hosted gateway between your AI agents and the APIs they use. Octroi handles credential injection, rate limiting, budget enforcement, and usage metering — so your agents don't need direct access to API keys.
 
+<p>
+  <img src="assets/octroi.gif" alt="Octroi UI demo"/>
+</p>
+
 ```
 Agent --> Octroi Gateway --> Tool Provider API
             |
