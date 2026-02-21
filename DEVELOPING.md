@@ -24,6 +24,19 @@ Seed users (from `octroi seed`):
 - `user2@octroi.dev` / `octroi` — member, team alpha
 - `user3@octroi.dev` / `octroi` — member, team beta admin
 
+### Realistic Seed Data
+
+For a full demo dataset with 6 teams, 18 agents, 18 tools, 350k historical transactions, and continuous live traffic routed through the proxy:
+
+```bash
+make dev                # start the server
+./scripts/seed.sh       # in another terminal
+```
+
+The script backfills 7 days of historical transactions via direct DB inserts, then switches to sending live requests through the full proxy pipeline (agent auth, rate limiting, budget enforcement, metering). A local mock HTTP server stands in as the upstream for all tools. Ctrl-C to stop.
+
+Requires: curl, jq, psql, bc, python3.
+
 ### Make Targets
 
 ```

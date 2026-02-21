@@ -3,9 +3,9 @@
 # seed.sh — Populate Octroi with realistic seed data and generate live traffic.
 #
 # Creates users, teams, tools, agents, 7 days of historical transactions,
-# then continuously inserts live transactions until killed (Ctrl-C).
+# then sends live traffic through the proxy until killed (Ctrl-C).
 #
-# Requires: curl, jq, psql, bc
+# Requires: curl, jq, psql, bc, python3
 # Usage:    ./scripts/seed.sh [BASE_URL]   (default: http://localhost:8080)
 #
 set -euo pipefail
@@ -278,13 +278,18 @@ AGENT_RATE_LIMITS=(
 EXISTING_AGENTS_JSON=$(api GET "/api/v1/admin/agents?limit=100")
 
 AGENT_IDS=()
+AGENT_KEYS=()
 
 for i in "${!AGENT_NAMES[@]}"; do
   name="${AGENT_NAMES[$i]}"
   existing_id=$(echo "$EXISTING_AGENTS_JSON" | jq -r --arg n "$name" '(.agents // [])[] | select(.name == $n) | .id // empty')
   if [[ -n "$existing_id" ]]; then
     AGENT_IDS+=("$existing_id")
-    echo "    $name (exists: ${existing_id:0:8}...)"
+    # Existing agents: regenerate key to get a plaintext copy for live traffic.
+    key_resp=$(api POST "/api/v1/admin/agents/${existing_id}/regenerate-key")
+    api_key=$(echo "$key_resp" | jq -r '.api_key // empty')
+    AGENT_KEYS+=("$api_key")
+    echo "    $name (exists: ${existing_id:0:8}..., key regenerated)"
     continue
   fi
 
@@ -297,10 +302,13 @@ for i in "${!AGENT_NAMES[@]}"; do
   resp=$(api POST "/api/v1/admin/agents" "$body")
   if check_error "$resp" "create agent $name"; then
     agent_id=$(echo "$resp" | jq -r '.id')
+    api_key=$(echo "$resp" | jq -r '.api_key // empty')
     AGENT_IDS+=("$agent_id")
+    AGENT_KEYS+=("$api_key")
     echo "    $name ($agent_id, team=${AGENT_TEAMS[$i]})"
   else
     AGENT_IDS+=("")
+    AGENT_KEYS+=("")
   fi
 done
 
@@ -513,7 +521,46 @@ if [[ $NUM_AGENTS -eq 0 || $NUM_TOOLS -eq 0 ]]; then
   exit 0
 fi
 
-echo "==> Generating live traffic (Ctrl-C to stop)..."
+# --- Start a mock upstream server -----------------------------------------
+# The proxy forwards requests to the tool's endpoint. We need a real listener
+# that returns HTTP 200 so the proxy can complete the round-trip.
+
+MOCK_PORT=19876
+
+python3 -c "
+import socketserver
+from http.server import HTTPServer, BaseHTTPRequestHandler
+socketserver.TCPServer.allow_reuse_address = True
+class H(BaseHTTPRequestHandler):
+    def do_ANY(self):
+        self.send_response(200)
+        self.send_header('Content-Type','application/json')
+        self.end_headers()
+        self.wfile.write(b'{\"ok\":true}')
+    do_GET=do_POST=do_PUT=do_DELETE=do_PATCH=do_HEAD=do_ANY
+    def log_message(self, *a): pass
+HTTPServer(('0.0.0.0',$MOCK_PORT),H).serve_forever()
+" &
+MOCK_PID=$!
+sleep 0.3
+echo "    Mock upstream listening on :${MOCK_PORT} (pid $MOCK_PID)"
+trap 'kill $MOCK_PID 2>/dev/null; exit' EXIT INT TERM
+
+# --- Point all tools at the mock upstream ---------------------------------
+
+echo "==> Updating tool endpoints to mock upstream (and raising budget limits)"
+for i in "${!TOOL_IDS[@]}"; do
+  tid="${TOOL_IDS[$i]}"
+  if [[ -z "$tid" ]]; then continue; fi
+  api PUT "/api/v1/admin/tools/${tid}" \
+    "{\"endpoint\":\"http://localhost:${MOCK_PORT}\",\"budget_limit\":100000}" >/dev/null
+  echo "    ${TOOL_NAMES[$i]} -> http://localhost:${MOCK_PORT}"
+done
+
+# --- Generate live proxy traffic ------------------------------------------
+
+echo ""
+echo "==> Generating live traffic via proxy (Ctrl-C to stop)..."
 echo ""
 
 count=0
@@ -524,31 +571,25 @@ while true; do
   tool_idx="${pair#* }"
   rng; method_idx=$(( (RNG & 0x7FFFFFFF) % NUM_METHODS ))
   rng; path_idx=$(( (RNG & 0x7FFFFFFF) % NUM_PATHS ))
-  rng; status_idx=$(( (RNG & 0x7FFFFFFF) % NUM_STATUSES ))
-  rng; latency=$(( 5 + (RNG & 0x7FFFFFFF) % 980 ))
-  rng; req_size=$(( 64 + (RNG & 0x7FFFFFFF) % 4000 ))
-  rng; resp_size=$(( 128 + (RNG & 0x7FFFFFFF) % 15000 ))
-  rng; cost_cents=$(( (RNG & 0x7FFFFFFF) % 50 ))
 
-  agent_id="${AGENT_IDS[$agent_idx]}"
-  agent_name="${AGENT_NAMES[$agent_idx]}"
+  agent_key="${AGENT_KEYS[$agent_idx]}"
   tool_id="${TOOL_IDS[$tool_idx]}"
+  agent_name="${AGENT_NAMES[$agent_idx]}"
   tool_name="${TOOL_NAMES[$tool_idx]}"
   method="${METHODS[$method_idx]}"
   path="${PATHS[$path_idx]}"
-  status="${STATUSES[$status_idx]}"
-  success="true"
-  if (( status >= 400 )); then success="false"; fi
-  cost=$(echo "scale=4; $cost_cents / 100" | bc)
 
-  psql "$DB_URL" -qc "INSERT INTO transactions (agent_id, tool_id, timestamp, method, path, status_code, latency_ms, request_size, response_size, success, cost, error)
-    VALUES ('${agent_id}','${tool_id}',NOW(),'${method}','${path}',${status},${latency},${req_size},${resp_size},${success},${cost},'');" 2>/dev/null
+  # Send request through the proxy pipeline (auth -> rate limit -> budget -> metering).
+  http_code=$(curl -s -o /dev/null -w "%{http_code}" \
+    -H "Authorization: Bearer $agent_key" \
+    -X "$method" \
+    "${BASE}/proxy/${tool_id}${path}")
 
   count=$(( count + 1 ))
-  if (( status >= 400 )); then
-    echo "  [$count] ${agent_name} -> ${tool_name}  ${method} ${path}  ${status} ERR  ${latency}ms  \$${cost}"
+  if (( http_code >= 400 )); then
+    echo "  [$count] ${agent_name} -> ${tool_name}  ${method} ${path}  ${http_code} ERR"
   else
-    echo "  [$count] ${agent_name} -> ${tool_name}  ${method} ${path}  ${status} OK   ${latency}ms  \$${cost}"
+    echo "  [$count] ${agent_name} -> ${tool_name}  ${method} ${path}  ${http_code} OK"
   fi
 
   # Random sleep between 0.5 and 3 seconds.

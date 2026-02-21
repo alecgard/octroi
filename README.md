@@ -94,21 +94,6 @@ Configure all of these from the **Tools** and **Agents** tabs in the UI.
 - CORS, secure headers, request ID tracing
 - The gateway only proxies to registered tool endpoints — no open proxy
 
-## Octroi CLi
-<details>
-<summary><strong>CLI Reference</strong></summary>
-
-```
-octroi serve           # Start the gateway server
-octroi migrate         # Run database migrations
-octroi migrate down    # Rollback all migrations
-octroi seed            # Seed demo data (tools, agents, users, transactions)
-octroi ensure-admin    # Ensure the default admin account exists
-octroi version         # Print version
-```
-
-</details>
-
 ## Configuration
 
 All configuration lives in `configs/octroi.yaml`. See [`configs/octroi.example.yaml`](configs/octroi.example.yaml) for all options with defaults. Values can reference environment variables with `${VAR}` syntax.
