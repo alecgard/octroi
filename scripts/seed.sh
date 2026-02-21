@@ -195,6 +195,26 @@ TOOL_PRICING=(
   per_request per_request free free per_request free per_request per_request
   free per_request free per_request free per_request per_request free free per_request
 )
+TOOL_PRICING_AMOUNTS=(
+  0.05    # BigQuery — data warehouse queries
+  0.002   # Kafka — event streaming
+  0       # Prometheus — free
+  0       # Loki — free
+  0.005   # Elasticsearch — search queries
+  0       # Redis — free
+  0.01    # PostgreSQL Analytics — read replica queries
+  0.0004  # S3 — object storage requests
+  0       # Vault — free
+  0.02    # PagerDuty — incident API
+  0       # GitHub — free
+  0.01    # Jira — issue tracking
+  0       # Slack — free
+  0.005   # Sentry — error tracking
+  0.01    # Datadog — monitoring API
+  0       # Argo CD — free
+  0       # Docker Registry — free
+  0.002   # RPC Gateway — blockchain node
+)
 TOOL_RATE_LIMITS=(
   100 500 200 200 150 300 80 200
   100 60 120 120 200 100 150 60 100 500
@@ -239,12 +259,13 @@ for i in "${!TOOL_NAMES[@]}"; do
     --argjson auth_config "${TOOL_AUTH_CONFIGS[$i]}" \
     --argjson variables "${TOOL_VARIABLES[$i]}" \
     --arg pricing_model "${TOOL_PRICING[$i]}" \
+    --argjson pricing_amount "${TOOL_PRICING_AMOUNTS[$i]}" \
     --argjson rate_limit "${TOOL_RATE_LIMITS[$i]}" \
     --arg description "${TOOL_DESCRIPTIONS[$i]}" \
     '{name:$name, description:$description, mode:$mode, endpoint:$endpoint,
       auth_type:$auth_type, auth_config:$auth_config, variables:$variables,
-      pricing_model:$pricing_model, pricing_amount:0.001, pricing_currency:"USD",
-      rate_limit:$rate_limit, budget_limit:100, budget_window:"monthly"}')
+      pricing_model:$pricing_model, pricing_amount:$pricing_amount, pricing_currency:"USD",
+      rate_limit:$rate_limit, budget_limit:100000, budget_window:"monthly"}')
 
   resp=$(api POST "/api/v1/admin/tools" "$body")
   if check_error "$resp" "create tool $name"; then
@@ -460,10 +481,12 @@ if [[ "$BACKFILL" == "true" ]]; then
   NUM_TXN=350000
   BATCH_SIZE=5000
 
-  # Pre-compute cost lookup to avoid calling bc 350k times.
-  COST_LOOKUP=()
-  for (( c=0; c<50; c++ )); do
-    COST_LOOKUP+=("$(echo "scale=4; $c / 100" | bc)")
+  # Pre-compute "reported" cost lookup (log-normal-like distribution).
+  # 100 buckets: most are small, some are expensive — mimics variable-cost APIs.
+  REPORTED_COST_LOOKUP=()
+  for (( c=0; c<100; c++ )); do
+    # Exponential ramp: 0.001 to ~2.0, with most values below 0.10
+    REPORTED_COST_LOOKUP+=("$(echo "scale=6; e(($c - 50) / 15) * 0.018" | bc -l)")
   done
 
   inserted=0
@@ -471,7 +494,7 @@ if [[ "$BACKFILL" == "true" ]]; then
     batch_end=$(( inserted + BATCH_SIZE ))
     if (( batch_end > NUM_TXN )); then batch_end=$NUM_TXN; fi
 
-    SQL="INSERT INTO transactions (agent_id, tool_id, timestamp, method, path, status_code, latency_ms, request_size, response_size, success, cost, error) VALUES"
+    SQL="INSERT INTO transactions (agent_id, tool_id, timestamp, method, path, status_code, latency_ms, request_size, response_size, success, cost, error, cost_source) VALUES"
     COMMA=""
 
     for (( i=inserted; i<batch_end; i++ )); do
@@ -485,7 +508,6 @@ if [[ "$BACKFILL" == "true" ]]; then
       rng; req_size=$(( 64 + (RNG & 0x7FFFFFFF) % 4000 ))
       rng; resp_size=$(( 128 + (RNG & 0x7FFFFFFF) % 15000 ))
       rng; minutes_ago=$(( (RNG & 0x7FFFFFFF) % (7 * 24 * 60) ))
-      rng; cost_idx=$(( (RNG & 0x7FFFFFFF) % 50 ))
 
       agent_id="${AGENT_IDS[$agent_idx]}"
       tool_id="${TOOL_IDS[$tool_idx]}"
@@ -495,8 +517,20 @@ if [[ "$BACKFILL" == "true" ]]; then
       success="true"
       if (( status >= 400 )); then success="false"; fi
 
+      # ~50% of transactions get a reported cost (variable), rest use flat pricing.
+      rng; use_reported=$(( (RNG & 0x7FFFFFFF) % 2 ))
+      flat_amount="${TOOL_PRICING_AMOUNTS[$tool_idx]}"
+      if (( use_reported )); then
+        rng; cost_idx=$(( (RNG & 0x7FFFFFFF) % 100 ))
+        cost="${REPORTED_COST_LOOKUP[$cost_idx]}"
+        cost_source="reported"
+      else
+        cost="$flat_amount"
+        cost_source="flat"
+      fi
+
       SQL+="${COMMA}
-('${agent_id}','${tool_id}',NOW()-INTERVAL '${minutes_ago} minutes','${method}','${path}',${status},${latency},${req_size},${resp_size},${success},${COST_LOOKUP[$cost_idx]},'')"
+('${agent_id}','${tool_id}',NOW()-INTERVAL '${minutes_ago} minutes','${method}','${path}',${status},${latency},${req_size},${resp_size},${success},${cost},'','${cost_source}')"
       COMMA=","
     done
     SQL+=";"
@@ -542,7 +576,7 @@ fi
 MOCK_PORT=19876
 
 python3 -c "
-import socketserver, time, random
+import socketserver, time, random, math
 from http.server import HTTPServer, BaseHTTPRequestHandler
 socketserver.TCPServer.allow_reuse_address = True
 class H(BaseHTTPRequestHandler):
@@ -550,6 +584,13 @@ class H(BaseHTTPRequestHandler):
         time.sleep(random.uniform(0.01, 1.5))
         self.send_response(200)
         self.send_header('Content-Type','application/json')
+        # ~50% of requests report variable cost via X-Octroi-Cost.
+        # Uses a log-normal distribution so most costs are small with
+        # occasional expensive queries (realistic for BigQuery, LLM APIs, etc).
+        if random.random() < 0.5:
+            cost = random.lognormvariate(-4.0, 1.5)  # median ~0.018, long tail
+            cost = min(cost, 2.0)  # cap at \$2
+            self.send_header('X-Octroi-Cost', f'{cost:.6f}')
         self.end_headers()
         self.wfile.write(b'{\"ok\":true}')
     do_GET=do_POST=do_PUT=do_DELETE=do_PATCH=do_HEAD=do_ANY

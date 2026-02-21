@@ -277,6 +277,15 @@ select:hover { border-color: var(--text2); }
 }
 .multi-select .ms-option.selected .ms-check { background: var(--text); border-color: var(--text); }
 .multi-select .ms-option.selected .ms-check::after { content: '✓'; color: var(--bg); font-size: 9px; }
+.chart-type-select { position: relative; cursor: pointer; display: inline-flex; align-items: center; gap: 4px; }
+.chart-type-select h3 { font-size: 14px; font-weight: 600; margin: 0; }
+.chart-type-select svg { width: 12px; height: 12px; color: var(--text2); transition: transform 0.15s; }
+.chart-type-select.open svg { transform: rotate(180deg); }
+.chart-type-menu { display: none; position: absolute; top: 100%; left: 0; min-width: 180px; background: var(--bg); border: 1px solid var(--border); border-radius: 4px; margin-top: 4px; z-index: 100; box-shadow: 0 4px 12px rgba(0,0,0,0.15); padding: 4px 0; }
+.chart-type-select.open .chart-type-menu { display: block; }
+.chart-type-option { padding: 5px 10px; font-size: 11px; cursor: pointer; }
+.chart-type-option:hover { background: var(--surface); }
+.chart-type-option.active { font-weight: 600; }
 .multi-select .ms-search {
   width: 100%; box-sizing: border-box; padding: 4px 8px; border: none; border-bottom: 1px solid var(--border);
   font-size: 11px; font-family: var(--font); background: var(--bg); color: var(--text); outline: none;
@@ -636,7 +645,15 @@ body.shift-held .txn-filter-pending { background: var(--surface2); }
       <div class="card"><div class="label">Avg Latency</div><div class="value" id="stat-latency">&mdash;</div></div>
     </div>
     <div style="display:flex;align-items:center;gap:8px;margin-bottom:8px">
-      <h3 style="font-size:14px;font-weight:600">Requests Over Time</h3>
+      <div class="chart-type-select" id="chart-type-select" onclick="event.stopPropagation(); document.getElementById('chart-type-select').classList.toggle('open')">
+        <h3 id="chart-type-label">Requests Over Time</h3>
+        <svg viewBox="0 0 12 12" fill="none" stroke="currentColor" stroke-width="1.5"><path d="M3 5l3 3 3-3"/></svg>
+        <div class="chart-type-menu">
+          <div class="chart-type-option active" onclick="event.stopPropagation(); setChartType('requests')">Requests Over Time</div>
+          <div class="chart-type-option" onclick="event.stopPropagation(); setChartType('cost')">Cost Over Time</div>
+          <div class="chart-type-option" onclick="event.stopPropagation(); setChartType('latency')">Latency Over Time</div>
+        </div>
+      </div>
       <div style="flex:1"></div>
       <select id="usage-bucket-select" class="styled-select" onchange="onBucketChange()">
         <option value="30000">Bucket: 30 sec</option>
@@ -646,6 +663,11 @@ body.shift-held .txn-filter-pending { background: var(--surface2); }
         <option value="3600000">Bucket: 1 hour</option>
         <option value="86400000">Bucket: 1 day</option>
       </select>
+      <div class="usage-mode-toggle" id="percentile-toggle" style="display:none">
+        <button class="mode-btn active" id="pctl-p50" onclick="setPercentile('p50', event)">P50</button>
+        <button class="mode-btn" id="pctl-p90" onclick="setPercentile('p90', event)">P90</button>
+        <button class="mode-btn" id="pctl-p99" onclick="setPercentile('p99', event)">P99</button>
+      </div>
       <div class="usage-mode-toggle">
         <button class="mode-btn active" id="chart-by-agent" onclick="setChartGroup('agent')">By Agent</button>
         <button class="mode-btn" id="chart-by-tool" onclick="setChartGroup('tool')">By Tool</button>
@@ -977,6 +999,8 @@ let usageTeamFilters = []; // array of team names
 let usageMode = 'live'; // 'live' or 'historical'
 let usagePollTimer = null;
 let lastTxnTimestamp = null;
+let liveChartTxns = []; // accumulated chart transactions for incremental live polling
+let liveChartNewest = null; // ISO timestamp of newest transaction in liveChartTxns
 let usageLoading = false;
 let chartLegendHover = false;
 let liveLookback = parseInt(localStorage.getItem('octroi_live_lookback')) || 86400000;
@@ -1041,8 +1065,9 @@ document.addEventListener('keyup', e => {
       syncDropdowns();
       renderFilterPills();
     }
-    // Resume live polling if in live mode, with an immediate fetch.
+    // Resume live polling if in live mode, with an immediate full fetch.
     if (usageMode === 'live') {
+      liveChartTxns = []; liveChartNewest = null;
       loadUsageLive();
       startUsagePoll();
     } else if (changed) {
@@ -1815,7 +1840,7 @@ function setUsageMode(mode) {
 
 function startUsagePoll() {
   stopUsagePoll();
-  usagePollTimer = setInterval(loadUsageLive, 3000);
+  usagePollTimer = setInterval(loadUsageLive, 1000);
 }
 
 function stopUsagePoll() {
@@ -1863,19 +1888,50 @@ async function loadUsageLive() {
 
   txnBasePath = baseTxnPrefix + 'limit=' + txnPageSize + txnQs;
   const onPage1 = txnOffset === 0;
+
+  // Build the chart fetch: incremental if we already have data, full otherwise.
+  const isIncremental = liveChartTxns.length > 0 && liveChartNewest;
+  let chartQs = txnQs;
+  if (isIncremental) {
+    chartQs = '&from=' + encodeURIComponent(liveChartNewest) + chartQs.replace(/&from=[^&]*/, '');
+  }
+
   try {
     const fetches = [
       api('GET', usagePath + '?' + qs),
-      api('GET', baseTxnPrefix + 'limit=5000' + txnQs),
+      api('GET', baseTxnPrefix + 'limit=5000' + chartQs),
     ];
     // Only re-fetch table data when on page 1; preserve user's position otherwise.
     if (onPage1) fetches.push(api('GET', txnBasePath));
     const results = await Promise.all(fetches);
     const summary = results[0];
-    const chartTxns = results[1];
+    const newChartTxns = results[1].transactions || results[1] || [];
     renderUsageSummary(summary);
     txnTotal = summary.total_requests || 0;
-    renderUsageChart((chartTxns.transactions || chartTxns) || txnAll);
+
+    if (isIncremental) {
+      // Merge new transactions, deduplicating by id.
+      if (newChartTxns.length > 0) {
+        const existingIds = new Set(liveChartTxns.map(t => t.id));
+        for (const t of newChartTxns) {
+          if (!existingIds.has(t.id)) {
+            liveChartTxns.push(t);
+          }
+        }
+      }
+      // Prune transactions outside the lookback window.
+      const cutoff = Date.now() - liveLookback;
+      liveChartTxns = liveChartTxns.filter(t => new Date(t.timestamp).getTime() >= cutoff);
+    } else {
+      liveChartTxns = newChartTxns;
+    }
+
+    // Update the high-water mark.
+    if (liveChartTxns.length > 0) {
+      liveChartNewest = liveChartTxns.reduce((max, t) => t.timestamp > max ? t.timestamp : max, liveChartTxns[0].timestamp);
+    }
+
+    renderUsageChart(liveChartTxns);
     if (onPage1) {
       const tableResp = results[2];
       const prevTimestamp = lastTxnTimestamp;
@@ -2007,7 +2063,7 @@ function populateToolFilter() {
 
 async function loadUsage() {
   if (!currentUser) return;
-  if (usageMode === 'live') { loadUsageLive(); return; }
+  if (usageMode === 'live') { liveChartTxns = []; liveChartNewest = null; loadUsageLive(); return; }
   showUsageLoading();
   const from = document.getElementById('usage-from').value;
   const to = document.getElementById('usage-to').value;
@@ -2328,6 +2384,8 @@ document.querySelectorAll('.modal-overlay').forEach(el => {
 
 document.addEventListener('click', () => {
   document.querySelectorAll('.multi-select.open').forEach(ms => ms.classList.remove('open'));
+  const cts = document.getElementById('chart-type-select');
+  if (cts) cts.classList.remove('open');
 });
 
 // Set default date range to last 7 days
@@ -2342,6 +2400,8 @@ document.getElementById('usage-from').value = weekAgo.toISOString().slice(0, 10)
 // --- Chart ---
 let chartGroup = 'agent';
 let lastChartTxns = [];
+let chartType = localStorage.getItem('octroi_chart_type') || 'requests';
+let chartPercentiles = new Set((localStorage.getItem('octroi_chart_pctls') || 'p50').split(','));
 const chartColors = ['#1a1a1a','#2a7','#a80','#c33','#57a','#7a5','#a57','#5a7'];
 function chartColorFor(id) {
   let h = 0;
@@ -2351,6 +2411,19 @@ function chartColorFor(id) {
 
 // Restore persisted selections
 document.getElementById('usage-lookback-select').value = String(liveLookback);
+if (chartType !== 'requests') {
+  document.getElementById('chart-type-label').textContent =
+    chartType === 'cost' ? 'Cost Over Time' : 'Latency Over Time';
+  document.querySelectorAll('.chart-type-option').forEach(el => {
+    el.classList.toggle('active', el.textContent === document.getElementById('chart-type-label').textContent);
+  });
+  if (chartType === 'latency') {
+    document.getElementById('percentile-toggle').style.display = '';
+    document.getElementById('pctl-p50').classList.toggle('active', chartPercentiles.has('p50'));
+    document.getElementById('pctl-p90').classList.toggle('active', chartPercentiles.has('p90'));
+    document.getElementById('pctl-p99').classList.toggle('active', chartPercentiles.has('p99'));
+  }
+}
 
 function onBucketChange() {
   // User manually picked a bucket — just re-render with current selection.
@@ -2370,6 +2443,49 @@ function setChartGroup(group) {
   document.getElementById('chart-by-agent').classList.toggle('active', group === 'agent');
   document.getElementById('chart-by-tool').classList.toggle('active', group === 'tool');
   renderUsageChart(lastChartTxns);
+}
+
+function setChartType(type) {
+  chartType = type;
+  localStorage.setItem('octroi_chart_type', type);
+  document.getElementById('chart-type-label').textContent =
+    type === 'requests' ? 'Requests Over Time' : type === 'cost' ? 'Cost Over Time' : 'Latency Over Time';
+  document.getElementById('chart-type-select').classList.remove('open');
+  document.querySelectorAll('.chart-type-option').forEach(el => {
+    el.classList.toggle('active', el.textContent === document.getElementById('chart-type-label').textContent);
+  });
+  document.getElementById('percentile-toggle').style.display = type === 'latency' ? '' : 'none';
+  renderUsageChart(lastChartTxns);
+}
+
+function setPercentile(p, evt) {
+  if (evt && evt.shiftKey) {
+    if (chartPercentiles.has(p) && chartPercentiles.size > 1) chartPercentiles.delete(p);
+    else chartPercentiles.add(p);
+  } else {
+    chartPercentiles = new Set([p]);
+  }
+  document.getElementById('pctl-p50').classList.toggle('active', chartPercentiles.has('p50'));
+  document.getElementById('pctl-p90').classList.toggle('active', chartPercentiles.has('p90'));
+  document.getElementById('pctl-p99').classList.toggle('active', chartPercentiles.has('p99'));
+  localStorage.setItem('octroi_chart_pctls', Array.from(chartPercentiles).join(','));
+  renderUsageChart(lastChartTxns);
+}
+
+function percentile(arr, p) {
+  if (!arr.length) return 0;
+  arr.sort((a, b) => a - b);
+  const i = (p / 100) * (arr.length - 1);
+  const lo = Math.floor(i), hi = Math.ceil(i);
+  return lo === hi ? arr[lo] : arr[lo] + (arr[hi] - arr[lo]) * (i - lo);
+}
+
+function niceStep(maxVal) {
+  if (maxVal <= 0) return 1;
+  const rough = maxVal / 4;
+  const mag = Math.pow(10, Math.floor(Math.log10(rough)));
+  const norm = rough / mag;
+  return (norm <= 1 ? 1 : norm <= 2 ? 2 : norm <= 5 ? 5 : 10) * mag;
 }
 
 function autoBucketMs(range) {
@@ -2413,7 +2529,7 @@ function renderUsageChart(txns) {
   const rect = container.getBoundingClientRect();
   const W = rect.width || 600;
   const H = 180;
-  const ML = 34, MR = 8, MT = 8, MB = 44;
+  const ML = chartType === 'cost' ? 56 : chartType === 'latency' ? 42 : 34, MR = 8, MT = 8, MB = 44;
   const chartW = W - ML - MR;
   const chartH = H - MT - MB;
 
@@ -2443,13 +2559,44 @@ function renderUsageChart(txns) {
     if (bi < 0) return;
     const gid = t[groupKey];
     groupSet.add(gid);
-    buckets[bi][gid] = (buckets[bi][gid] || 0) + 1;
+    if (chartType === 'latency') {
+      if (!buckets[bi][gid]) buckets[bi][gid] = [];
+      buckets[bi][gid].push(t.latency_ms || 0);
+    } else if (chartType === 'cost') {
+      buckets[bi][gid] = (buckets[bi][gid] || 0) + (t.cost || 0);
+    } else {
+      buckets[bi][gid] = (buckets[bi][gid] || 0) + 1;
+    }
   });
 
-  const groups = Array.from(groupSet).sort((a, b) => resolveName(a).localeCompare(resolveName(b)));
-  const maxCount = Math.max(1, ...buckets.map(b => Math.max(0, ...groups.map(g => b[g] || 0))));
+  // For latency, expand each group into group::pXX composite keys per selected percentile
+  const pctlMap = { p50: 50, p90: 90, p99: 99 };
+  if (chartType === 'latency') {
+    const pctls = Array.from(chartPercentiles);
+    for (let i = 0; i < numBuckets; i++) {
+      const raw = buckets[i];
+      const resolved = {};
+      for (const gid of Object.keys(raw)) {
+        const arr = Array.isArray(raw[gid]) ? raw[gid] : [];
+        for (const p of pctls) {
+          resolved[gid + '::' + p] = percentile(arr, pctlMap[p]);
+        }
+      }
+      buckets[i] = resolved;
+    }
+    // Replace groupSet with composite keys
+    groupSet.clear();
+    for (const b of buckets) for (const k of Object.keys(b)) groupSet.add(k);
+  }
 
-  const yStep = Math.max(1, Math.ceil(maxCount / 4));
+  const groups = Array.from(groupSet).sort((a, b) => {
+    const na = chartType === 'latency' ? resolveName(a.split('::')[0]) + a.split('::')[1] : resolveName(a);
+    const nb = chartType === 'latency' ? resolveName(b.split('::')[0]) + b.split('::')[1] : resolveName(b);
+    return na.localeCompare(nb);
+  });
+  const maxCount = Math.max(chartType === 'requests' ? 1 : 0.001, ...buckets.map(b => Math.max(0, ...groups.map(g => b[g] || 0))));
+
+  const yStep = chartType === 'requests' ? Math.max(1, Math.ceil(maxCount / 4)) : niceStep(maxCount);
   const yMax = yStep * 4;
   const yTicks = [];
   for (let v = 0; v <= yMax; v += yStep) yTicks.push(v);
@@ -2461,7 +2608,8 @@ function renderUsageChart(txns) {
   yTicks.forEach(v => {
     const y = MT + chartH - (v / yMax) * chartH;
     svg += `<line x1="${ML}" y1="${y}" x2="${W - MR}" y2="${y}" class="chart-tick"/>`;
-    svg += `<text x="${ML - 4}" y="${y + 3}" text-anchor="end" class="chart-label">${v}</text>`;
+    const yLabel = chartType === 'cost' ? '$' + (yStep < 0.01 ? v.toFixed(4) : v.toFixed(2)) : chartType === 'latency' ? (yStep < 1 ? v.toFixed(1) : v.toFixed(0)) + 'ms' : v;
+    svg += `<text x="${ML - 4}" y="${y + 3}" text-anchor="end" class="chart-label">${yLabel}</text>`;
   });
 
   // Line chart
@@ -2469,17 +2617,21 @@ function renderUsageChart(txns) {
   const xFor = i => numBuckets === 1 ? ML + chartW / 2 : ML + i * colW;
   const yFor = v => MT + chartH - (v / yMax) * chartH;
 
+  const pctlDash = { p50: '', p90: '6,3', p99: '2,2' };
   groups.forEach(gid => {
-    const color = chartColorFor(gid);
+    const baseGid = chartType === 'latency' ? gid.split('::')[0] : gid;
+    const pctl = chartType === 'latency' ? gid.split('::')[1] : null;
+    const color = chartColorFor(baseGid);
+    const dash = pctl ? pctlDash[pctl] || '' : '';
     const points = [];
     for (let i = 0; i < numBuckets; i++) {
       points.push(`${xFor(i)},${yFor(buckets[i][gid] || 0)}`);
     }
-    svg += `<polyline points="${points.join(' ')}" fill="none" stroke="${color}" stroke-width="1.5" stroke-linejoin="round" data-group="${gid}" class="chart-line"/>`;
+    svg += `<polyline points="${points.join(' ')}" fill="none" stroke="${color}" stroke-width="1.5" stroke-linejoin="round"${dash ? ` stroke-dasharray="${dash}"` : ''} data-group="${baseGid}" class="chart-line"/>`;
     for (let i = 0; i < numBuckets; i++) {
       const count = buckets[i][gid] || 0;
       if (count > 0) {
-        svg += `<circle cx="${xFor(i)}" cy="${yFor(count)}" r="2.5" fill="${color}" data-group="${gid}" class="chart-line"/>`;
+        svg += `<circle cx="${xFor(i)}" cy="${yFor(count)}" r="2.5" fill="${color}" data-group="${baseGid}" class="chart-line"/>`;
       }
     }
   });
@@ -2508,12 +2660,14 @@ function renderUsageChart(txns) {
   const hasLegendFilter = activeFilterArr.length > 0;
   let legend = '<div class="chart-legend">';
   groups.forEach((gid, gi) => {
-    const color = chartColorFor(gid);
-    const name = resolveName(gid);
-    const isActive = activeFilterArr.includes(gid);
-    const filterVal = isActive ? '' : gid;
+    const baseGid = chartType === 'latency' ? gid.split('::')[0] : gid;
+    const pctl = chartType === 'latency' ? gid.split('::')[1].toUpperCase() : null;
+    const color = chartColorFor(baseGid);
+    const name = resolveName(baseGid) + (pctl ? ' ' + pctl : '');
+    const isActive = activeFilterArr.includes(baseGid);
+    const filterVal = isActive ? '' : baseGid;
     const exclClass = hasLegendFilter && !isActive ? ' chart-legend-excluded' : '';
-    legend += `<div class="chart-legend-item${exclClass}" data-group="${gid}" onclick="filterFromTxn('${filterType}','${filterVal}')" style="cursor:pointer"><span class="chart-legend-swatch" style="background:${color}${hasLegendFilter && !isActive ? ';opacity:0.3' : ''}"></span>${esc(name)}</div>`;
+    legend += `<div class="chart-legend-item${exclClass}" data-group="${baseGid}" onclick="filterFromTxn('${filterType}','${filterVal}')" style="cursor:pointer"><span class="chart-legend-swatch" style="background:${color}${hasLegendFilter && !isActive ? ';opacity:0.3' : ''}"></span>${esc(name)}</div>`;
   });
   legend += '</div>';
 
@@ -2534,14 +2688,18 @@ function renderUsageChart(txns) {
       let html = `<div class="tt-time">${fmtBucketLabel(d, bucketMs)}</div>`;
       let total = 0;
       groups.forEach((gid, gi) => {
-        const count = buckets[bi][gid] || 0;
-        total += count;
-        const color = chartColorFor(gid);
-        const name = resolveName(gid);
-        html += `<div class="tt-row"><span class="tt-swatch" style="background:${color}"></span>${esc(name)}: <strong>${count}</strong></div>`;
+        const val = buckets[bi][gid] || 0;
+        total += val;
+        const baseGid = chartType === 'latency' ? gid.split('::')[0] : gid;
+        const pctl = chartType === 'latency' ? gid.split('::')[1].toUpperCase() : null;
+        const color = chartColorFor(baseGid);
+        const name = resolveName(baseGid) + (pctl ? ' ' + pctl : '');
+        const fmtVal = chartType === 'cost' ? '$' + val.toFixed(4) : chartType === 'latency' ? val.toFixed(1) + 'ms' : val;
+        html += `<div class="tt-row"><span class="tt-swatch" style="background:${color}"></span>${esc(name)}: <strong>${fmtVal}</strong></div>`;
       });
-      if (groups.length > 1) {
-        html += `<div class="tt-row" style="border-top:1px solid var(--border);margin-top:2px;padding-top:2px">Total: <strong>${total}</strong></div>`;
+      if (groups.length > 1 && chartType !== 'latency') {
+        const fmtTotal = chartType === 'cost' ? '$' + total.toFixed(4) : total;
+        html += `<div class="tt-row" style="border-top:1px solid var(--border);margin-top:2px;padding-top:2px">Total: <strong>${fmtTotal}</strong></div>`;
       }
       tooltip.innerHTML = html;
       tooltip.style.display = '';
