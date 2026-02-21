@@ -1,0 +1,368 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+<meta charset="UTF-8">
+<meta name="viewport" content="width=device-width, initial-scale=1.0">
+<title>Octroi</title>
+<style>
+  * { margin: 0; padding: 0; box-sizing: border-box; }
+  body {
+    background: #f5f5f0;
+    display: flex;
+    align-items: center;
+    justify-content: center;
+    min-height: 100vh;
+  }
+  canvas { display: block; max-width: 100%; height: auto; }
+</style>
+</head>
+<body>
+<canvas id="c" width="900" height="500"></canvas>
+<script>
+const canvas = document.getElementById('c');
+const ctx = canvas.getContext('2d');
+
+const W = 900, H = 500;
+const AGENT_X = 100;
+const TOOL_X = 800;
+const CX = W / 2, CY = H / 2;
+const SPAWN_INTERVAL = 0.7;
+const CUBE_SIZE = 30;
+
+const COLORS = ['#edc951', '#eb6841', '#cc2a36', '#4f372d', '#00a0b0'];
+const STROKE = '#1a1a1a';
+const LINE_COLOR = '#d0d0c8';
+const BG = 'transparent';
+
+function slotY(i) {
+  const margin = 60;
+  return margin + i * ((H - 2 * margin) / 4);
+}
+
+// Midpoint X for the right-angle bends
+const MID_LEFT = (AGENT_X + CX) / 2;
+const MID_RIGHT = (CX + TOOL_X) / 2;
+const ICON_SIZE = 60;
+
+// --- Load SVG icons ---
+function loadSVG(svgStr, fillColor) {
+  // Inject fill color into the SVG path
+  const colored = svgStr.replace('<path d=', `<path fill="${fillColor}" d=`);
+  const blob = new Blob([colored], { type: 'image/svg+xml' });
+  const url = URL.createObjectURL(blob);
+  const img = new Image();
+  img.src = url;
+  return img;
+}
+
+const ROBOT_SVG = `<svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 24 24"><path d="M17.5 15.5C17.5 16.61 16.61 17.5 15.5 17.5S13.5 16.61 13.5 15.5 14.4 13.5 15.5 13.5 17.5 14.4 17.5 15.5M8.5 13.5C7.4 13.5 6.5 14.4 6.5 15.5S7.4 17.5 8.5 17.5 10.5 16.61 10.5 15.5 9.61 13.5 8.5 13.5M23 15V18C23 18.55 22.55 19 22 19H21V20C21 21.11 20.11 22 19 22H5C3.9 22 3 21.11 3 20V19H2C1.45 19 1 18.55 1 18V15C1 14.45 1.45 14 2 14H3C3 10.13 6.13 7 10 7H11V5.73C10.4 5.39 10 4.74 10 4C10 2.9 10.9 2 12 2S14 2.9 14 4C14 4.74 13.6 5.39 13 5.73V7H14C17.87 7 21 10.13 21 14H22C22.55 14 23 14.45 23 15M21 16H19V14C19 11.24 16.76 9 14 9H10C7.24 9 5 11.24 5 14V16H3V17H5V20H19V17H21V16Z" /></svg>`;
+
+const TOOL_SVG = `<svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 24 24"><path d="M13.78 15.3L19.78 21.3L21.89 19.14L15.89 13.14L13.78 15.3M17.5 10.1C17.11 10.1 16.69 10.05 16.36 9.91L4.97 21.25L2.86 19.14L10.27 11.74L8.5 9.96L7.78 10.66L6.33 9.25V12.11L5.63 12.81L2.11 9.25L2.81 8.55H5.62L4.22 7.14L7.78 3.58C8.95 2.41 10.83 2.41 12 3.58L9.89 5.74L11.3 7.14L10.59 7.85L12.38 9.63L14.2 7.75C14.06 7.42 14 7 14 6.63C14 4.66 15.56 3.11 17.5 3.11C18.09 3.11 18.61 3.25 19.08 3.53L16.41 6.2L17.91 7.7L20.58 5.03C20.86 5.5 21 6 21 6.63C21 8.55 19.45 10.1 17.5 10.1Z" /></svg>`;
+
+// All robots black, single image
+const robotImg = loadSVG(ROBOT_SVG, STROKE);
+const toolImg = loadSVG(TOOL_SVG, STROKE);
+
+// Favicon SVG loaded as image
+const FAVICON_W = 110;
+const FAVICON_H = 140;
+const FAVICON_SVG = `<svg xmlns="http://www.w3.org/2000/svg" width="${FAVICON_W}" height="${FAVICON_H}" viewBox="0 0 ${FAVICON_W} ${FAVICON_H}"><rect width="${FAVICON_W}" height="${FAVICON_H}" fill="#1a1a1a" rx="14"/><text x="${FAVICON_W/2}" y="${FAVICON_H * 0.62}" font-family="'SF Mono','Cascadia Code','Fira Code',monospace" font-size="56" font-weight="700" fill="#f5f5f0" text-anchor="middle">O</text></svg>`;
+const faviconImg = (() => {
+  const blob = new Blob([FAVICON_SVG], { type: 'image/svg+xml' });
+  const img = new Image();
+  img.src = URL.createObjectURL(blob);
+  return img;
+})();
+
+const BOX_PAD = 10;
+const BOX_R = 8;
+const BOX_EDGE = ICON_SIZE / 2 + BOX_PAD;
+const FAV_EDGE = FAVICON_W / 2;
+
+function drawIconBox(x, y) {
+  const s = ICON_SIZE / 2 + BOX_PAD;
+  ctx.strokeStyle = STROKE;
+  ctx.lineWidth = 3;
+  ctx.beginPath();
+  ctx.moveTo(x - s + BOX_R, y - s);
+  ctx.lineTo(x + s - BOX_R, y - s);
+  ctx.arcTo(x + s, y - s, x + s, y - s + BOX_R, BOX_R);
+  ctx.lineTo(x + s, y + s - BOX_R);
+  ctx.arcTo(x + s, y + s, x + s - BOX_R, y + s, BOX_R);
+  ctx.lineTo(x - s + BOX_R, y + s);
+  ctx.arcTo(x - s, y + s, x - s, y + s - BOX_R, BOX_R);
+  ctx.lineTo(x - s, y - s + BOX_R);
+  ctx.arcTo(x - s, y - s, x - s + BOX_R, y - s, BOX_R);
+  ctx.closePath();
+  ctx.stroke();
+}
+
+function drawRobot(x, y) {
+  drawIconBox(x, y);
+  if (robotImg.complete) {
+    ctx.drawImage(robotImg, x - ICON_SIZE / 2, y - ICON_SIZE / 2, ICON_SIZE, ICON_SIZE);
+  }
+}
+
+function drawTool(x, y) {
+  drawIconBox(x, y);
+  if (toolImg.complete) {
+    ctx.drawImage(toolImg, x - ICON_SIZE / 2, y - ICON_SIZE / 2, ICON_SIZE, ICON_SIZE);
+  }
+}
+
+function drawOctroiIcon() {
+  if (faviconImg.complete) {
+    ctx.drawImage(faviconImg, CX - FAVICON_W / 2, CY - FAVICON_H / 2, FAVICON_W, FAVICON_H);
+  }
+}
+
+const CORNER_R = 20;
+
+function drawLines() {
+  ctx.strokeStyle = LINE_COLOR;
+  ctx.lineWidth = 4;
+  ctx.lineCap = 'round';
+
+  for (let i = 0; i < 5; i++) {
+    const ay = slotY(i);
+
+    ctx.beginPath();
+    ctx.moveTo(AGENT_X + BOX_EDGE, ay);
+    ctx.arcTo(MID_LEFT, ay, MID_LEFT, CY, CORNER_R);
+    ctx.arcTo(MID_LEFT, CY, CX - FAV_EDGE, CY, CORNER_R);
+    ctx.lineTo(CX - FAV_EDGE, CY);
+    ctx.stroke();
+
+    ctx.beginPath();
+    ctx.moveTo(CX + FAV_EDGE, CY);
+    ctx.arcTo(MID_RIGHT, CY, MID_RIGHT, ay, CORNER_R);
+    ctx.arcTo(MID_RIGHT, ay, TOOL_X - BOX_EDGE, ay, CORNER_R);
+    ctx.lineTo(TOOL_X - BOX_EDGE, ay);
+    ctx.stroke();
+  }
+}
+
+// --- Path with rounded corners ---
+
+function buildRoundedPath(waypoints, r) {
+  const segs = [];
+  const pts = waypoints;
+  let cursor = { x: pts[0].x, y: pts[0].y };
+
+  for (let i = 1; i < pts.length; i++) {
+    if (i < pts.length - 1) {
+      const corner = pts[i];
+      const next = pts[i + 1];
+
+      // Incoming/outgoing direction unit vectors
+      const d1x = Math.sign(corner.x - cursor.x);
+      const d1y = Math.sign(corner.y - cursor.y);
+      const d2x = Math.sign(next.x - corner.x);
+      const d2y = Math.sign(next.y - corner.y);
+
+      // If no actual turn (collinear), skip arc
+      if (d1x === d2x && d1y === d2y) {
+        const lineLen = Math.abs(corner.x - cursor.x) + Math.abs(corner.y - cursor.y);
+        if (lineLen > 0.5) {
+          segs.push({ type: 'line', x0: cursor.x, y0: cursor.y, x1: corner.x, y1: corner.y, len: lineLen });
+        }
+        cursor = { x: corner.x, y: corner.y };
+        continue;
+      }
+
+      const leg1 = Math.abs(corner.x - cursor.x) + Math.abs(corner.y - cursor.y);
+      const leg2 = Math.abs(next.x - corner.x) + Math.abs(next.y - corner.y);
+      const cr = Math.min(r, leg1 * 0.5, leg2 * 0.5);
+
+      if (cr < 1) {
+        // Too small for arc, just do a line
+        const lineLen = Math.abs(corner.x - cursor.x) + Math.abs(corner.y - cursor.y);
+        if (lineLen > 0.5) {
+          segs.push({ type: 'line', x0: cursor.x, y0: cursor.y, x1: corner.x, y1: corner.y, len: lineLen });
+        }
+        cursor = { x: corner.x, y: corner.y };
+        continue;
+      }
+
+      // Tangent points: where the arc meets each straight segment
+      const t1 = { x: corner.x - d1x * cr, y: corner.y - d1y * cr };
+      const t2 = { x: corner.x + d2x * cr, y: corner.y + d2y * cr };
+
+      // Line from cursor to first tangent
+      const lineLen = Math.abs(t1.x - cursor.x) + Math.abs(t1.y - cursor.y);
+      if (lineLen > 0.5) {
+        segs.push({ type: 'line', x0: cursor.x, y0: cursor.y, x1: t1.x, y1: t1.y, len: lineLen });
+      }
+
+      // Arc center: offset from corner diagonally
+      // Center is at corner - d1*cr + d2*cr... no.
+      // Center must be cr away from both straight lines.
+      // For orthogonal turns: center = (t1.x if d1 is vertical else t2.x, t1.y if d1 is horizontal else t2.y)
+      // Simpler: center shares the non-moving coord with each tangent
+      const arcCx = (d1x !== 0) ? t2.x : t1.x;
+      const arcCy = (d1y !== 0) ? t2.y : t1.y;
+
+      const startAngle = Math.atan2(t1.y - arcCy, t1.x - arcCx);
+      const endAngle = Math.atan2(t2.y - arcCy, t2.x - arcCx);
+
+      // Determine shortest sweep direction
+      let sweep = endAngle - startAngle;
+      // Normalize to [-PI, PI]
+      while (sweep > Math.PI) sweep -= Math.PI * 2;
+      while (sweep < -Math.PI) sweep += Math.PI * 2;
+
+      segs.push({ type: 'arc', cx: arcCx, cy: arcCy, r: cr, startAngle, sweep, len: Math.abs(sweep) * cr });
+
+      cursor = { x: t2.x, y: t2.y };
+    } else {
+      const lineLen = Math.abs(pts[i].x - cursor.x) + Math.abs(pts[i].y - cursor.y);
+      if (lineLen > 0.5) {
+        segs.push({ type: 'line', x0: cursor.x, y0: cursor.y, x1: pts[i].x, y1: pts[i].y, len: lineLen });
+      }
+    }
+  }
+
+  let total = 0;
+  for (const s of segs) total += s.len;
+  return { segs, total };
+}
+
+function interpRoundedPath(dist, path) {
+  let rem = dist;
+  for (const s of path.segs) {
+    if (rem <= s.len) {
+      if (s.type === 'line') {
+        const f = s.len > 0 ? rem / s.len : 0;
+        return { x: s.x0 + (s.x1 - s.x0) * f, y: s.y0 + (s.y1 - s.y0) * f };
+      } else {
+        const f = s.len > 0 ? rem / s.len : 0;
+        const angle = s.startAngle + s.sweep * f;
+        return { x: s.cx + Math.cos(angle) * s.r, y: s.cy + Math.sin(angle) * s.r };
+      }
+    }
+    rem -= s.len;
+  }
+  const last = path.segs[path.segs.length - 1];
+  if (last.type === 'line') return { x: last.x1, y: last.y1 };
+  const endAngle = last.startAngle + last.sweep;
+  return { x: last.cx + Math.cos(endAngle) * last.r, y: last.cy + Math.sin(endAngle) * last.r };
+}
+
+// --- Cube: single continuous path, drawn behind Octroi ---
+class Cube {
+  constructor() {
+    this.agentIdx = Math.floor(Math.random() * 5);
+    this.toolIdx = Math.floor(Math.random() * 5);
+    this.color = COLORS[this.agentIdx];
+    this.alive = true;
+    this.dist = 0;
+
+    const ay = slotY(this.agentIdx);
+    const ty = slotY(this.toolIdx);
+    const cs = CUBE_SIZE / 2;
+
+    // Outbound: agent -> center -> tool
+    const outbound = buildRoundedPath([
+      { x: AGENT_X + BOX_EDGE + cs, y: ay },
+      { x: MID_LEFT, y: ay },
+      { x: MID_LEFT, y: CY },
+      { x: MID_RIGHT, y: CY },
+      { x: MID_RIGHT, y: ty },
+      { x: TOOL_X - BOX_EDGE - cs, y: ty }
+    ], 0);
+
+    // Return: tool -> center -> agent
+    const ret = buildRoundedPath([
+      { x: TOOL_X - BOX_EDGE - cs, y: ty },
+      { x: MID_RIGHT, y: ty },
+      { x: MID_RIGHT, y: CY },
+      { x: MID_LEFT, y: CY },
+      { x: MID_LEFT, y: ay },
+      { x: AGENT_X + BOX_EDGE + cs, y: ay }
+    ], 0);
+
+    // Combine into one path with offset
+    this.outbound = outbound;
+    this.ret = ret;
+    this.outboundLen = outbound.total;
+    this.totalDist = outbound.total + ret.total;
+
+    this.speed = 300;
+  }
+
+  update(dt) {
+    this.dist += dt * this.speed;
+    if (this.dist >= this.totalDist) this.alive = false;
+  }
+
+  getPos() {
+    if (this.dist <= this.outboundLen) {
+      return interpRoundedPath(this.dist, this.outbound);
+    }
+    return interpRoundedPath(this.dist - this.outboundLen, this.ret);
+  }
+
+  draw() {
+    const p = this.getPos();
+    if (!p) return;
+    const s = CUBE_SIZE / 2;
+    const cr = 4;
+
+    ctx.fillStyle = this.color;
+    ctx.beginPath();
+    ctx.moveTo(p.x - s + cr, p.y - s);
+    ctx.lineTo(p.x + s - cr, p.y - s);
+    ctx.arcTo(p.x + s, p.y - s, p.x + s, p.y - s + cr, cr);
+    ctx.lineTo(p.x + s, p.y + s - cr);
+    ctx.arcTo(p.x + s, p.y + s, p.x + s - cr, p.y + s, cr);
+    ctx.lineTo(p.x - s + cr, p.y + s);
+    ctx.arcTo(p.x - s, p.y + s, p.x - s, p.y + s - cr, cr);
+    ctx.lineTo(p.x - s, p.y - s + cr);
+    ctx.arcTo(p.x - s, p.y - s, p.x - s + cr, p.y - s, cr);
+    ctx.closePath();
+    ctx.fill();
+  }
+}
+
+// --- Animation loop ---
+let cubes = [];
+let lastSpawn = 0;
+let lastTime = 0;
+
+function animate(time) {
+  const t = time / 1000;
+  const dt = lastTime ? Math.min(t - lastTime, 0.05) : 0.016;
+  lastTime = t;
+
+  // Clear
+  ctx.clearRect(0, 0, W, H);
+
+  // Spawn
+  if (t - lastSpawn > SPAWN_INTERVAL) {
+    cubes.push(new Cube());
+    lastSpawn = t;
+  }
+
+  // Update
+  for (const c of cubes) c.update(dt);
+  cubes = cubes.filter(c => c.alive);
+
+  // Draw pipes (behind everything)
+  drawLines();
+
+  // Draw cubes (inside pipes)
+  for (const c of cubes) c.draw();
+
+  // Draw icons on top
+  for (let i = 0; i < 5; i++) drawRobot(AGENT_X, slotY(i));
+  for (let i = 0; i < 5; i++) drawTool(TOOL_X, slotY(i));
+  drawOctroiIcon();
+
+  requestAnimationFrame(animate);
+}
+
+requestAnimationFrame(animate);
+</script>
+</body>
+</html>
