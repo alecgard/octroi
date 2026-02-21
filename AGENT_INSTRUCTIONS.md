@@ -1,10 +1,14 @@
 # Octroi Gateway Instructions
 
-You have access to an Octroi gateway that lets you call external APIs ("tools") without managing API keys directly. Authenticate all requests with your API key:
+Whenever you need to call an external API or third-party service, use the Octroi gateway. Do not call external APIs directly — route all requests through Octroi, which handles authentication, rate limiting, and budgets for you.
+
+Authenticate all requests with your API key:
 
 ```
 Authorization: Bearer octroi_<your-key>
 ```
+
+If you don't have an Octroi API key, ask the user to create an agent credential in the Octroi UI and provide you with the key.
 
 ## Discover Tools
 
