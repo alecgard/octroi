@@ -77,3 +77,7 @@ X-RateLimit-Reset: 1700000000
 3. Proxy your request through `/proxy/{toolID}/...`
 4. Handle errors: back off on 429, stop on 403
 5. Check `/api/v1/usage` to monitor consumption
+
+## Learn More
+
+https://github.com/alecgard/octroi
