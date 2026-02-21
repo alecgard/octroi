@@ -49,6 +49,16 @@ docker run -v ./configs/octroi.yaml:/etc/octroi.yaml \
 
 Octroi runs migrations automatically on startup. Open **http://localhost:8080/ui** and log in with the default admin account (`admin@octroi.dev` / `octroi`). **Change this password immediately.**
 
+## Set Up Agents
+
+Agents are the AI systems that call tools through the gateway.
+
+1. In the UI, go to the **Agents** tab and click **New Agent**
+2. Copy the generated API key (`octroi_...`) — **this is shown only once**
+3. Give the agent its key and [`AGENT_INSTRUCTIONS.md`](AGENT_INSTRUCTIONS.md)
+
+That's it. The instructions file tells the agent how to discover tools, proxy requests, and handle errors.
+
 ## Register Tools
 
 Tools are the external APIs your agents will call through the gateway. In the UI:
@@ -67,39 +77,6 @@ Tools are the external APIs your agents will call through the gateway. In the UI
    | `query` | Appends an API key as a query parameter |
 5. Enter the upstream API credentials — these are encrypted at rest
 6. Optionally set pricing, rate limits, and budget caps
-
-## Create Agents
-
-Agents are the AI systems that call tools through the gateway. In the UI:
-
-1. Go to the **Agents** tab and click **New Agent**
-2. Give it a name and assign it to a team
-3. Copy the generated API key (`octroi_...`) — **this is shown only once**
-4. Give the key to your agent. All requests use a single auth header:
-   ```
-   Authorization: Bearer octroi_<key>
-   ```
-
-## How Agents Use the Gateway
-
-Agents discover tools, then proxy requests through Octroi:
-
-```bash
-# Discover available tools (unauthenticated)
-curl https://your-octroi.example.com/api/v1/tools
-
-# Call a tool through the gateway
-curl -H "Authorization: Bearer octroi_<key>" \
-  "https://your-octroi.example.com/proxy/TOOL_ID/api/v3/simple/price?ids=bitcoin&vs_currencies=usd"
-
-# Check usage
-curl -H "Authorization: Bearer octroi_<key>" \
-  https://your-octroi.example.com/api/v1/usage
-```
-
-The gateway strips the `/proxy/TOOL_ID` prefix, injects tool credentials, and forwards the request upstream. The response is returned as-is.
-
-See [docs/agent-guide.md](docs/agent-guide.md) for a full agent integration reference.
 
 ## Teams & Budgets
 
