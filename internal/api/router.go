@@ -12,6 +12,7 @@ import (
 	"github.com/alecgard/octroi/internal/agent"
 	"github.com/alecgard/octroi/internal/auth"
 	"github.com/alecgard/octroi/internal/metering"
+	"github.com/alecgard/octroi/internal/metrics"
 	"github.com/alecgard/octroi/internal/proxy"
 	"github.com/alecgard/octroi/internal/ratelimit"
 	"github.com/alecgard/octroi/internal/registry"
@@ -20,6 +21,7 @@ import (
 	"github.com/go-chi/chi/v5"
 	chimw "github.com/go-chi/chi/v5/middleware"
 	"github.com/jackc/pgx/v5/pgxpool"
+	"github.com/prometheus/client_golang/prometheus/promhttp"
 )
 
 // loginRateLimiter tracks per-IP login attempt counts within a sliding window.
@@ -117,6 +119,7 @@ type RouterDeps struct {
 	UserStore          *user.Store
 	ToolRateLimitStore *ratelimit.ToolRateLimitStore
 	AllowedOrigins     []string
+	Metrics            *metrics.Metrics
 }
 
 // NewRouter builds the chi router with all routes and middleware.
@@ -128,6 +131,9 @@ func NewRouter(deps RouterDeps) http.Handler {
 	r.Use(secureHeaders)
 	r.Use(corsMiddleware(deps.AllowedOrigins))
 	r.Use(requestIDMiddleware)
+	if deps.Metrics != nil {
+		r.Use(metricsMiddleware(deps.Metrics))
+	}
 	r.Use(slogRequestLogger)
 
 	// Handlers.
@@ -144,6 +150,24 @@ func NewRouter(deps RouterDeps) http.Handler {
 	var sessionLookup auth.SessionLookup
 	if deps.UserStore != nil {
 		sessionLookup = user.NewAuthAdapter(deps.UserStore)
+	}
+
+	// Auth failure/success and rate limit callbacks for metrics.
+	agentAuthFail := func() {}
+	agentAuthSuccess := func() {}
+	adminAuthFail := func() {}
+	adminAuthSuccess := func() {}
+	memberAuthFail := func() {}
+	memberAuthSuccess := func() {}
+	rateLimitReject := func() {}
+	if deps.Metrics != nil {
+		agentAuthFail = func() { deps.Metrics.IncAuthFailure("agent") }
+		agentAuthSuccess = func() { deps.Metrics.IncAuthSuccess("agent") }
+		adminAuthFail = func() { deps.Metrics.IncAuthFailure("admin_session") }
+		adminAuthSuccess = func() { deps.Metrics.IncAuthSuccess("admin_session") }
+		memberAuthFail = func() { deps.Metrics.IncAuthFailure("member_session") }
+		memberAuthSuccess = func() { deps.Metrics.IncAuthSuccess("member_session") }
+		rateLimitReject = func() { deps.Metrics.IncRateLimitRejection("agent", "global") }
 	}
 
 	// Admin UI.
@@ -166,6 +190,11 @@ func NewRouter(deps RouterDeps) http.Handler {
 		w.WriteHeader(http.StatusOK)
 		_, _ = w.Write([]byte(`{"status":"ok","database":"connected"}`))
 	})
+
+	// Prometheus metrics endpoint (unauthenticated for scraping).
+	if deps.Metrics != nil {
+		r.Handle("/metrics", promhttp.HandlerFor(deps.Metrics.Registry(), promhttp.HandlerOpts{}))
+	}
 
 	// Well-known manifest.
 	r.Get("/.well-known/octroi.json", WellKnownHandler)
@@ -194,7 +223,7 @@ func NewRouter(deps RouterDeps) http.Handler {
 
 		// User-authed routes (any logged-in user).
 		r.Route("/api/v1/auth", func(ar chi.Router) {
-			ar.Use(auth.MemberAuthMiddleware(sessionLookup))
+			ar.Use(auth.MemberAuthMiddleware(sessionLookup, memberAuthFail, memberAuthSuccess))
 			ar.Get("/me", authH.Me)
 			ar.Post("/logout", authH.Logout)
 		})
@@ -202,7 +231,12 @@ func NewRouter(deps RouterDeps) http.Handler {
 
 	// Admin routes (require org_admin session).
 	r.Route("/api/v1/admin", func(ar chi.Router) {
-		ar.Use(auth.AdminSessionMiddleware(sessionLookup))
+		ar.Use(auth.AdminSessionMiddleware(sessionLookup, adminAuthFail, adminAuthSuccess))
+
+		// Admin metrics JSON endpoint.
+		if deps.Metrics != nil {
+			ar.Get("/metrics", deps.Metrics.Handler())
+		}
 
 		// Tool management.
 		ar.Get("/tools", tools.AdminListTools)
@@ -262,7 +296,7 @@ func NewRouter(deps RouterDeps) http.Handler {
 		teams := newTeamsHandler(deps.AgentStore, deps.UserStore)
 		users := newUsersHandler(deps.UserStore)
 		r.Route("/api/v1/member", func(mr chi.Router) {
-			mr.Use(auth.MemberAuthMiddleware(sessionLookup))
+			mr.Use(auth.MemberAuthMiddleware(sessionLookup, memberAuthFail, memberAuthSuccess))
 
 			mr.Get("/agents", member.ListAgents)
 			mr.Post("/agents", member.CreateAgent)
@@ -283,8 +317,8 @@ func NewRouter(deps RouterDeps) http.Handler {
 
 	// Agent-authed routes (require agent API key + rate limiting).
 	r.Route("/api/v1", func(ar chi.Router) {
-		ar.Use(auth.AgentAuthMiddleware(deps.Auth))
-		ar.Use(ratelimit.Middleware(deps.Limiter))
+		ar.Use(auth.AgentAuthMiddleware(deps.Auth, agentAuthFail, agentAuthSuccess))
+		ar.Use(ratelimit.Middleware(deps.Limiter, rateLimitReject))
 
 		ar.Get("/agents/me", agents.GetSelfAgent)
 		ar.Get("/usage", usage.GetUsage)
@@ -295,8 +329,8 @@ func NewRouter(deps RouterDeps) http.Handler {
 
 	// Proxy routes (agent-authed + rate limited).
 	r.Route("/proxy", func(pr chi.Router) {
-		pr.Use(auth.AgentAuthMiddleware(deps.Auth))
-		pr.Use(ratelimit.Middleware(deps.Limiter))
+		pr.Use(auth.AgentAuthMiddleware(deps.Auth, agentAuthFail, agentAuthSuccess))
+		pr.Use(ratelimit.Middleware(deps.Limiter, rateLimitReject))
 
 		pr.Handle("/{toolID}/*", deps.Proxy)
 	})

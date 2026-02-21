@@ -16,6 +16,7 @@ import (
 	"github.com/alecgard/octroi/internal/config"
 	"github.com/alecgard/octroi/internal/crypto"
 	"github.com/alecgard/octroi/internal/metering"
+	"github.com/alecgard/octroi/internal/metrics"
 	"github.com/alecgard/octroi/internal/proxy"
 	"github.com/alecgard/octroi/internal/ratelimit"
 	"github.com/alecgard/octroi/internal/registry"
@@ -71,6 +72,27 @@ func runServe(cmd *cobra.Command, args []string) error {
 	budgetStore := agent.NewBudgetStore(pool)
 	meterStore := metering.NewStore(pool)
 	collector := metering.NewCollector(meterStore, cfg.Metering.BatchSize, cfg.Metering.FlushInterval)
+
+	// Metrics.
+	m := metrics.New()
+	m.RegisterDBPoolCollector(func() (total, idle, acquired int32) {
+		s := pool.Stat()
+		return s.TotalConns(), s.IdleConns(), s.AcquiredConns()
+	})
+
+	collector.SetMetricsCallbacks(
+		func() { m.CollectorTransactionsTotal.Inc() },
+		func(d time.Duration, err error) {
+			m.CollectorFlushDuration.Observe(d.Seconds())
+			if err != nil {
+				m.CollectorFlushesTotal.WithLabelValues("error").Inc()
+			} else {
+				m.CollectorFlushesTotal.WithLabelValues("ok").Inc()
+			}
+		},
+		func(size int) { m.CollectorBufferSize.Set(float64(size)) },
+	)
+
 	go collector.Start(ctx)
 
 	userStore := user.NewStore(pool)
@@ -102,6 +124,7 @@ func runServe(cmd *cobra.Command, args []string) error {
 
 	proxyHandler := proxy.NewHandler(toolStore, budgetStore, collector, cfg.Proxy.Timeout, cfg.Proxy.MaxRequestSize)
 	proxyHandler.SetToolRateLimitChecker(toolRateLimiter)
+	proxyHandler.SetMetrics(m)
 
 	router := api.NewRouter(api.RouterDeps{
 		DBPool:             pool,
@@ -117,6 +140,7 @@ func runServe(cmd *cobra.Command, args []string) error {
 		UserStore:          userStore,
 		ToolRateLimitStore: toolRateLimitStore,
 		AllowedOrigins:     cfg.CORS.AllowedOrigins,
+		Metrics:            m,
 	})
 
 	srv := &http.Server{

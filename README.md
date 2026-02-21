@@ -94,6 +94,19 @@ Configure all of these from the **Tools** and **Agents** tabs in the UI.
 - CORS, secure headers, request ID tracing
 - The gateway only proxies to registered tool endpoints — no open proxy
 
+## Monitoring
+
+Octroi exposes a Prometheus-compatible metrics endpoint at `/metrics`. Point your Prometheus instance at it:
+
+```yaml
+scrape_configs:
+  - job_name: octroi
+    static_configs:
+      - targets: ['localhost:8080']
+```
+
+Key metrics include `octroi_http_requests_total`, `octroi_proxy_requests_total`, `octroi_ratelimit_rejections_total`, and `octroi_proxy_upstream_duration_seconds`. The built-in UI also shows live metrics at **Metrics** tab.
+
 ## Configuration
 
 All configuration lives in `configs/octroi.yaml`. See [`configs/octroi.example.yaml`](configs/octroi.example.yaml) for all options with defaults. Values can reference environment variables with `${VAR}` syntax.

@@ -21,7 +21,7 @@ import (
 //
 // When the limit is exceeded the middleware responds with HTTP 429 and a JSON
 // error body.
-func Middleware(limiter *Limiter) func(http.Handler) http.Handler {
+func Middleware(limiter *Limiter, onReject ...func()) func(http.Handler) http.Handler {
 	return func(next http.Handler) http.Handler {
 		return http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
 			agent := auth.AgentFromContext(r.Context())
@@ -41,6 +41,9 @@ func Middleware(limiter *Limiter) func(http.Handler) http.Handler {
 			w.Header().Set("X-RateLimit-Reset", fmt.Sprintf("%d", resetAt.Unix()))
 
 			if !limiter.Allow(key, customRate) {
+				for _, fn := range onReject {
+					fn()
+				}
 				w.Header().Set("Content-Type", "application/json")
 				w.WriteHeader(http.StatusTooManyRequests)
 				_ = json.NewEncoder(w).Encode(map[string]interface{}{

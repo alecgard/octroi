@@ -40,11 +40,21 @@ func UserFromContext(ctx context.Context) *User {
 // API key in the Authorization header. The key is hashed and looked up via the
 // service's agent store. On success the agent is injected into the request
 // context.
-func AgentAuthMiddleware(svc *Service) func(http.Handler) http.Handler {
+func AgentAuthMiddleware(svc *Service, callbacks ...func()) func(http.Handler) http.Handler {
+	var onFailure, onSuccess func()
+	if len(callbacks) > 0 {
+		onFailure = callbacks[0]
+	}
+	if len(callbacks) > 1 {
+		onSuccess = callbacks[1]
+	}
 	return func(next http.Handler) http.Handler {
 		return http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
 			token := extractBearerToken(r)
 			if token == "" {
+				if onFailure != nil {
+					onFailure()
+				}
 				writeUnauthorized(w, "missing or malformed authorization header")
 				return
 			}
@@ -52,10 +62,16 @@ func AgentAuthMiddleware(svc *Service) func(http.Handler) http.Handler {
 			hash := HashKey(token)
 			agent, err := svc.store.GetByKeyHash(r.Context(), hash)
 			if err != nil || agent == nil {
+				if onFailure != nil {
+					onFailure()
+				}
 				writeUnauthorized(w, "invalid api key")
 				return
 			}
 
+			if onSuccess != nil {
+				onSuccess()
+			}
 			ctx := ContextWithAgent(r.Context(), agent)
 			next.ServeHTTP(w, r.WithContext(ctx))
 		})
@@ -63,25 +79,44 @@ func AgentAuthMiddleware(svc *Service) func(http.Handler) http.Handler {
 }
 
 // AdminSessionMiddleware validates the session token and requires org_admin role.
-func AdminSessionMiddleware(sessions SessionLookup) func(http.Handler) http.Handler {
+func AdminSessionMiddleware(sessions SessionLookup, callbacks ...func()) func(http.Handler) http.Handler {
+	var onFailure, onSuccess func()
+	if len(callbacks) > 0 {
+		onFailure = callbacks[0]
+	}
+	if len(callbacks) > 1 {
+		onSuccess = callbacks[1]
+	}
 	return func(next http.Handler) http.Handler {
 		return http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
 			token := extractBearerToken(r)
 			if token == "" {
+				if onFailure != nil {
+					onFailure()
+				}
 				writeUnauthorized(w, "missing or malformed authorization header")
 				return
 			}
 
 			user, err := sessions.LookupSession(r.Context(), token)
 			if err != nil || user == nil {
+				if onFailure != nil {
+					onFailure()
+				}
 				writeUnauthorized(w, "invalid or expired session")
 				return
 			}
 			if user.Role != "org_admin" {
+				if onFailure != nil {
+					onFailure()
+				}
 				writeForbidden(w, "admin access required")
 				return
 			}
 
+			if onSuccess != nil {
+				onSuccess()
+			}
 			ctx := ContextWithUser(r.Context(), user)
 			next.ServeHTTP(w, r.WithContext(ctx))
 		})
@@ -111,21 +146,37 @@ type errorBody struct {
 
 // MemberAuthMiddleware validates the session token and injects the user into
 // context. Any role (admin or member) is accepted.
-func MemberAuthMiddleware(sessions SessionLookup) func(http.Handler) http.Handler {
+func MemberAuthMiddleware(sessions SessionLookup, callbacks ...func()) func(http.Handler) http.Handler {
+	var onFailure, onSuccess func()
+	if len(callbacks) > 0 {
+		onFailure = callbacks[0]
+	}
+	if len(callbacks) > 1 {
+		onSuccess = callbacks[1]
+	}
 	return func(next http.Handler) http.Handler {
 		return http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
 			token := extractBearerToken(r)
 			if token == "" {
+				if onFailure != nil {
+					onFailure()
+				}
 				writeUnauthorized(w, "missing or malformed authorization header")
 				return
 			}
 
 			user, err := sessions.LookupSession(r.Context(), token)
 			if err != nil || user == nil {
+				if onFailure != nil {
+					onFailure()
+				}
 				writeUnauthorized(w, "invalid or expired session")
 				return
 			}
 
+			if onSuccess != nil {
+				onSuccess()
+			}
 			ctx := ContextWithUser(r.Context(), user)
 			next.ServeHTTP(w, r.WithContext(ctx))
 		})

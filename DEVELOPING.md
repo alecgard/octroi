@@ -26,16 +26,17 @@ Seed users (from `octroi seed`):
 
 ### Realistic Seed Data
 
-For a full demo dataset with 6 teams, 18 agents, 18 tools, 350k historical transactions, and continuous live traffic routed through the proxy:
+Creates 6 teams, 18 agents, 18 tools, and sends continuous live traffic through the proxy:
 
 ```bash
 make dev                # start the server
-./scripts/seed.sh       # in another terminal
+./scripts/seed.sh       # in another terminal — live traffic only
+./scripts/seed.sh --backfill   # also insert 350k historical transactions (7 days)
 ```
 
-The script backfills 7 days of historical transactions via direct DB inserts, then switches to sending live requests through the full proxy pipeline (agent auth, rate limiting, budget enforcement, metering). A local mock HTTP server stands in as the upstream for all tools. Ctrl-C to stop.
+Live traffic flows through the full proxy pipeline (agent auth, rate limiting, budget enforcement, metering) against a local mock upstream. Ctrl-C to stop.
 
-Requires: curl, jq, psql, bc, python3.
+Requires: curl, jq, python3. Backfill additionally requires psql and bc.
 
 ### Make Targets
 

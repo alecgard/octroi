@@ -22,6 +22,10 @@ type Collector struct {
 	batchSize     int
 	flushInterval time.Duration
 	done          chan struct{}
+
+	onRecord       func()
+	onFlush        func(duration time.Duration, err error)
+	onBufferChange func(size int)
 }
 
 // NewCollector creates a new Collector that flushes to the given store when the
@@ -56,13 +60,28 @@ func (c *Collector) Start(ctx context.Context) {
 	}
 }
 
+// SetMetricsCallbacks sets optional callbacks for observability.
+func (c *Collector) SetMetricsCallbacks(onRecord func(), onFlush func(duration time.Duration, err error), onBufferChange func(size int)) {
+	c.onRecord = onRecord
+	c.onFlush = onFlush
+	c.onBufferChange = onBufferChange
+}
+
 // Record adds a transaction to the buffer. If the buffer reaches batchSize,
 // a flush is triggered immediately.
 func (c *Collector) Record(tx Transaction) {
 	c.mu.Lock()
 	c.buffer = append(c.buffer, tx)
 	shouldFlush := len(c.buffer) >= c.batchSize
+	bufLen := len(c.buffer)
 	c.mu.Unlock()
+
+	if c.onRecord != nil {
+		c.onRecord()
+	}
+	if c.onBufferChange != nil {
+		c.onBufferChange(bufLen)
+	}
 
 	if shouldFlush {
 		c.flush()
@@ -81,11 +100,22 @@ func (c *Collector) flush() {
 	c.buffer = make([]Transaction, 0, c.batchSize)
 	c.mu.Unlock()
 
+	if c.onBufferChange != nil {
+		c.onBufferChange(0)
+	}
+
 	ctx, cancel := context.WithTimeout(context.Background(), 10*time.Second)
 	defer cancel()
 
-	if err := c.store.BatchInsert(ctx, batch); err != nil {
+	start := time.Now()
+	err := c.store.BatchInsert(ctx, batch)
+	duration := time.Since(start)
+
+	if err != nil {
 		slog.Error("failed to flush metering transactions", "count", len(batch), "error", err)
+	}
+	if c.onFlush != nil {
+		c.onFlush(duration, err)
 	}
 }
 

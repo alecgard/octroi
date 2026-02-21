@@ -3,8 +3,10 @@ package proxy
 import (
 	"context"
 	"encoding/json"
+	"errors"
 	"fmt"
 	"io"
+	"net"
 	"net/http"
 	"strings"
 	"time"
@@ -36,6 +38,17 @@ type ToolRateLimitChecker interface {
 	CheckToolRateLimit(ctx context.Context, toolID, team, agentID string) (allowed bool, limit, remaining int, resetAt time.Time, err error)
 }
 
+// MetricsRecorder is an optional interface for recording proxy-level metrics.
+type MetricsRecorder interface {
+	IncProxyRequests(toolID, toolName, agentID, method string, statusCode int)
+	ObserveUpstreamDuration(toolID, toolName string, seconds float64)
+	IncActiveRequests(toolID string)
+	DecActiveRequests(toolID string)
+	IncBudgetRejection(budgetType string)
+	IncToolRateLimitRejection()
+	IncUpstreamError(errorType, toolID, toolName string)
+}
+
 // Handler proxies requests to tool endpoints.
 type Handler struct {
 	tools          ToolStore
@@ -44,6 +57,7 @@ type Handler struct {
 	toolRateLimits ToolRateLimitChecker
 	client         *http.Client
 	maxRequestSize int64
+	metrics        MetricsRecorder
 }
 
 // NewHandler creates a new proxy handler.
@@ -60,6 +74,11 @@ func NewHandler(toolStore ToolStore, budgetStore BudgetChecker, collector Meteri
 // SetToolRateLimitChecker sets the optional tool rate limit checker.
 func (h *Handler) SetToolRateLimitChecker(checker ToolRateLimitChecker) {
 	h.toolRateLimits = checker
+}
+
+// SetMetrics sets the optional metrics recorder.
+func (h *Handler) SetMetrics(m MetricsRecorder) {
+	h.metrics = m
 }
 
 // ServeHTTP handles proxy requests.
@@ -84,6 +103,12 @@ func (h *Handler) ServeHTTP(w http.ResponseWriter, r *http.Request) {
 		return
 	}
 
+	// Track active requests.
+	if h.metrics != nil {
+		h.metrics.IncActiveRequests(tool.ID)
+		defer h.metrics.DecActiveRequests(tool.ID)
+	}
+
 	// Check per-tool rate limits (global / team / agent scopes).
 	if h.toolRateLimits != nil {
 		tlAllowed, tlLimit, tlRemaining, tlResetAt, tlErr := h.toolRateLimits.CheckToolRateLimit(r.Context(), tool.ID, agent.Team, agent.ID)
@@ -94,6 +119,9 @@ func (h *Handler) ServeHTTP(w http.ResponseWriter, r *http.Request) {
 				w.Header().Set("X-Tool-RateLimit-Reset", fmt.Sprintf("%d", tlResetAt.Unix()))
 			}
 			if !tlAllowed {
+				if h.metrics != nil {
+					h.metrics.IncToolRateLimitRejection()
+				}
 				writeError(w, http.StatusTooManyRequests, "tool_rate_limited", "tool rate limit exceeded")
 				return
 			}
@@ -103,6 +131,9 @@ func (h *Handler) ServeHTTP(w http.ResponseWriter, r *http.Request) {
 	// Check per-agent budget.
 	allowed, _, _, err := h.budgets.CheckBudget(r.Context(), agent.ID, tool.ID)
 	if err == nil && !allowed {
+		if h.metrics != nil {
+			h.metrics.IncBudgetRejection("agent")
+		}
 		writeError(w, http.StatusForbidden, "budget_exceeded", "agent budget exceeded for this tool")
 		return
 	}
@@ -110,6 +141,9 @@ func (h *Handler) ServeHTTP(w http.ResponseWriter, r *http.Request) {
 	// Check global tool budget.
 	globalAllowed, _, err := h.budgets.CheckToolGlobalBudget(r.Context(), tool.ID)
 	if err == nil && !globalAllowed {
+		if h.metrics != nil {
+			h.metrics.IncBudgetRejection("global")
+		}
 		writeError(w, http.StatusForbidden, "budget_exceeded", "global tool budget exceeded")
 		return
 	}
@@ -189,12 +223,24 @@ func (h *Handler) ServeHTTP(w http.ResponseWriter, r *http.Request) {
 	resp, err := h.client.Do(outReq)
 	latency := time.Since(start)
 
+	if h.metrics != nil {
+		h.metrics.ObserveUpstreamDuration(tool.ID, tool.Name, latency.Seconds())
+	}
+
 	if err != nil {
+		if h.metrics != nil {
+			h.metrics.IncProxyRequests(tool.ID, tool.Name, agent.ID, r.Method, 502)
+			h.metrics.IncUpstreamError(classifyUpstreamError(err), tool.ID, tool.Name)
+		}
 		h.recordTransaction(agent.ID, tool, r, 502, latency, 0, 0, false)
 		writeError(w, http.StatusBadGateway, "proxy_error", "upstream request failed")
 		return
 	}
 	defer resp.Body.Close()
+
+	if h.metrics != nil {
+		h.metrics.IncProxyRequests(tool.ID, tool.Name, agent.ID, r.Method, resp.StatusCode)
+	}
 
 	// Copy response headers.
 	for key, values := range resp.Header {
@@ -245,6 +291,28 @@ type proxyError struct {
 type proxyErrorBody struct {
 	Code    string `json:"code"`
 	Message string `json:"message"`
+}
+
+// classifyUpstreamError categorizes an upstream HTTP client error.
+func classifyUpstreamError(err error) string {
+	if errors.Is(err, context.DeadlineExceeded) {
+		return "timeout"
+	}
+	if errors.Is(err, context.Canceled) {
+		return "canceled"
+	}
+	var netErr *net.OpError
+	if errors.As(err, &netErr) {
+		if netErr.Op == "dial" {
+			return "connection_refused"
+		}
+		return "network"
+	}
+	var dnsErr *net.DNSError
+	if errors.As(err, &dnsErr) {
+		return "dns"
+	}
+	return "other"
 }
 
 func writeError(w http.ResponseWriter, status int, code, message string) {

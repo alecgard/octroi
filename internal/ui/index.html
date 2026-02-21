@@ -451,6 +451,10 @@ body.shift-held .txn-filter-pending { background: var(--surface2); }
   z-index: 10; margin-bottom: 4px;
 }
 .has-tooltip:hover .tip { display: block; }
+/* Metrics sections */
+.metrics-section { margin-bottom: 16px; }
+.metrics-section-title { font-size: 10px; font-weight: 600; text-transform: uppercase; letter-spacing: 0.05em; color: var(--text2); margin-bottom: 6px; width: fit-content; }
+.metrics-section .cards .card { cursor: help; }
 /* Search */
 .tab-search {
   background: var(--bg); border: 1px solid var(--border); color: var(--text);
@@ -527,6 +531,7 @@ body.shift-held .txn-filter-pending { background: var(--surface2); }
   <button class="tab-btn" data-tab="usage">Usage</button>
   <button class="tab-btn" data-tab="teams">Teams</button>
   <button class="tab-btn" data-tab="users">Users</button>
+  <button class="tab-btn" data-tab="metrics" id="metrics-tab-btn">Metrics</button>
 </div>
 
 <!-- Content -->
@@ -693,6 +698,16 @@ body.shift-held .txn-filter-pending { background: var(--surface2); }
       <tbody id="users-body"></tbody>
     </table>
     <div class="empty" id="users-empty" style="display:none">No users created yet.</div>
+  </div>
+
+  <!-- Metrics Tab (admin only) -->
+  <div class="tab-panel" id="tab-metrics">
+    <div class="toolbar" style="margin-bottom:4px">
+      <h2>Metrics</h2>
+    </div>
+    <div id="metrics-cards">
+      <div class="empty">Loading metrics...</div>
+    </div>
   </div>
 </div>
 
@@ -1222,7 +1237,7 @@ function enterApp() {
   }
 
   // Permission-based UI: disable (not hide) actions the user can't perform.
-  const adminOnlyBtns = ['tools-create-btn', 'teams-create-btn', 'users-create-btn'];
+  const adminOnlyBtns = ['tools-create-btn', 'teams-create-btn', 'users-create-btn', 'metrics-tab-btn'];
   adminOnlyBtns.forEach(id => {
     const btn = document.getElementById(id);
     btn.disabled = !isAdmin;
@@ -1243,6 +1258,7 @@ function enterApp() {
 
 async function logout() {
   stopUsagePoll();
+  stopMetricsPoll();
   if (authMode === 'session') {
     try { await api('POST', '/api/v1/auth/logout'); } catch (e) { /* ignore */ }
   }
@@ -1259,37 +1275,22 @@ document.getElementById('login-password').addEventListener('keydown', e => { if 
 document.getElementById('login-email').addEventListener('keydown', e => { if (e.key === 'Enter') document.getElementById('login-password').focus(); });
 
 // Auto-reconnect from stored session.
-// Immediately enter app from cached user data, then validate in background.
+// Validate with /auth/me before entering the app to avoid unauthenticated requests.
 (function autoConnect() {
   const storedToken = localStorage.getItem('octroi_session_token');
   if (!storedToken) return;
 
   authToken = storedToken;
 
-  // Try to restore from cached user data immediately
-  const cachedUser = localStorage.getItem('octroi_user');
-  if (cachedUser) {
-    try {
-      currentUser = JSON.parse(cachedUser);
-      authMode = 'session';
-      isAdmin = currentUser.role === 'org_admin';
-      enterApp();
-    } catch (e) {
-      // Bad cached data, fall through to async validation
-    }
-  }
-
-  // Validate session and refresh user data
+  // Validate session before entering app
   api('GET', '/api/v1/auth/me').then(data => {
-    const wasInApp = !!currentUser;
     currentUser = data;
     isAdmin = currentUser.role === 'org_admin';
     authMode = 'session';
     saveSession();
-    if (!wasInApp) enterApp();
+    enterApp();
   }).catch(() => {
     clearSession();
-    if (authMode) location.reload();
     authToken = '';
   });
 })();
@@ -1302,8 +1303,9 @@ function switchTab(tab) {
   if (btn) btn.classList.add('active');
   const panel = document.getElementById('tab-' + tab);
   if (panel) panel.classList.add('active');
-  // Stop live polling when leaving usage tab.
+  // Stop live polling when leaving usage/metrics tabs.
   if (tab !== 'usage') stopUsagePoll();
+  if (tab !== 'metrics') stopMetricsPoll();
   // Reload data when switching tabs.
   if (tab === 'usage') {
     loadUsage();
@@ -1313,6 +1315,10 @@ function switchTab(tab) {
   else if (tab === 'tools') loadTools();
   else if (tab === 'teams') loadTeams();
   else if (tab === 'users') loadUsers();
+  else if (tab === 'metrics') {
+    loadMetrics();
+    startMetricsPoll();
+  }
 }
 
 function navigateTo(hash) {
@@ -1332,6 +1338,7 @@ window.addEventListener('hashchange', onHashChange);
 
 // --- Tools ---
 async function loadTools() {
+  if (!currentUser) return;
   try {
     const path = isAdmin ? '/api/v1/admin/tools?limit=100' : '/api/v1/member/tools?limit=100';
     const data = await api('GET', path);
@@ -1546,6 +1553,7 @@ async function deleteTool(id, name) {
 
 // --- Agents ---
 async function loadAgents() {
+  if (!currentUser) return;
   try {
     const path = apiBase() + '/agents?limit=100';
     const data = await api('GET', path);
@@ -1658,6 +1666,7 @@ async function deleteAgent(id, name) {
 
 // --- Teams ---
 async function loadTeams() {
+  if (!currentUser) return;
   try {
     const path = apiBase() + '/teams';
     const data = await api('GET', path);
@@ -1810,6 +1819,7 @@ function stopUsagePoll() {
 }
 
 async function loadUsageLive() {
+  if (!currentUser) return;
   if (chartLegendHover) return;
   if (!usageLoading && lastTxnTimestamp === null) showUsageLoading();
   const from = new Date(Date.now() - liveLookback).toISOString();
@@ -1992,6 +2002,7 @@ function populateToolFilter() {
 }
 
 async function loadUsage() {
+  if (!currentUser) return;
   if (usageMode === 'live') { loadUsageLive(); return; }
   showUsageLoading();
   const from = document.getElementById('usage-from').value;
@@ -2097,6 +2108,7 @@ async function txnNextPage() {
 
 // --- Users ---
 async function loadUsers() {
+  if (!currentUser) return;
   try {
     const path = isAdmin ? '/api/v1/admin/users' : '/api/v1/member/users';
     const data = await api('GET', path);
@@ -2561,6 +2573,108 @@ function renderUsageChart(txns) {
       container.querySelectorAll('.chart-legend-item').forEach(li => { li.style.opacity = ''; });
     });
   });
+}
+
+// --- Metrics ---
+let metricsPollTimer = null;
+
+function startMetricsPoll() {
+  stopMetricsPoll();
+  metricsPollTimer = setTimeout(function tick() {
+    fetch('/api/v1/admin/metrics', {
+      headers: { 'Authorization': 'Bearer ' + authToken },
+      cache: 'no-store',
+    })
+      .then(function(r) { return r.ok ? r.json() : Promise.reject(r.statusText); })
+      .then(function(data) { renderMetricsLive(data); })
+      .catch(function() {
+        document.getElementById('metrics-cards').innerHTML = '<div class="empty">Failed to load metrics.</div>';
+      })
+      .finally(function() {
+        metricsPollTimer = setTimeout(tick, 1000);
+      });
+  }, 1500);
+}
+
+function stopMetricsPoll() {
+  if (metricsPollTimer) { clearTimeout(metricsPollTimer); metricsPollTimer = null; }
+}
+
+function loadMetrics() {
+  if (!currentUser) return;
+  fetch('/api/v1/admin/metrics', {
+    headers: { 'Authorization': 'Bearer ' + authToken },
+    cache: 'no-store',
+  })
+    .then(function(r) { return r.ok ? r.json() : Promise.reject(r.statusText); })
+    .then(function(data) { renderMetricsLive(data); })
+    .catch(function() {
+      document.getElementById('metrics-cards').innerHTML = '<div class="empty">Failed to load metrics.</div>';
+    });
+}
+
+function renderMetricsLive(d) {
+  const sections = [
+    { title: 'Inbound (Agent \u2192 Octroi)', tip: 'HTTP requests from agents hitting the /proxy endpoint', cards: [
+      { label: 'Total Requests', value: fmtNum(d.http.totalRequests), tip: 'Total proxy HTTP requests from agents since startup' },
+      { label: 'Error Rate', value: d.http.errorRate.toFixed(2) + '%', tip: 'Percentage of proxy requests that returned 4xx/5xx' },
+      { label: 'P50 Latency', value: fmtMs(d.http.p50Latency), tip: '50th percentile proxy request duration' },
+      { label: 'P95 Latency', value: fmtMs(d.http.p95Latency), tip: '95th percentile proxy request duration' },
+      { label: 'P99 Latency', value: fmtMs(d.http.p99Latency), tip: '99th percentile proxy request duration' },
+    ]},
+    { title: 'Management', tip: 'Non-proxy HTTP traffic: admin UI, API calls, metrics scrapes, login', cards: [
+      { label: 'Total Requests', value: fmtNum((d.management||{}).totalRequests), tip: 'Total management HTTP requests (UI, API, metrics) since startup' },
+      { label: 'Error Rate', value: ((d.management||{}).errorRate||0).toFixed(2) + '%', tip: 'Percentage of management requests that returned 4xx/5xx' },
+      { label: 'P50 Latency', value: fmtMs((d.management||{}).p50Latency), tip: '50th percentile management request duration' },
+      { label: 'P95 Latency', value: fmtMs((d.management||{}).p95Latency), tip: '95th percentile management request duration' },
+    ]},
+    { title: 'Upstream (Octroi \u2192 Tool)', tip: 'Requests forwarded from Octroi to upstream tool endpoints', cards: [
+      { label: 'Requests', value: fmtNum(d.proxy.totalRequests), tip: 'Total requests proxied to upstream tool endpoints' },
+      { label: 'Errors', value: fmtNum((d.server||{}).upstreamErrors), tip: 'Proxy requests that failed to reach the upstream tool (timeouts, DNS, connection errors)' },
+      { label: 'P50 Latency', value: fmtMs(d.proxy.p50Upstream), tip: '50th percentile upstream tool response time' },
+      { label: 'P95 Latency', value: fmtMs(d.proxy.p95Upstream), tip: '95th percentile upstream tool response time' },
+      { label: 'Active', value: fmtNum(d.proxy.activeRequests), tip: 'Requests currently in-flight to upstream tools' },
+    ]},
+    { title: 'Security', tip: 'Rate limiting, budget enforcement, and authentication events', cards: [
+      { label: 'Rate Limit Rejects', value: fmtNum(d.rateLimit.rejections), tip: 'Requests rejected due to agent or tool rate limits (HTTP 429)' },
+      { label: 'Budget Rejects', value: fmtNum(d.budget.rejections), tip: 'Requests rejected due to agent or global tool budget limits' },
+      { label: 'Auth Failures', value: fmtNum(d.auth.failures), tip: 'Failed authentication attempts (invalid API keys or sessions)' },
+      { label: 'Auth Successes', value: fmtNum(d.auth.successes), tip: 'Successful authentication attempts (agent keys and user sessions)' },
+    ]},
+    { title: 'Collector', tip: 'Metering collector that buffers and flushes usage data to the database', cards: [
+      { label: 'Buffer Size', value: fmtNum(d.collector.bufferSize), tip: 'Metering transactions buffered in memory awaiting flush to database' },
+      { label: 'Total Flushes', value: fmtNum(d.collector.totalFlushes), tip: 'Total metering collector flush operations (both successful and failed)' },
+      { label: 'Flush Errors', value: fmtNum(d.collector.flushErrors), tip: 'Metering collector flushes that failed to write to the database' },
+      { label: 'Transactions', value: fmtNum(d.collector.transactions), tip: 'Total metering transactions recorded (proxy calls tracked for billing/usage)' },
+    ]},
+    { title: 'System', tip: 'Server uptime and PostgreSQL connection pool status', cards: [
+      { label: 'Uptime', value: fmtUptime((d.server||{}).uptimeSeconds), tip: 'Time since the Octroi server process started' },
+      { label: 'DB Total Conns', value: fmtNum(d.db.totalConns), tip: 'Total connections in the PostgreSQL connection pool' },
+      { label: 'DB Idle Conns', value: fmtNum(d.db.idleConns), tip: 'Idle (available) connections in the database pool' },
+      { label: 'DB Acquired', value: fmtNum(d.db.acquiredConns), tip: 'Database connections currently in use by active queries' },
+    ]},
+  ];
+  renderMetricsSections(sections);
+}
+
+function renderMetricsSections(sections) {
+  document.getElementById('metrics-cards').innerHTML = sections.map(s =>
+    '<div class="metrics-section"><div class="metrics-section-title has-tooltip">' + esc(s.title) + (s.tip ? '<span class="tip">' + esc(s.tip) + '</span>' : '') + '</div><div class="cards">' +
+    s.cards.map(c =>
+      '<div class="card has-tooltip"><span class="tip">' + esc(c.tip) + '</span><div class="label">' + esc(c.label) + '</div><div class="value">' + esc(c.value) + '</div></div>'
+    ).join('') + '</div></div>'
+  ).join('');
+}
+
+function fmtNum(n) { return n == null ? '0' : Number(n).toLocaleString(); }
+function fmtMs(s) { return s == null || s === 0 ? '0ms' : s < 1 ? (s * 1000).toFixed(1) + 'ms' : s.toFixed(3) + 's'; }
+function fmtUptime(s) {
+  if (s == null || s <= 0) return '0s';
+  var d = Math.floor(s / 86400), h = Math.floor((s % 86400) / 3600), m = Math.floor((s % 3600) / 60), sec = Math.floor(s % 60);
+  if (d > 0) return d + 'd ' + h + 'h ' + m + 'm ' + sec + 's';
+  if (h > 0) return h + 'h ' + m + 'm ' + sec + 's';
+  if (m > 0) return m + 'm ' + sec + 's';
+  return sec + 's';
 }
 </script>
 </body>
