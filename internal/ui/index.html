@@ -1677,8 +1677,9 @@ function renderTeams() {
       ? t.users.map(u => {
           const teamBadge = `<span class="role-badge${u.team_role === 'admin' ? ' admin' : ''}">${esc(u.team_role || 'member')}</span>`;
           const removeDis = canManage ? '' : ' disabled title="Team admin or org admin only"';
-          const nameEmail = u.name ? `${esc(u.name)} <${esc(u.email)}>` : esc(u.email);
-          return `<li><span class="team-user-name">${nameEmail}</span>${teamBadge}<button class="btn-danger btn-sm" onclick="removeTeamMember('${esc(t.name)}','${u.id}','${esc(u.name || u.email)}')"${removeDis}>Remove</button></li>`;
+          const nameEmail = u.name ? `${esc(u.name)} &lt;${esc(u.email)}&gt;` : esc(u.email);
+          const fullTitle = u.name ? `${u.name} <${u.email}>` : u.email;
+          return `<li><span class="team-user-name" title="${esc(fullTitle)}">${nameEmail}</span>${teamBadge}<button class="btn-danger btn-sm" onclick="removeTeamMember('${esc(t.name)}','${u.id}','${esc(u.name || u.email)}')"${removeDis}>Remove</button></li>`;
         }).join('')
       : '<li style="color:var(--text2)">No users</li>';
 
