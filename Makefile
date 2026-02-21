@@ -1,6 +1,3 @@
--include .env
-export
-
 .PHONY: dev dev\:seed prod db clean
 
 CONFIG := configs/octroi.yaml

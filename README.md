@@ -4,312 +4,141 @@
 
 > _octroi (ok-TWAH) — where duties are collected on goods entering a town_
 
-A gateway that sits between AI agents and the tools/APIs they consume, providing discovery, authenticated proxying, rate limiting, budget enforcement, and usage metering.
-
-## Quickstart
-
-### Prerequisites
-
-- Go 1.23+
-- Docker and Docker Compose
-
-### 1. Configure
-
-```bash
-cp configs/octroi.example.yaml configs/octroi.yaml
-cp .env.example .env
-```
-
-### 2. Run
-
-```bash
-make dev
-```
-
-This starts Postgres, runs migrations, ensures the admin user exists, and starts the server. To also seed demo tools, agents, users, and sample transactions:
-
-```bash
-make dev:seed
-```
-
-For production (compiled binary):
-
-```bash
-make prod
-```
-
-### 3. Try it
-
-```bash
-# Health check (unauthenticated)
-curl http://localhost:8080/health
-
-# Search for tools (unauthenticated)
-curl 'http://localhost:8080/api/v1/tools/search?q=crypto'
-
-# Proxy a request through the gateway (agent key required)
-curl -H "Authorization: Bearer $OCTROI_DEMO_AGENT_KEY" \
-  "http://localhost:8080/proxy/$TOOL_ID/api/v3/simple/price?ids=bitcoin&vs_currencies=usd"
-
-# Check your usage (agent key required)
-curl -H "Authorization: Bearer $OCTROI_DEMO_AGENT_KEY" \
-  http://localhost:8080/api/v1/usage
-```
-
-Admin operations (creating tools, agents, managing users and teams) are done through the web UI at `/ui` using email/password login.
-
-## Architecture
-
-Octroi has six core subsystems:
-
-- **Registry** -- Tool providers register API endpoints; agents discover them via search or the well-known manifest. Tools can be registered in **Service** mode (static endpoint URL) or **API** mode (template endpoint with variable substitution, e.g. `https://{instance}.atlassian.net/rest/api/3`).
-- **Proxy** -- Receives agent requests, strips the gateway prefix, resolves template variables for API-mode tools, injects tool credentials, and forwards to the upstream API.
-- **Metering** -- Every proxied request is logged asynchronously (agent, tool, timestamp, latency, status, sizes) using batched writes.
-- **Auth** -- Agents authenticate with `octroi_`-prefixed API keys (SHA-256 hashed at rest). Users authenticate via email/password sessions with role-based access (org_admin / member).
-- **Rate Limiting** -- In-memory token bucket per agent and per tool, with optional per-tool overrides scoped to teams or individual agents. The stricter limit wins. Returns standard `X-RateLimit-*` headers.
-- **Budget Enforcement** -- Per-agent per-tool budgets (daily/monthly) and global per-tool budget caps. Requests are rejected with HTTP 403 when a budget is exceeded.
+A self-hosted gateway between your AI agents and the APIs they use. Octroi handles credential injection, rate limiting, budget enforcement, and usage metering — so your agents don't need direct access to API keys.
 
 ```
 Agent --> Octroi Gateway --> Tool Provider API
             |
-            +-- Registry (search/list)
-            +-- Auth (agent key / user session)
-            +-- Rate Limiter (token bucket)
-            +-- Budget Enforcer (per-agent + global)
-            +-- Metering (async batch writes to Postgres)
+            +-- Auth, Rate Limiting, Budgets, Metering
 ```
 
-## Tool Modes
+## Deploy
 
-Tools can be registered in one of two modes:
+### Quick start (bundled Postgres)
 
-### Service mode (default)
+The fastest way to try Octroi — runs everything in Docker:
 
-The endpoint is a static URL pointing to a running service. The gateway proxies requests directly.
+```bash
+git clone https://github.com/anthropics/octroi.git && cd octroi
+cp configs/octroi.example.yaml configs/octroi.yaml
 
-```json
-{
-  "mode": "service",
-  "endpoint": "https://api.example.com/v1",
-  "auth_type": "bearer",
-  "auth_config": {"key": "sk-..."}
-}
+# Set a strong Postgres password
+export POSTGRES_PASSWORD=changeme
+
+docker compose -f docker-compose.prod.yml up -d
 ```
 
-### API mode
+### Production (bring your own Postgres)
 
-The endpoint is a URL template with `{placeholder}` variables. Variables are stored alongside the tool and resolved at proxy time. This is useful for standard APIs (Jira, Slack, GitHub) where users just need to provide credentials and instance-specific values -- no separate service to deploy.
+For production, point Octroi at your existing Postgres instance. Edit `configs/octroi.yaml`:
 
-```json
-{
-  "mode": "api",
-  "endpoint": "https://{instance}.atlassian.net/rest/api/3",
-  "variables": {"instance": "mycompany"},
-  "auth_type": "bearer",
-  "auth_config": {"key": "sk-..."}
-}
+```yaml
+database:
+  url: "postgres://octroi:STRONG_PASSWORD@your-db-host:5432/octroi?sslmode=require"
+
+encryption:
+  key: ""  # generate with: openssl rand -hex 32
 ```
 
-Template placeholders use the pattern `{variable_name}` (alphanumeric, hyphens, underscores, max 64 chars). All placeholders must have a matching variable or validation will fail.
+Then run the Octroi container (or binary) with just your config:
 
-## Auth Types
+```bash
+docker run -v ./configs/octroi.yaml:/etc/octroi.yaml \
+  octroi serve --config /etc/octroi.yaml
+```
 
-Tools support four credential injection methods:
+Octroi runs migrations automatically on startup. Open **http://localhost:8080/ui** and log in with the default admin account (`admin@octroi.dev` / `octroi`). **Change this password immediately.**
 
-| Auth type | Behaviour |
-|-----------|-----------|
-| `none` | No credentials injected |
-| `bearer` | Sets `Authorization: Bearer {key}` header |
-| `header` | Sets `{header_name}: {key}` custom header |
-| `query` | Appends `{param_name}={key}` as a URL query parameter (default param: `api_key`) |
+## Register Tools
 
-## API Endpoints
+Tools are the external APIs your agents will call through the gateway. In the UI:
 
-### Public (unauthenticated)
+1. Go to the **Tools** tab and click **New Tool**
+2. Give it a name and description (agents discover tools by searching these)
+3. Choose a mode:
+   - **Service** — a static endpoint URL (e.g. `https://api.openweathermap.org`)
+   - **API** — a URL template with `{placeholders}` for multi-tenant APIs (e.g. `https://{instance}.atlassian.net/rest/api/3`)
+4. Set the auth type to match what the upstream API expects:
+   | Auth type | What Octroi does |
+   |-----------|-----------------|
+   | `none` | No credentials injected |
+   | `bearer` | Adds `Authorization: Bearer <key>` |
+   | `header` | Adds a custom header |
+   | `query` | Appends an API key as a query parameter |
+5. Enter the upstream API credentials — these are encrypted at rest
+6. Optionally set pricing, rate limits, and budget caps
 
-| Method | Path | Description |
-|--------|------|-------------|
-| GET | `/health` | Health check |
-| GET | `/.well-known/octroi.json` | Self-describing manifest |
-| GET | `/api/v1/tools/search?q=` | Search tools by name/description |
-| GET | `/api/v1/tools` | List all tools |
-| GET | `/api/v1/tools/{id}` | Get tool details |
-| POST | `/api/v1/auth/login` | User login (returns session token) |
+## Create Agents
 
-### Authenticated user (requires session token)
+Agents are the AI systems that call tools through the gateway. In the UI:
 
-| Method | Path | Description |
-|--------|------|-------------|
-| GET | `/api/v1/auth/me` | Get current user info |
-| POST | `/api/v1/auth/logout` | End session |
+1. Go to the **Agents** tab and click **New Agent**
+2. Give it a name and assign it to a team
+3. Copy the generated API key (`octroi_...`) — **this is shown only once**
+4. Give the key to your agent. All requests use a single auth header:
+   ```
+   Authorization: Bearer octroi_<key>
+   ```
 
-### Agent (requires `Authorization: Bearer <agent-key>`)
+## How Agents Use the Gateway
 
-| Method | Path | Description |
-|--------|------|-------------|
-| GET | `/api/v1/agents/me` | Get current agent info |
-| GET | `/api/v1/usage` | Get own usage summary |
-| GET | `/api/v1/usage/transactions` | List own transactions |
-| ANY | `/proxy/{toolID}/*` | Proxy request to a registered tool |
+Agents discover tools, then proxy requests through Octroi:
 
-### Member (requires user session)
+```bash
+# Discover available tools (unauthenticated)
+curl https://your-octroi.example.com/api/v1/tools
 
-| Method | Path | Description |
-|--------|------|-------------|
-| GET | `/api/v1/member/agents` | List agents visible to member |
-| POST | `/api/v1/member/agents` | Create agent within own team |
-| PUT | `/api/v1/member/agents/{id}` | Update own team's agent |
-| DELETE | `/api/v1/member/agents/{id}` | Delete own team's agent |
-| POST | `/api/v1/member/agents/{id}/regenerate-key` | Regenerate agent API key |
-| GET | `/api/v1/member/tools` | List tools |
-| GET | `/api/v1/member/usage` | Own team's usage summary |
-| GET | `/api/v1/member/usage/transactions` | Own team's transactions |
-| GET | `/api/v1/member/teams` | List teams visible to member |
-| PUT | `/api/v1/member/teams/{team}/members/{userId}` | Add member to team |
-| DELETE | `/api/v1/member/teams/{team}/members/{userId}` | Remove member from team |
-| GET | `/api/v1/member/users` | List users |
-| PUT | `/api/v1/member/users/me` | Update own profile |
-| PUT | `/api/v1/member/users/me/password` | Change own password |
+# Call a tool through the gateway
+curl -H "Authorization: Bearer octroi_<key>" \
+  "https://your-octroi.example.com/proxy/TOOL_ID/api/v3/simple/price?ids=bitcoin&vs_currencies=usd"
 
-### Admin (requires org_admin session)
+# Check usage
+curl -H "Authorization: Bearer octroi_<key>" \
+  https://your-octroi.example.com/api/v1/usage
+```
 
-| Method | Path | Description |
-|--------|------|-------------|
-| POST | `/api/v1/admin/tools` | Register a tool |
-| GET | `/api/v1/admin/tools` | List all tools (admin view with endpoint/auth) |
-| PUT | `/api/v1/admin/tools/{id}` | Update a tool |
-| DELETE | `/api/v1/admin/tools/{id}` | Delete a tool |
-| GET | `/api/v1/admin/tools/{toolID}/rate-limits` | List tool rate limit overrides |
-| PUT | `/api/v1/admin/tools/{toolID}/rate-limits` | Set tool rate limit override |
-| DELETE | `/api/v1/admin/tools/{toolID}/rate-limits/{scope}/{scopeID}` | Delete tool rate limit override |
-| POST | `/api/v1/admin/agents` | Register an agent (returns API key) |
-| GET | `/api/v1/admin/agents` | List agents |
-| PUT | `/api/v1/admin/agents/{id}` | Update an agent |
-| DELETE | `/api/v1/admin/agents/{id}` | Delete an agent |
-| POST | `/api/v1/admin/agents/{id}/regenerate-key` | Regenerate agent API key |
-| PUT | `/api/v1/admin/agents/{agentID}/budgets/{toolID}` | Set agent budget for a tool |
-| GET | `/api/v1/admin/agents/{agentID}/budgets/{toolID}` | Get agent budget for a tool |
-| GET | `/api/v1/admin/agents/{agentID}/budgets` | List agent budgets |
-| POST | `/api/v1/admin/users` | Create a user |
-| GET | `/api/v1/admin/users` | List users |
-| PUT | `/api/v1/admin/users/{id}` | Update a user |
-| DELETE | `/api/v1/admin/users/{id}` | Delete a user |
-| GET | `/api/v1/admin/teams` | List all teams |
-| GET | `/api/v1/admin/usage` | Global usage summary |
-| GET | `/api/v1/admin/usage/agents/{agentID}` | Usage by agent |
-| GET | `/api/v1/admin/usage/tools/calls` | Tool call counts |
-| GET | `/api/v1/admin/usage/tools/{toolID}` | Usage by tool |
-| GET | `/api/v1/admin/usage/agents/{agentID}/tools/{toolID}` | Usage by agent+tool |
-| GET | `/api/v1/admin/usage/transactions` | List all transactions |
+The gateway strips the `/proxy/TOOL_ID` prefix, injects tool credentials, and forwards the request upstream. The response is returned as-is.
 
-## Admin UI
+See [docs/agent-guide.md](docs/agent-guide.md) for a full agent integration reference.
 
-Octroi includes a built-in dashboard at `/ui` -- a single embedded HTML page with no build step or external dependencies.
+## Teams & Budgets
 
-Navigate to `http://localhost:8080/ui` and log in with your email and password.
+- **Teams** group agents and users. Members can manage agents within their team.
+- **Budgets** set per-agent per-tool spending limits (daily/monthly) and global per-tool caps. Requests exceeding a budget get HTTP 403.
+- **Rate limits** default to 60 req/min per agent, with per-tool overrides scoped to teams or individual agents.
 
-The dashboard has five tabs:
-
-- **Agents** -- Create, edit, delete agents. Regenerate API keys. Set team assignments.
-- **Tools** -- Create, edit, delete tools. Configure mode (Service/API), endpoint, auth, pricing, budgets, and per-tool rate limit overrides (by team or agent).
-- **Usage** -- Live and historical views. SVG stacked bar chart with hover tooltips. Filter by agent, tool, or team. Transaction table with cursor-based pagination.
-- **Teams** -- View team membership. Add/remove members. Create new teams.
-- **Users** -- Admin: full user CRUD. Members: edit own profile.
-
-Seed users (from `octroi seed`):
-
-- `admin@octroi.dev` / `octroi` -- org admin (full access)
-- `user1@octroi.dev` / `octroi` -- member, team alpha admin
-- `user2@octroi.dev` / `octroi` -- member, team alpha
-- `user3@octroi.dev` / `octroi` -- member, team beta admin
+Configure all of these from the **Tools** and **Agents** tabs in the UI.
 
 ## Security
 
-- **API key hashing** -- Agent API keys are SHA-256 hashed before storage. Only the `octroi_` prefix is retained for identification.
-- **Credential encryption** -- Tool auth credentials (`auth_config`) can be AES-256-GCM encrypted at rest. Set `encryption.key` or `OCTROI_ENCRYPTION_KEY` with a hex-encoded 32-byte key. Generate one with `openssl rand -hex 32`. When no key is configured, credentials are stored as plaintext JSON (backward compatible).
-- **CORS** -- Configurable allowed origins via `cors.allowed_origins`. Empty list = same-origin only.
-- **Secure headers** -- `X-Content-Type-Options: nosniff`, `X-Frame-Options: DENY`, `Referrer-Policy: strict-origin-when-cross-origin`.
-- **Request IDs** -- Every request gets an `X-Request-ID` header (generated or forwarded) for tracing.
-- **Login rate limiting** -- 5 attempts per IP per minute on the login endpoint.
-- **Session cleanup** -- Expired sessions are automatically purged hourly.
-- **No open proxy** -- The gateway only forwards to registered tool endpoints.
+- Agent API keys are SHA-256 hashed at rest
+- Tool credentials are AES-256-GCM encrypted (when `OCTROI_ENCRYPTION_KEY` is set)
+- Login rate limiting (5/min/IP), automatic session cleanup
+- CORS, secure headers, request ID tracing
+- The gateway only proxies to registered tool endpoints — no open proxy
 
-## Configuration
-
-Octroi loads configuration from a YAML file specified with `--config`. Values in the YAML can reference environment variables using `${VAR}` syntax. Additionally, the following environment variables override config values directly:
-
-| Config key | YAML path | Env override | Default |
-|------------|-----------|--------------|---------|
-| Server host | `server.host` | `OCTROI_HOST` | `0.0.0.0` |
-| Server port | `server.port` | `OCTROI_PORT` | `8080` |
-| Read timeout | `server.read_timeout` | -- | `30s` |
-| Write timeout | `server.write_timeout` | -- | `30s` |
-| Database URL | `database.url` | `OCTROI_DATABASE_URL` | `postgres://octroi:octroi@localhost:5433/octroi?sslmode=disable` |
-| Proxy timeout | `proxy.timeout` | -- | `30s` |
-| Max request size | `proxy.max_request_size` | -- | `10485760` (10 MB) |
-| Metering batch size | `metering.batch_size` | -- | `100` |
-| Metering flush interval | `metering.flush_interval` | -- | `5s` |
-| Default rate limit | `rate_limit.default` | -- | `60` req/min |
-| Rate limit window | `rate_limit.window` | -- | `1m` |
-| CORS origins | `cors.allowed_origins` | -- | `[]` (same-origin) |
-| Encryption key | `encryption.key` | `OCTROI_ENCRYPTION_KEY` | -- (disabled) |
-
-See `configs/octroi.example.yaml` for a complete example.
-
-## Development
-
-### Run tests
-
-```bash
-go test ./...
-```
-
-### Build binary
-
-```bash
-go build -o octroi ./cmd/octroi
-./octroi version
-```
-
-### CLI commands
+<details>
+<summary><strong>CLI Reference</strong></summary>
 
 ```
 octroi serve           # Start the gateway server
-octroi migrate         # Run database migrations (up)
+octroi migrate         # Run database migrations
 octroi migrate down    # Rollback all migrations
-octroi seed            # Seed demo tools, agents, users, and transactions
+octroi seed            # Seed demo data (tools, agents, users, transactions)
 octroi ensure-admin    # Ensure the default admin account exists
 octroi version         # Print version
 ```
 
-### Make targets
+</details>
 
-```
-make dev          # Start Postgres, migrate, ensure admin, serve (hot reload via go run)
-make dev:seed     # Same as dev but also seeds demo data
-make prod         # Build binary, migrate, serve (expects external Postgres)
-make db           # Start local Postgres via Docker (for testing prod locally)
-make clean        # Remove binary, tear down containers and volumes
-```
+## Configuration
 
-### Docker production deployment
+All configuration lives in `configs/octroi.yaml`. See [`configs/octroi.example.yaml`](configs/octroi.example.yaml) for all options with defaults. Values can reference environment variables with `${VAR}` syntax.
 
-A production-ready Docker Compose file is included:
+## Contributing
 
-```bash
-# Set a strong Postgres password
-export POSTGRES_PASSWORD=changeme
-
-# Build and start
-docker compose -f docker-compose.prod.yml up -d
-```
-
-This starts the Octroi container and a Postgres instance. The Octroi container automatically runs migrations on startup.
-
-### CI
-
-GitHub Actions CI runs on every push and PR to `main`: `go vet`, `go build`, `go test -race`, and migration verification against a real Postgres instance.
+See [DEVELOPING.md](DEVELOPING.md) for local development setup, architecture, testing, and the full API reference.
 
 ## License
 
-Apache 2.0 -- see [LICENSE](LICENSE).
+Business Source License 1.1 — see [LICENSE](LICENSE). Free to use, modify, and self-host. Production use is permitted except offering Octroi as a hosted service competing with the Licensed Work. Each release converts to Apache 2.0 after 4 years.

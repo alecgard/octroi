@@ -22,7 +22,6 @@ Thumbs.db
 
 # Config with secrets
 configs/octroi.yaml
-.env
 
 # Docker volumes
 pgdata/

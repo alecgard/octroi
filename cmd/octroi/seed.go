@@ -1,13 +1,10 @@
 package main
 
 import (
-	"bufio"
 	"context"
 	"fmt"
 	"log/slog"
 	"math/rand"
-	"os"
-	"strings"
 	"time"
 
 	"github.com/alecgard/octroi/internal/agent"
@@ -196,12 +193,11 @@ func runSeed(cmd *cobra.Command, args []string) error {
 
 	// Seed demo agents (skip each if already exists).
 	demoAgents := []struct {
-		Name    string
-		Team    string
-		EnvKey  string
+		Name string
+		Team string
 	}{
-		{"demo-agent", "alpha", "OCTROI_DEMO_AGENT_KEY"},
-		{"scraper-bot", "beta", ""},
+		{"demo-agent", "alpha"},
+		{"scraper-bot", "beta"},
 	}
 
 	existingAgents, _, _ := agentStore.List(ctx, agent.AgentListParams{Limit: 100})
@@ -234,13 +230,6 @@ func runSeed(cmd *cobra.Command, args []string) error {
 		slog.Info("created agent", "id", ag.ID, "name", ag.Name)
 		fmt.Printf("\nAgent: %s (%s)\n", ag.Name, ag.ID)
 		fmt.Printf("API Key: %s\n", plaintext)
-		if da.EnvKey != "" {
-			if err := setEnvKey(".env", da.EnvKey, plaintext); err != nil {
-				slog.Warn("could not write agent key to .env", "error", err)
-			} else {
-				slog.Info("wrote agent key to .env", "key", da.EnvKey)
-			}
-		}
 		if firstTool != nil && da.Name == "demo-agent" {
 			fmt.Printf("\nTry it:\n")
 			fmt.Printf("  curl -H 'Authorization: Bearer %s' http://localhost:8080/proxy/%s/api/v3/simple/price?ids=bitcoin&vs_currencies=usd\n", plaintext, firstTool.ID)
@@ -323,33 +312,3 @@ func runSeed(cmd *cobra.Command, args []string) error {
 	return nil
 }
 
-// setEnvKey upserts a KEY=value line in a .env file.
-func setEnvKey(path, key, value string) error {
-	line := key + "=" + value
-	prefix := key + "="
-
-	// Read existing content.
-	content, err := os.ReadFile(path)
-	if err != nil && !os.IsNotExist(err) {
-		return err
-	}
-
-	var lines []string
-	replaced := false
-	if len(content) > 0 {
-		sc := bufio.NewScanner(strings.NewReader(string(content)))
-		for sc.Scan() {
-			if strings.HasPrefix(sc.Text(), prefix) {
-				lines = append(lines, line)
-				replaced = true
-			} else {
-				lines = append(lines, sc.Text())
-			}
-		}
-	}
-	if !replaced {
-		lines = append(lines, line)
-	}
-
-	return os.WriteFile(path, []byte(strings.Join(lines, "\n")+"\n"), 0644)
-}
