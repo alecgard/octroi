@@ -195,11 +195,11 @@ tbody tr:hover { background: var(--surface); }
 /* Confirm dialog */
 .confirm-modal .modal { max-width: 360px; }
 .confirm-modal .confirm-msg { font-size: 12px; line-height: 1.5; margin-bottom: 14px; }
-.btn-danger {
+.btn-danger-fill {
   background: #c33; color: #fff; border: 1px solid #c33;
   padding: 4px 14px; font-size: 11px; font-family: var(--font); font-weight: 600; cursor: pointer;
 }
-.btn-danger:hover { background: #a22; border-color: #a22; }
+.btn-danger-fill:hover { background: #a22; border-color: #a22; }
 /* Toast */
 .toast {
   position: fixed; bottom: 20px; left: 50%; transform: translateX(-50%);
@@ -813,6 +813,19 @@ body.shift-held .txn-filter-pending { background: var(--surface2); }
       <label>Password *</label>
       <input type="password" id="user-password" placeholder="Password">
     </div>
+    <div id="user-change-password-group" style="display:none">
+      <div style="border-top:1px solid var(--border);margin:10px 0;padding-top:10px">
+        <label style="display:block;font-size:10px;color:var(--text2);font-weight:600;text-transform:uppercase;letter-spacing:0.5px;margin-bottom:6px">Change Password</label>
+        <div class="form-group">
+          <label>Current Password</label>
+          <input type="password" id="user-current-password" placeholder="Current password">
+        </div>
+        <div class="form-group">
+          <label>New Password</label>
+          <input type="password" id="user-new-password" placeholder="New password (min 6 chars)">
+        </div>
+      </div>
+    </div>
     <div class="form-group">
       <label>Name</label>
       <input type="text" id="user-name-input" placeholder="Full name">
@@ -879,7 +892,7 @@ body.shift-held .txn-filter-pending { background: var(--surface2); }
     <div class="confirm-msg" id="confirm-msg"></div>
     <div class="modal-actions">
       <button class="btn-ghost" id="confirm-cancel">Cancel</button>
-      <button class="btn-danger" id="confirm-ok">Delete</button>
+      <button class="btn-danger-fill" id="confirm-ok">Delete</button>
     </div>
   </div>
 </div>
@@ -894,7 +907,7 @@ function appConfirm(msg, { title = 'Confirm', okLabel = 'Delete' } = {}) {
     document.getElementById('confirm-msg').textContent = msg;
     const okBtn = document.getElementById('confirm-ok');
     okBtn.textContent = okLabel;
-    okBtn.className = okLabel === 'Delete' || okLabel === 'Remove' ? 'btn-danger' : 'btn-primary';
+    okBtn.className = okLabel === 'Delete' || okLabel === 'Remove' ? 'btn-danger-fill' : 'btn-primary';
     document.getElementById('confirm-modal').classList.add('open');
     const cleanup = (val) => {
       document.getElementById('confirm-modal').classList.remove('open');
@@ -1100,6 +1113,11 @@ function api(method, path, body) {
   if (body) opts.body = JSON.stringify(body);
   return fetch(path, opts).then(async r => {
     if (r.status === 204) return null;
+    if (r.status === 401 && authMode === 'session') {
+      clearSession();
+      location.reload();
+      throw new Error('Session expired');
+    }
     const data = await r.json();
     if (!r.ok) throw new Error((data.error && data.error.message) || r.statusText);
     return data;
@@ -1838,7 +1856,7 @@ async function loadUsageLive() {
       const displayTotal = txnTotal > 0 ? txnTotal : (txnOffset + txnAll.length);
       document.getElementById('txn-page-info').textContent = `${txnOffset + 1}–${txnOffset + txnAll.length} of ${displayTotal}`;
     }
-  } catch (e) { console.error('Failed to load live usage', e); }
+  } catch (e) { console.error('Failed to load live usage', e); hideUsageLoading(); }
 }
 
 function renderTxnTable(prevTimestamp) {
@@ -2010,7 +2028,7 @@ async function loadUsage() {
     txnOffset = 0;
     renderUsageChart((chartTxns.transactions || chartTxns) || txnAll);
     renderTxnTable();
-  } catch (e) { console.error('Failed to load usage', e); }
+  } catch (e) { console.error('Failed to load usage', e); hideUsageLoading(); }
 }
 
 function showUsageLoading() {
@@ -2118,8 +2136,19 @@ function openUserModal(u) {
   document.getElementById('user-name-input').value = u ? u.name || '' : '';
   document.getElementById('user-role').value = u ? u.role || 'member' : 'member';
   document.getElementById('user-role').disabled = isSelfEdit;
-  // Password is optional when editing
-  document.getElementById('user-password-group').querySelector('label').textContent = u ? 'Password (leave blank to keep)' : 'Password *';
+  // Password fields: admin edit uses inline password field, self-edit uses change password section
+  const pwGroup = document.getElementById('user-password-group');
+  const changePwGroup = document.getElementById('user-change-password-group');
+  if (isSelfEdit) {
+    pwGroup.style.display = 'none';
+    changePwGroup.style.display = '';
+    document.getElementById('user-current-password').value = '';
+    document.getElementById('user-new-password').value = '';
+  } else {
+    pwGroup.style.display = '';
+    changePwGroup.style.display = 'none';
+    pwGroup.querySelector('label').textContent = u ? 'Password (leave blank to keep)' : 'Password *';
+  }
   document.getElementById('user-modal').classList.add('open');
 }
 
@@ -2138,14 +2167,20 @@ async function submitUser() {
   if (id) {
     const isSelf = currentUser && id === currentUser.id;
     if (!isAdmin && isSelf) {
-      // Member self-edit: only name and password via member endpoint.
-      const body = {};
-      if (name !== undefined) body.name = name;
-      if (password) body.password = password;
+      // Member self-edit: name via /users/me, password via /users/me/password.
       try {
+        const body = {};
+        if (name !== undefined) body.name = name;
         await api('PUT', '/api/v1/member/users/me', body);
+        // Handle password change separately if fields are filled.
+        const currentPw = document.getElementById('user-current-password').value;
+        const newPw = document.getElementById('user-new-password').value;
+        if (currentPw && newPw) {
+          if (newPw.length < 6) { toast('New password must be at least 6 characters'); return; }
+          await api('PUT', '/api/v1/member/users/me/password', { current_password: currentPw, new_password: newPw });
+          toast('Password changed');
+        }
         closeModal('user-modal');
-        // Update cached currentUser name.
         if (body.name !== undefined) {
           currentUser.name = body.name;
           document.querySelector('.user-name').textContent = currentUser.name || currentUser.email;
