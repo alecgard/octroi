@@ -2597,7 +2597,7 @@ function renderUsageChart(txns) {
   const maxCount = Math.max(chartType === 'requests' ? 1 : 0.001, ...buckets.map(b => Math.max(0, ...groups.map(g => b[g] || 0))));
 
   const yStep = chartType === 'requests' ? Math.max(1, Math.ceil(maxCount / 4)) : niceStep(maxCount);
-  const yMax = yStep * 4;
+  const yMax = chartType === 'requests' ? yStep * 4 : Math.ceil(maxCount / yStep) * yStep;
   const yTicks = [];
   for (let v = 0; v <= yMax; v += yStep) yTicks.push(v);
 
