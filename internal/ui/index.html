@@ -428,7 +428,15 @@ body.shift-held .txn-filter-pending { background: var(--surface2); }
   text-overflow: ellipsis;
   white-space: nowrap;
   flex-shrink: 0;
+  position: relative;
+  cursor: default;
 }
+.team-section li .team-user-name .tip {
+  display: none; position: absolute; bottom: 100%; left: 0;
+  background: var(--text); color: var(--bg); padding: 4px 8px; font-size: 10px;
+  font-weight: 400; white-space: nowrap; z-index: 10; margin-bottom: 4px;
+}
+.team-section li .team-user-name:hover .tip { display: block; }
 .team-section li .role-badge { width: 52px; text-align: center; box-sizing: border-box; flex-shrink: 0; }
 .team-section li .mono {
   color: var(--text2);
@@ -1678,8 +1686,8 @@ function renderTeams() {
           const teamBadge = `<span class="role-badge${u.team_role === 'admin' ? ' admin' : ''}">${esc(u.team_role || 'member')}</span>`;
           const removeDis = canManage ? '' : ' disabled title="Team admin or org admin only"';
           const nameEmail = u.name ? `${esc(u.name)} &lt;${esc(u.email)}&gt;` : esc(u.email);
-          const fullTitle = u.name ? `${u.name} <${u.email}>` : u.email;
-          return `<li><span class="team-user-name" title="${esc(fullTitle)}">${nameEmail}</span>${teamBadge}<button class="btn-danger btn-sm" onclick="removeTeamMember('${esc(t.name)}','${u.id}','${esc(u.name || u.email)}')"${removeDis}>Remove</button></li>`;
+          const fullTip = u.name ? `${esc(u.name)} &lt;${esc(u.email)}&gt;` : esc(u.email);
+          return `<li><span class="team-user-name">${nameEmail}<span class="tip">${fullTip}</span></span>${teamBadge}<button class="btn-danger btn-sm" onclick="removeTeamMember('${esc(t.name)}','${u.id}','${esc(u.name || u.email)}')"${removeDis}>Remove</button></li>`;
         }).join('')
       : '<li style="color:var(--text2)">No users</li>';
 
