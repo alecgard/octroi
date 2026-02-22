@@ -43,10 +43,19 @@ Requires: curl, jq, python3. Backfill additionally requires psql and bc.
 ```
 make dev          # Start Postgres, migrate, ensure admin, serve (hot reload via go run)
 make dev:seed     # Same as dev but also seeds demo data
-make prod         # Build binary, migrate, serve (expects external Postgres)
-make db           # Start local Postgres via Docker (for testing prod locally)
-make clean        # Remove binary, tear down containers and volumes
+make prod         # Build binary, start prod Postgres, migrate, serve (port 9080)
+make db           # Start dev Postgres via Docker (port 5433)
+make db:prod      # Start prod Postgres via Docker (port 5434)
+make clean        # Remove binary, tear down all containers and volumes
 ```
+
+Dev and prod use separate ports and Docker volumes so they can run simultaneously:
+
+| | Dev | Prod |
+|---|---|---|
+| Server | localhost:8080 | localhost:9080 |
+| Postgres | localhost:5433 | localhost:5434 |
+| Config | `configs/octroi.yaml` | `configs/octroi.prod.yaml` |
 
 ### CLI Commands
 

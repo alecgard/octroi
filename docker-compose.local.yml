@@ -1,0 +1,19 @@
+services:
+  postgres:
+    image: postgres:16-alpine
+    environment:
+      POSTGRES_USER: octroi
+      POSTGRES_PASSWORD: octroi
+      POSTGRES_DB: octroi
+    ports:
+      - "5434:5432"
+    volumes:
+      - pgdata-prod:/var/lib/postgresql/data
+    healthcheck:
+      test: ["CMD-SHELL", "pg_isready -U octroi"]
+      interval: 5s
+      timeout: 5s
+      retries: 5
+
+volumes:
+  pgdata-prod:

@@ -23,7 +23,7 @@ Agent --> Octroi Gateway --> Tool Provider API
 The fastest way to try Octroi — runs everything in Docker:
 
 ```bash
-git clone https://github.com/anthropics/octroi.git && cd octroi
+git clone https://github.com/alecgard/octroi.git && cd octroi
 cp configs/octroi.example.yaml configs/octroi.yaml
 
 # Set a strong Postgres password
