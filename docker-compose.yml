@@ -3,7 +3,7 @@ services:
     image: postgres:16-alpine
     environment:
       POSTGRES_USER: octroi
-      POSTGRES_PASSWORD: octroi
+      POSTGRES_PASSWORD: "${POSTGRES_PASSWORD:-octroi}"
       POSTGRES_DB: octroi
     ports:
       - "5433:5432"
