@@ -22,9 +22,11 @@ dev\:seed:
 		(go run ./cmd/octroi seed --config $(DEV_CONFIG) 2>/dev/null || true) && \
 		OCTROI_DEV=1 go run ./cmd/octroi serve --config $(DEV_CONFIG)
 
-# --- Prod: build binary, start Postgres, run migrations, serve ---
+# --- Prod (local): build binary, start Postgres, run migrations, serve ---
 prod: $(BIN)
 	@set -a && . ./$(PROD_ENV) && set +a && \
+		OCTROI_DATABASE_URL=$${OCTROI_DATABASE_URL:-postgres://octroi:$${POSTGRES_PASSWORD}@localhost:5434/octroi?sslmode=disable} && \
+		export OCTROI_DATABASE_URL && \
 		docker compose -f docker-compose.local.yml up -d --wait && \
 		./$(BIN) migrate --config $(PROD_CONFIG) && \
 		./$(BIN) serve --config $(PROD_CONFIG)
