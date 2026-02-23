@@ -20,8 +20,8 @@ coverage.txt
 .DS_Store
 Thumbs.db
 
-# Local env files
-.env*
+# Local env files (prod only — dev is committed)
+configs/.env.prod
 
 # Docker volumes
 pgdata/
