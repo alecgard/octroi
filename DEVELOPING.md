@@ -301,10 +301,9 @@ The dashboard has five tabs:
 ## Docker Production Deployment
 
 ```bash
-# Set a strong Postgres password
-export POSTGRES_PASSWORD=changeme
-
-# Build and start
+# Configure secrets in configs/.env.prod (see README for setup)
+# Then source and start
+set -a && . ./configs/.env.prod && set +a
 docker compose -f docker-compose.prod.yml up -d
 ```
 

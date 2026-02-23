@@ -18,21 +18,16 @@ Agent --> Octroi Gateway --> Tool Provider API
 
 ## Deploy
 
-### Quick start (bundled Postgres)
+### Quick start
 
-The fastest way to try Octroi — runs everything in Docker:
+The fastest way to try Octroi — starts Postgres in Docker and runs the server locally:
 
 ```bash
 git clone https://github.com/alecgard/octroi.git && cd octroi
-
-# Generate an encryption key for tool credential storage
-echo "OCTROI_ENCRYPTION_KEY=$(openssl rand -hex 32)" > configs/.env.prod
-
-# Set a strong Postgres password
-export POSTGRES_PASSWORD=changeme
-
-docker compose -f docker-compose.prod.yml up -d
+make dev
 ```
+
+Open **http://localhost:8080/ui** and log in with `admin@octroi.dev` / `octroi`.
 
 ### Production (bring your own Postgres)
 
@@ -57,7 +52,7 @@ docker run --env-file configs/.env.prod \
   octroi serve --config /etc/octroi.yaml
 ```
 
-Octroi runs migrations automatically on startup. Open **http://localhost:8080/ui** and log in with the default admin account (`admin@octroi.dev` / `octroi`). **Change this password immediately.**
+Octroi runs migrations automatically on startup. **Change the default admin password immediately** (`admin@octroi.dev` / `octroi`).
 
 ## Set Up Agents
 
