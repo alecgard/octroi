@@ -26,7 +26,8 @@ The fastest way to try Octroi — runs everything in Docker:
 git clone https://github.com/alecgard/octroi.git && cd octroi
 cp configs/octroi.example.yaml configs/octroi.yaml
 
-# Set a strong Postgres password
+# Generate an encryption key and set a strong Postgres password
+export OCTROI_ENCRYPTION_KEY=$(openssl rand -hex 32)
 export POSTGRES_PASSWORD=changeme
 
 docker compose -f docker-compose.prod.yml up -d
@@ -41,7 +42,7 @@ database:
   url: "postgres://octroi:STRONG_PASSWORD@your-db-host:5432/octroi?sslmode=require"
 
 encryption:
-  key: ""  # generate with: openssl rand -hex 32
+  key: "YOUR_KEY_HERE"  # REQUIRED — generate with: openssl rand -hex 32
 ```
 
 Then run the Octroi container (or binary) with just your config:
