@@ -8,10 +8,8 @@
 ## Local Development
 
 ```bash
-# Generate encryption key (once)
-export OCTROI_ENCRYPTION_KEY=$(openssl rand -hex 32)
-
 # Start Postgres, run migrations, ensure admin user, start server
+# (encryption key is loaded from configs/.env.dev automatically)
 make dev
 
 # Same as above but also seed demo tools, agents, users, and transactions

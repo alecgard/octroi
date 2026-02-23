@@ -25,8 +25,10 @@ The fastest way to try Octroi — runs everything in Docker:
 ```bash
 git clone https://github.com/alecgard/octroi.git && cd octroi
 
-# Generate an encryption key and set a strong Postgres password
-export OCTROI_ENCRYPTION_KEY=$(openssl rand -hex 32)
+# Generate an encryption key for tool credential storage
+echo "OCTROI_ENCRYPTION_KEY=$(openssl rand -hex 32)" > configs/.env.prod
+
+# Set a strong Postgres password
 export POSTGRES_PASSWORD=changeme
 
 docker compose -f docker-compose.prod.yml up -d
@@ -34,20 +36,23 @@ docker compose -f docker-compose.prod.yml up -d
 
 ### Production (bring your own Postgres)
 
-For production, point Octroi at your existing Postgres instance. Set environment variables and edit `configs/octroi.prod.yaml`:
+For production, point Octroi at your existing Postgres instance. Edit `configs/octroi.prod.yaml`:
 
 ```yaml
 database:
   url: "postgres://octroi:STRONG_PASSWORD@your-db-host:5432/octroi?sslmode=require"
+```
 
-encryption:
-  key: "YOUR_KEY_HERE"  # REQUIRED — generate with: openssl rand -hex 32
+Generate an encryption key in `configs/.env.prod`:
+
+```bash
+echo "OCTROI_ENCRYPTION_KEY=$(openssl rand -hex 32)" > configs/.env.prod
 ```
 
 Then run the Octroi container (or binary) with just your config:
 
 ```bash
-docker run -e OCTROI_ENCRYPTION_KEY \
+docker run --env-file configs/.env.prod \
   -v ./configs/octroi.prod.yaml:/etc/octroi.yaml \
   octroi serve --config /etc/octroi.yaml
 ```
@@ -114,7 +119,7 @@ Key metrics include `octroi_http_requests_total`, `octroi_proxy_requests_total`,
 
 ## Configuration
 
-Configuration lives in YAML files under `configs/`. See [`configs/octroi.dev.yaml`](configs/octroi.dev.yaml) for all options with defaults. Values can reference environment variables with `${VAR}` syntax. Secrets like the encryption key should be passed via `OCTROI_ENCRYPTION_KEY` environment variable.
+Configuration lives in YAML files under `configs/`. See [`configs/octroi.dev.yaml`](configs/octroi.dev.yaml) for all options with defaults. Values can reference environment variables with `${VAR}` syntax. Secrets go in `.env` files (`configs/.env.dev` for development, `configs/.env.prod` for production) — the Makefile sources these automatically.
 
 ## Contributing
 
