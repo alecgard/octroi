@@ -11,25 +11,15 @@
 # Start Postgres, run migrations, ensure admin user, start server
 # (encryption key is loaded from configs/.env.dev automatically)
 make dev
-
-# Same as above but also seed demo tools, agents, users, and transactions
-make dev:seed
 ```
 
-Seed users (from `octroi seed`):
+### Seed Data
 
-- `admin@octroi.dev` / `octroi` — org admin (full access)
-- `user1@octroi.dev` / `octroi` — member, team alpha admin
-- `user2@octroi.dev` / `octroi` — member, team alpha
-- `user3@octroi.dev` / `octroi` — member, team beta admin
-
-### Realistic Seed Data
-
-Creates 6 teams, 18 agents, 18 tools, and sends continuous live traffic through the proxy:
+Creates 6 teams, 18 users, 18 agents, 18 tools, and sends continuous live traffic through the proxy:
 
 ```bash
-make dev                # start the server
-./scripts/seed.sh       # in another terminal — live traffic only
+make dev                       # start the server
+./scripts/seed.sh              # in another terminal — live traffic only
 ./scripts/seed.sh --backfill   # also insert 350k historical transactions (7 days)
 ```
 
@@ -41,7 +31,6 @@ Requires: curl, jq, python3. Backfill additionally requires psql and bc.
 
 ```
 make dev          # Start Postgres, migrate, ensure admin, serve (hot reload via go run)
-make dev:seed     # Same as dev but also seeds demo data
 make prod         # Build binary, start prod Postgres, migrate, serve (port 9080)
 make db           # Start dev Postgres via Docker (port 5433)
 make db:prod      # Start prod Postgres via Docker (port 5434)
@@ -62,7 +51,6 @@ Dev and prod use separate ports and Docker volumes so they can run simultaneousl
 octroi serve           # Start the gateway server
 octroi migrate         # Run database migrations (up)
 octroi migrate down    # Rollback all migrations
-octroi seed            # Seed demo tools, agents, users, and transactions
 octroi ensure-admin    # Ensure the default admin account exists
 octroi version         # Print version
 ```

@@ -1,4 +1,4 @@
-.PHONY: dev dev\:seed prod db clean
+.PHONY: dev prod db clean
 
 DEV_CONFIG := configs/octroi.dev.yaml
 DEV_ENV := configs/.env.dev
@@ -12,14 +12,6 @@ dev:
 		docker compose up -d --wait && \
 		go run ./cmd/octroi migrate --config $(DEV_CONFIG) && \
 		(go run ./cmd/octroi ensure-admin --config $(DEV_CONFIG) 2>/dev/null || true) && \
-		OCTROI_DEV=1 go run ./cmd/octroi serve --config $(DEV_CONFIG)
-
-# --- Dev with seed data ---
-dev\:seed:
-	@set -a && . ./$(DEV_ENV) && set +a && \
-		docker compose up -d --wait && \
-		go run ./cmd/octroi migrate --config $(DEV_CONFIG) && \
-		(go run ./cmd/octroi seed --config $(DEV_CONFIG) 2>/dev/null || true) && \
 		OCTROI_DEV=1 go run ./cmd/octroi serve --config $(DEV_CONFIG)
 
 # --- Prod (local): build binary, start Postgres, run migrations, serve ---

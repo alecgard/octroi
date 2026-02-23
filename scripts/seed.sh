@@ -57,7 +57,7 @@ LOGIN_RESP=$(curl -s -X POST "${BASE}/api/v1/auth/login" \
 
 TOKEN=$(echo "$LOGIN_RESP" | jq -r '.token // empty')
 if [[ -z "$TOKEN" ]]; then
-  echo "Login failed. Make sure the admin user exists (run 'octroi seed' first)."
+  echo "Login failed. Make sure the admin user exists (run 'octroi ensure-admin' or 'make dev' first)."
   echo "Response: $LOGIN_RESP"
   exit 1
 fi
