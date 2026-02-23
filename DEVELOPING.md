@@ -31,10 +31,11 @@ Requires: curl, jq, python3. Backfill additionally requires psql and bc.
 
 ```
 make dev          # Start Postgres, migrate, ensure admin, serve (hot reload via go run)
-make prod         # Build binary, start prod Postgres, migrate, serve (port 9080)
+make prod-local   # Build binary, start local Postgres, migrate, serve (port 9080)
 make db           # Start dev Postgres via Docker (port 5433)
 make db:prod      # Start prod Postgres via Docker (port 5434)
-make clean        # Remove binary, tear down all containers and volumes
+make clean:dev        # Tear down dev containers and volumes
+make clean:prod-local # Remove binary, tear down prod-local containers and volumes
 ```
 
 Dev and prod use separate ports and Docker volumes so they can run simultaneously:
