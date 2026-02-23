@@ -847,8 +847,8 @@ body.shift-held .txn-filter-pending { background: var(--surface2); }
     </div>
     <div class="form-row">
       <div class="form-group" id="agent-team-group">
-        <label>Team</label>
-        <input type="text" id="agent-team" placeholder="e.g. backend">
+        <label>Team *</label>
+        <select id="agent-team"></select>
       </div>
       <div class="form-group">
         <label>Rate Limit (req/min)</label>
@@ -1626,7 +1626,10 @@ function openAgentModal(ag) {
   document.getElementById('agent-modal-title').textContent = ag ? 'Edit Agent' : 'Create Agent';
   document.getElementById('agent-submit-btn').textContent = ag ? 'Save' : 'Create';
   document.getElementById('agent-name').value = ag ? ag.name : '';
-  document.getElementById('agent-team').value = ag ? ag.team || '' : '';
+  const teamSel = document.getElementById('agent-team');
+  const teamOptions = teamsCache.map(t => `<option value="${esc(t.name)}">${esc(t.name)}</option>`).join('');
+  teamSel.innerHTML = '<option value="">Select a team…</option>' + teamOptions;
+  teamSel.value = ag ? ag.team || '' : '';
   document.getElementById('agent-rate-limit').value = ag ? ag.rate_limit || '' : '';
   document.getElementById('agent-regen-btn').style.display = ag ? '' : 'none';
   // Show key prefix in edit mode
@@ -1650,9 +1653,10 @@ async function submitAgent() {
   const id = document.getElementById('agent-edit-id').value;
   const body = {
     name: document.getElementById('agent-name').value.trim(),
-    team: document.getElementById('agent-team').value.trim(),
+    team: document.getElementById('agent-team').value,
     rate_limit: parseInt(document.getElementById('agent-rate-limit').value) || 0,
   };
+  if (!body.team) { toast('Team is required'); return; }
   try {
     if (id) {
       await api('PUT', apiBase() + '/agents/' + id, body);
@@ -1783,7 +1787,7 @@ async function removeTeamMember(team, userId, userName) {
 function openCreateTeamModal() {
   document.getElementById('create-team-name').value = '';
   const sel = document.getElementById('create-team-admin');
-  const eligible = (usersCache.length ? usersCache : []).filter(u => u.role !== 'org_admin');
+  const eligible = (usersCache.length ? usersCache : []);
   sel.innerHTML = eligible.map(u => `<option value="${u.id}">${esc(u.name || u.email)} (${esc(u.email)})</option>`).join('');
   if (!eligible.length) {
     sel.innerHTML = '<option value="">No eligible users</option>';

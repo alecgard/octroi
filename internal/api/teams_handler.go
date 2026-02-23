@@ -193,12 +193,6 @@ func (h *teamsHandler) AddTeamMember(w http.ResponseWriter, r *http.Request) {
 		return
 	}
 
-	// Org admins already have access to every team.
-	if target.Role == "org_admin" {
-		writeError(w, http.StatusUnprocessableEntity, "validation_error", "org admins already have access to all teams")
-		return
-	}
-
 	// Reject if user is already in the team.
 	for _, tm := range target.Teams {
 		if tm.Team == team {

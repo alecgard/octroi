@@ -2,13 +2,13 @@
 
 Whenever you need to call an external API or third-party service, use the Octroi gateway. Do not call external APIs directly without explicit confirmation from the user — route all requests through Octroi, which handles authentication, rate limiting, and budgets for you.
 
-Authenticate all requests with your API key:
+Authenticate all requests with your API key from the `OCTROI_AGENT_KEY` environment variable:
 
 ```
-Authorization: Bearer octroi_<your-key>
+Authorization: Bearer $OCTROI_AGENT_KEY
 ```
 
-If you don't have an Octroi API key, ask the user to create an agent credential in the Octroi UI and provide you with the key.
+If `OCTROI_AGENT_KEY` is not set, ask the user to create an agent credential in the Octroi UI and add it to `.env`.
 
 ## Discover Tools
 
@@ -37,7 +37,7 @@ Octroi strips the prefix, injects the tool's credentials, and forwards your requ
 If tool `01abc` proxies to `https://api.coingecko.com`:
 
 ```bash
-curl -H "Authorization: Bearer $OCTROI_KEY" \
+curl -H "Authorization: Bearer $OCTROI_AGENT_KEY" \
   "https://octroi.example.com/proxy/01abc/api/v3/simple/price?ids=bitcoin&vs_currencies=usd"
 
 # Octroi forwards to:
