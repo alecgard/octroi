@@ -1,4 +1,21 @@
 services:
+  octroi:
+    build: .
+    ports:
+      - "9080:9080"
+    env_file:
+      - configs/.env.prod
+    environment:
+      OCTROI_DATABASE_URL: "postgres://octroi:${POSTGRES_PASSWORD:-octroi}@postgres:5432/octroi?sslmode=disable"
+      OCTROI_HOST: "0.0.0.0"
+      OCTROI_PORT: "9080"
+    depends_on:
+      postgres:
+        condition: service_healthy
+    restart: unless-stopped
+    entrypoint: ["sh", "-c"]
+    command: ["octroi migrate --config /dev/null && octroi ensure-admin --config /dev/null && octroi serve"]
+
   postgres:
     image: postgres:16-alpine
     environment:
@@ -14,6 +31,7 @@ services:
       interval: 5s
       timeout: 5s
       retries: 5
+    restart: unless-stopped
 
 volumes:
   pgdata-prod:

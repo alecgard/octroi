@@ -2,7 +2,7 @@
 
 ## Prerequisites
 
-- Go 1.23+
+- Go 1.24+
 - Docker and Docker Compose
 
 ## Local Development
@@ -30,12 +30,11 @@ Requires: curl, jq, python3. Backfill additionally requires psql and bc.
 ### Make Targets
 
 ```
-make dev          # Start Postgres, migrate, ensure admin, serve (hot reload via go run)
-make prod-local   # Build binary, start local Postgres, migrate, serve (port 9080)
-make db           # Start dev Postgres via Docker (port 5433)
-make db:prod      # Start prod Postgres via Docker (port 5434)
+make dev              # Start Postgres, migrate, ensure admin, serve (hot reload via go run)
+make db:dev           # Start dev Postgres only (port 5433)
 make clean:dev        # Tear down dev containers and volumes
-make clean:prod-local # Remove binary, tear down prod-local containers and volumes
+make prod-local       # Build and run everything in Docker (port 9080)
+make clean:prod-local # Tear down prod-local containers, volumes, and images
 ```
 
 Dev and prod use separate ports and Docker volumes so they can run simultaneously:

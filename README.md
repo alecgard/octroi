@@ -20,14 +20,16 @@ Agent --> Octroi Gateway --> Tool Provider API
 
 ### Quick start (local)
 
-Try Octroi on your machine — starts Postgres in Docker and runs the server locally:
+Try Octroi on your machine — runs everything in Docker:
 
 ```bash
 git clone https://github.com/alecgard/octroi.git && cd octroi
-make dev
+make prod-local
 ```
 
-Open **http://localhost:8080/ui** and log in with `admin@octroi.dev` / `octroi`.
+Open **http://localhost:9080/ui** and log in with `admin@octroi.dev` / `octroi`.
+
+Tear down with `make clean:prod-local`.
 
 ### Production (bring your own Postgres)
 
