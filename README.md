@@ -31,20 +31,17 @@ Open **http://localhost:8080/ui** and log in with `admin@octroi.dev` / `octroi`.
 
 ### Production (bring your own Postgres)
 
-For production, point Octroi at your existing Postgres instance. Edit `configs/octroi.prod.yaml`:
-
-```yaml
-database:
-  url: "postgres://octroi:STRONG_PASSWORD@your-db-host:5432/octroi?sslmode=require"
-```
-
-Generate an encryption key in `configs/.env.prod`:
+Configure secrets in `configs/.env.prod`:
 
 ```bash
+# Generate encryption key
 echo "OCTROI_ENCRYPTION_KEY=$(openssl rand -hex 32)" > configs/.env.prod
+
+# Set your Postgres connection URL
+echo "OCTROI_DATABASE_URL=postgres://octroi:STRONG_PASSWORD@your-db-host:5432/octroi?sslmode=require" >> configs/.env.prod
 ```
 
-Then run the Octroi container (or binary) with just your config:
+Then run the Octroi container (or binary):
 
 ```bash
 docker run --env-file configs/.env.prod \

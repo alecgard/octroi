@@ -5,7 +5,7 @@ server:
   write_timeout: 30s
 
 database:
-  url: "postgres://octroi:${POSTGRES_PASSWORD}@localhost:5434/octroi?sslmode=disable"
+  url: "${OCTROI_DATABASE_URL}"
 
 proxy:
   timeout: 30s
