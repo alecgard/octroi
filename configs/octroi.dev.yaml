@@ -23,4 +23,4 @@ cors:
   allowed_origins: []  # empty = same-origin only; ["*"] for dev; ["https://example.com"] for prod
 
 encryption:
-  key: ""  # REQUIRED. hex-encoded 32-byte key. Generate with: openssl rand -hex 32
+  key: "${OCTROI_ENCRYPTION_KEY}"  # REQUIRED. Generate with: openssl rand -hex 32

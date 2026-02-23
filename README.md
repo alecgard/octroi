@@ -24,7 +24,6 @@ The fastest way to try Octroi — runs everything in Docker:
 
 ```bash
 git clone https://github.com/alecgard/octroi.git && cd octroi
-cp configs/octroi.example.yaml configs/octroi.yaml
 
 # Generate an encryption key and set a strong Postgres password
 export OCTROI_ENCRYPTION_KEY=$(openssl rand -hex 32)
@@ -35,7 +34,7 @@ docker compose -f docker-compose.prod.yml up -d
 
 ### Production (bring your own Postgres)
 
-For production, point Octroi at your existing Postgres instance. Edit `configs/octroi.yaml`:
+For production, point Octroi at your existing Postgres instance. Set environment variables and edit `configs/octroi.prod.yaml`:
 
 ```yaml
 database:
@@ -48,7 +47,8 @@ encryption:
 Then run the Octroi container (or binary) with just your config:
 
 ```bash
-docker run -v ./configs/octroi.yaml:/etc/octroi.yaml \
+docker run -e OCTROI_ENCRYPTION_KEY \
+  -v ./configs/octroi.prod.yaml:/etc/octroi.yaml \
   octroi serve --config /etc/octroi.yaml
 ```
 
@@ -114,7 +114,7 @@ Key metrics include `octroi_http_requests_total`, `octroi_proxy_requests_total`,
 
 ## Configuration
 
-All configuration lives in `configs/octroi.yaml`. See [`configs/octroi.example.yaml`](configs/octroi.example.yaml) for all options with defaults. Values can reference environment variables with `${VAR}` syntax.
+Configuration lives in YAML files under `configs/`. See [`configs/octroi.dev.yaml`](configs/octroi.dev.yaml) for all options with defaults. Values can reference environment variables with `${VAR}` syntax. Secrets like the encryption key should be passed via `OCTROI_ENCRYPTION_KEY` environment variable.
 
 ## Contributing
 

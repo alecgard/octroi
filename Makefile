@@ -1,6 +1,6 @@
 .PHONY: dev dev\:seed prod db clean
 
-DEV_CONFIG := configs/octroi.yaml
+DEV_CONFIG := configs/octroi.dev.yaml
 PROD_CONFIG := configs/octroi.prod.yaml
 BIN := octroi
 

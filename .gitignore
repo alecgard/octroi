@@ -20,8 +20,8 @@ coverage.txt
 .DS_Store
 Thumbs.db
 
-# Config with secrets
-configs/octroi.yaml
+# Local env files
+.env*
 
 # Docker volumes
 pgdata/

@@ -8,7 +8,8 @@
 ## Local Development
 
 ```bash
-cp configs/octroi.example.yaml configs/octroi.yaml
+# Generate encryption key (once)
+export OCTROI_ENCRYPTION_KEY=$(openssl rand -hex 32)
 
 # Start Postgres, run migrations, ensure admin user, start server
 make dev
@@ -55,7 +56,7 @@ Dev and prod use separate ports and Docker volumes so they can run simultaneousl
 |---|---|---|
 | Server | localhost:8080 | localhost:9080 |
 | Postgres | localhost:5433 | localhost:5434 |
-| Config | `configs/octroi.yaml` | `configs/octroi.prod.yaml` |
+| Config | `configs/octroi.dev.yaml` | `configs/octroi.prod.yaml` |
 
 ### CLI Commands
 
@@ -204,7 +205,7 @@ Octroi loads configuration from a YAML file specified with `--config`. Values in
 | CORS origins | `cors.allowed_origins` | — | `[]` (same-origin) |
 | Encryption key | `encryption.key` | `OCTROI_ENCRYPTION_KEY` | — (disabled) |
 
-See `configs/octroi.example.yaml` for a complete example.
+See `configs/octroi.dev.yaml` for a complete example.
 
 ## API Endpoints
 
