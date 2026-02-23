@@ -18,9 +18,9 @@ Agent --> Octroi Gateway --> Tool Provider API
 
 ## Deploy
 
-### Quick start
+### Quick start (local)
 
-The fastest way to try Octroi — starts Postgres in Docker and runs the server locally:
+Try Octroi on your machine — starts Postgres in Docker and runs the server locally:
 
 ```bash
 git clone https://github.com/alecgard/octroi.git && cd octroi
