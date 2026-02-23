@@ -50,3 +50,4 @@ jobs:
         run: ./octroi migrate --config configs/octroi.example.yaml
         env:
           OCTROI_DATABASE_URL: postgres://octroi:octroi@localhost:5433/octroi?sslmode=disable
+          OCTROI_ENCRYPTION_KEY: "0000000000000000000000000000000000000000000000000000000000000000"
