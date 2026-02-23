@@ -62,9 +62,7 @@ func runServe(cmd *cobra.Command, args []string) error {
 	if err != nil {
 		return fmt.Errorf("initializing encryption: %w", err)
 	}
-	if cipher != nil {
-		slog.Info("auth_config encryption enabled")
-	}
+	slog.Info("auth_config encryption enabled")
 
 	toolStore := registry.NewStore(pool, cipher)
 	toolService := registry.NewService(toolStore)

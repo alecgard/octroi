@@ -7,6 +7,9 @@ import (
 	"time"
 )
 
+// testKey is a valid hex-encoded 32-byte key for tests.
+const testKey = "0123456789abcdef0123456789abcdef0123456789abcdef0123456789abcdef"
+
 func TestDefaults(t *testing.T) {
 	cfg := defaults()
 
@@ -44,6 +47,8 @@ rate_limit:
   window: 2m
 cors:
   allowed_origins: ["https://example.com"]
+encryption:
+  key: "` + testKey + `"
 `
 	dir := t.TempDir()
 	path := filepath.Join(dir, "test.yaml")
@@ -74,6 +79,7 @@ cors:
 }
 
 func TestLoadNoFile(t *testing.T) {
+	t.Setenv("OCTROI_ENCRYPTION_KEY", testKey)
 	cfg, err := Load("")
 	if err != nil {
 		t.Fatalf("Load with empty path should use defaults: %v", err)
@@ -114,7 +120,7 @@ func TestValidate(t *testing.T) {
 		modify  func(*Config)
 		wantErr bool
 	}{
-		{"valid defaults", func(c *Config) {}, false},
+		{"valid defaults", func(c *Config) { c.Encryption.Key = testKey }, false},
 		{"port too low", func(c *Config) { c.Server.Port = 0 }, true},
 		{"port too high", func(c *Config) { c.Server.Port = 70000 }, true},
 		{"zero read timeout", func(c *Config) { c.Server.ReadTimeout = 0 }, true},
@@ -125,6 +131,7 @@ func TestValidate(t *testing.T) {
 		{"zero flush interval", func(c *Config) { c.Metering.FlushInterval = 0 }, true},
 		{"negative rate limit", func(c *Config) { c.RateLimit.Default = -1 }, true},
 		{"zero rate window", func(c *Config) { c.RateLimit.Window = 0 }, true},
+		{"empty encryption key", func(c *Config) {}, true},
 	}
 
 	for _, tt := range tests {

@@ -22,5 +22,5 @@ rate_limit:
 cors:
   allowed_origins: []  # empty = same-origin only; ["*"] for dev; ["https://example.com"] for prod
 
-# encryption:
-#   key: ""  # hex-encoded 32-byte key. Generate with: openssl rand -hex 32
+encryption:
+  key: ""  # REQUIRED. hex-encoded 32-byte key. Generate with: openssl rand -hex 32

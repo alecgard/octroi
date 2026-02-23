@@ -110,6 +110,9 @@ func (c *Config) Validate() error {
 	if c.RateLimit.Window <= 0 {
 		return fmt.Errorf("rate_limit.window must be positive")
 	}
+	if c.Encryption.Key == "" {
+		return fmt.Errorf("encryption.key is required (generate with: openssl rand -hex 32)")
+	}
 	return nil
 }
 

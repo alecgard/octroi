@@ -7,6 +7,7 @@ services:
       OCTROI_DATABASE_URL: "postgres://octroi:${POSTGRES_PASSWORD:-octroi}@postgres:5432/octroi?sslmode=disable"
       OCTROI_HOST: "0.0.0.0"
       OCTROI_PORT: "8080"
+      OCTROI_ENCRYPTION_KEY: "${OCTROI_ENCRYPTION_KEY}"
     depends_on:
       postgres:
         condition: service_healthy
