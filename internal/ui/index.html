@@ -696,8 +696,8 @@ body.shift-held .txn-filter-pending { background: var(--surface2); }
         <option value="502">502 Bad Gateway</option>
         <option value="503">503 Unavailable</option>
       </select>
-      <input id="txn-filter-min-latency" type="number" placeholder="Min latency (ms)" onchange="reloadTransactions()" style="font-size:12px;padding:3px 6px;width:130px">
-      <button class="btn-ghost" onclick="exportTransactions()" style="padding:3px 8px;font-size:12px;margin-left:auto">Export CSV</button>
+
+
     </div>
     <table>
       <thead>
@@ -778,8 +778,8 @@ body.shift-held .txn-filter-pending { background: var(--surface2); }
       <thead>
         <tr>
           <th>Timestamp</th>
-          <th>Action</th>
-          <th>Resource</th>
+          <th style="width:80px">Action</th>
+          <th style="width:80px">Resource</th>
           <th>Resource ID</th>
           <th>User</th>
           <th>IP</th>
@@ -907,7 +907,7 @@ body.shift-held .txn-filter-pending { background: var(--surface2); }
       </select>
     </div>
     <div id="tool-resilience-section" style="display:none">
-      <label style="display:block;text-transform:uppercase;font-size:10px;font-weight:600;letter-spacing:0.5px;color:var(--text2);margin:12px 0 6px">Resilience</label>
+      <label class="has-tooltip" style="display:block;text-transform:uppercase;font-size:10px;font-weight:600;letter-spacing:0.5px;color:var(--text2);margin:12px 0 6px">Resilience<span class="tip" style="white-space:normal;max-width:260px;text-align:left">Configure per-tool timeout and automatic retries. Failed requests (5xx/timeout) are retried with exponential backoff.</span></label>
       <div class="form-row">
         <div class="form-group">
           <label title="Per-request timeout in milliseconds. Overrides the global proxy timeout.">Timeout (ms)</label>
@@ -919,12 +919,12 @@ body.shift-held .txn-filter-pending { background: var(--surface2); }
         </div>
       </div>
       <div class="form-group">
-        <label title="Base backoff between retries in milliseconds. Doubles on each attempt.">Retry Backoff (ms)</label>
+        <label class="has-tooltip">Retry Backoff (ms)<span class="tip" style="white-space:normal;max-width:240px;text-align:left">Base delay between retries. Doubles on each attempt (e.g. 1000 → 2000 → 4000ms). Capped at 30s.</span></label>
         <input type="number" id="tool-retry-backoff-ms" placeholder="1000" min="100" max="30000">
       </div>
     </div>
     <div id="tool-cb-section" style="display:none">
-      <label style="display:block;text-transform:uppercase;font-size:10px;font-weight:600;letter-spacing:0.5px;color:var(--text2);margin:12px 0 6px">Circuit Breaker</label>
+      <label class="has-tooltip" style="display:block;text-transform:uppercase;font-size:10px;font-weight:600;letter-spacing:0.5px;color:var(--text2);margin:12px 0 6px">Circuit Breaker<span class="tip" style="white-space:normal;max-width:280px;text-align:left">Automatically stops sending requests to a failing upstream. Opens when error rate exceeds the threshold (min 10 requests), then probes with a single request after cooldown.</span></label>
       <div class="form-group">
         <label style="display:inline-flex;align-items:center;gap:6px;text-transform:uppercase;font-size:10px;font-weight:600;letter-spacing:0.5px;color:var(--text2);cursor:pointer">
           <input type="checkbox" id="tool-cb-enabled"> Enable Circuit Breaker
@@ -952,7 +952,7 @@ body.shift-held .txn-filter-pending { background: var(--surface2); }
         <input type="url" id="tool-webhook-url" placeholder="https://hooks.example.com/budget-alert">
       </div>
       <div class="form-group">
-        <label title="Fire webhook when usage reaches this % of the budget limit">Threshold (%)</label>
+        <label class="has-tooltip">Threshold (%)<span class="tip" style="white-space:normal;max-width:240px;text-align:left">Fire the webhook when budget usage reaches this percentage of the limit. Fires once per hour per threshold.</span></label>
         <input type="number" id="tool-webhook-threshold-pct" placeholder="80" min="1" max="100">
       </div>
     </div>
@@ -1858,7 +1858,8 @@ async function loadAgentPermissions(agentId) {
   const list = document.getElementById('agent-permissions-list');
   list.innerHTML = '<div style="color:var(--text2);font-size:11px">Loading tools…</div>';
   try {
-    const tools = await api('GET', '/api/v1/tools');
+    const toolsResp = await api('GET', '/api/v1/tools');
+    const tools = toolsResp.tools || [];
     const permRes = await api('GET', apiBase() + '/agents/' + agentId + '/permissions');
     const perms = permRes.permissions || [];
     const permMap = {};
@@ -2135,9 +2136,7 @@ async function loadUsageLive() {
 
   // Append transaction filter params.
   const txnStatusFilter = document.getElementById('txn-filter-status') ? document.getElementById('txn-filter-status').value : '';
-  const txnMinLatency = document.getElementById('txn-filter-min-latency') ? document.getElementById('txn-filter-min-latency').value : '';
   if (txnStatusFilter) txnQs += '&status_code=' + txnStatusFilter;
-  if (txnMinLatency) txnQs += '&min_latency_ms=' + txnMinLatency;
 
   txnBasePath = baseTxnPrefix + 'limit=' + txnPageSize + txnQs;
   const onPage1 = txnOffset === 0;
@@ -2158,7 +2157,7 @@ async function loadUsageLive() {
     if (onPage1) fetches.push(api('GET', txnBasePath));
     const results = await Promise.all(fetches);
     const summary = results[0];
-    const newChartTxns = results[1].transactions || results[1] || [];
+    const newChartTxns = Array.isArray(results[1].transactions) ? results[1].transactions : [];
     renderUsageSummary(summary);
     txnTotal = summary.total_requests || 0;
 
@@ -2458,18 +2457,7 @@ async function txnNextPage() {
 
 function reloadTransactions() { txnOffset = 0; txnCursorStack = []; txnNextCursor = null; loadUsage(); }
 
-async function exportTransactions() {
-  try {
-    const token = sessionStorage.getItem('token') || localStorage.getItem('token');
-    const resp = await fetch('/api/v1/admin/usage/transactions/export', {
-      headers: { 'Authorization': 'Bearer ' + token }
-    });
-    const blob = await resp.blob();
-    const url = URL.createObjectURL(blob);
-    const a = document.createElement('a'); a.href = url; a.download = 'transactions.csv'; a.click();
-    URL.revokeObjectURL(url);
-  } catch (e) { toast('Export failed: ' + e.message); }
-}
+
 
 async function showTransactionDetail(txnId) {
   try {
@@ -3195,7 +3183,8 @@ async function loadAuditLog(more) {
         const tr = document.createElement('tr');
         const ts = new Date(e.timestamp).toLocaleString();
         const detailStr = e.details && Object.keys(e.details).length ? JSON.stringify(e.details) : '';
-        tr.innerHTML = '<td>' + ts + '</td><td>' + esc(e.action) + '</td><td>' + esc(e.resource_type) + '</td><td style="font-size:10px">' + esc(e.resource_id) + '</td><td style="font-size:10px">' + esc(e.user_id || '-') + '</td><td>' + esc(e.ip) + '</td><td style="font-size:10px;max-width:200px;overflow:hidden;text-overflow:ellipsis" title="' + esc(detailStr) + '">' + esc(detailStr) + '</td>';
+        const prettyDetail = detailStr ? JSON.stringify(e.details, null, 2) : '';
+        tr.innerHTML = '<td>' + ts + '</td><td>' + esc(e.action) + '</td><td>' + esc(e.resource_type) + '</td><td style="font-size:10px">' + esc(e.resource_id) + '</td><td style="font-size:10px">' + esc(e.user_id || '-') + '</td><td>' + esc(e.ip) + '</td><td class="has-tooltip" style="font-size:10px;max-width:300px;overflow:hidden;text-overflow:ellipsis;white-space:nowrap">' + esc(detailStr) + (prettyDetail ? '<span class="tip" style="white-space:pre;text-align:left;max-width:400px;font-family:var(--font)">' + esc(prettyDetail) + '</span>' : '') + '</td>';
         tbody.appendChild(tr);
       });
     }
