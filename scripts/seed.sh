@@ -621,35 +621,57 @@ HTTPServer(('0.0.0.0',$MOCK_PORT),H).serve_forever()
 " &
 MOCK_PID=$!
 
-# --- Mock MCP upstream (streamable-http) ---
+# --- Mock MCP upstream (streamable-http, path-based routing) ---
 python3 -c "
 import json, socketserver, time, random
 from http.server import HTTPServer, BaseHTTPRequestHandler
 
-TOOLS = [
-    {'name':'brave_web_search','description':'Search the web using Brave Search','inputSchema':{'type':'object','properties':{'query':{'type':'string'}}}},
-    {'name':'brave_local_search','description':'Search for local businesses and places','inputSchema':{'type':'object','properties':{'query':{'type':'string'}}}},
-    {'name':'read_wiki_structure','description':'Get documentation topics for a repo','inputSchema':{'type':'object','properties':{'repoName':{'type':'string'}}}},
-    {'name':'read_wiki_contents','description':'View full documentation about a repo','inputSchema':{'type':'object','properties':{'repoName':{'type':'string'},'topic':{'type':'string'}}}},
-    {'name':'ask_question','description':'Ask a question about a repository','inputSchema':{'type':'object','properties':{'repoName':{'type':'string'},'question':{'type':'string'}}}},
-]
+SERVERS = {
+    '/brave': {
+        'name': 'BraveSearch',
+        'tools': [
+            {'name':'brave_web_search','description':'Search the web using Brave Search','inputSchema':{'type':'object','properties':{'query':{'type':'string'},'count':{'type':'integer'}}}},
+            {'name':'brave_local_search','description':'Search for local businesses and places','inputSchema':{'type':'object','properties':{'query':{'type':'string'},'count':{'type':'integer'}}}},
+            {'name':'brave_news_search','description':'Search for recent news articles','inputSchema':{'type':'object','properties':{'query':{'type':'string'},'freshness':{'type':'string'}}}},
+        ],
+    },
+    '/deepwiki': {
+        'name': 'DeepWiki',
+        'tools': [
+            {'name':'read_wiki_structure','description':'Get documentation topics for a GitHub repo','inputSchema':{'type':'object','properties':{'repoName':{'type':'string'}}}},
+            {'name':'read_wiki_contents','description':'View full documentation page for a repo topic','inputSchema':{'type':'object','properties':{'repoName':{'type':'string'},'topic':{'type':'string'}}}},
+            {'name':'ask_question','description':'Ask a natural-language question about a repository','inputSchema':{'type':'object','properties':{'repoName':{'type':'string'},'question':{'type':'string'}}}},
+        ],
+    },
+}
 
 socketserver.TCPServer.allow_reuse_address = True
 class H(BaseHTTPRequestHandler):
     def do_POST(self):
+        # Route by path prefix.
+        server = None
+        for prefix, s in SERVERS.items():
+            if self.path.startswith(prefix):
+                server = s
+                break
+        if not server:
+            self.send_response(404)
+            self.end_headers()
+            return
+
         length = int(self.headers.get('Content-Length', 0))
         body = json.loads(self.rfile.read(length)) if length else {}
         method = body.get('method', '')
         req_id = body.get('id')
 
         if method == 'initialize':
-            result = {'protocolVersion':'2025-03-26','capabilities':{'tools':{'listChanged':False}},'serverInfo':{'name':'MockMCP','version':'1.0.0'}}
+            result = {'protocolVersion':'2025-03-26','capabilities':{'tools':{'listChanged':False}},'serverInfo':{'name':server['name'],'version':'1.0.0'}}
         elif method == 'notifications/initialized':
             self.send_response(200)
             self.end_headers()
             return
         elif method == 'tools/list':
-            result = {'tools': TOOLS}
+            result = {'tools': server['tools']}
         elif method == 'tools/call':
             time.sleep(random.uniform(0.01, 0.5))
             result = {'content':[{'type':'text','text':json.dumps({'ok':True,'tool':body.get('params',{}).get('name','?')})}]}
@@ -681,9 +703,15 @@ for i in "${!TOOL_IDS[@]}"; do
   tid="${TOOL_IDS[$i]}"
   if [[ -z "$tid" ]]; then continue; fi
   if [[ "${TOOL_MODES[$i]}" == "mcp" ]]; then
+    # Map tool name to mock MCP path.
+    case "${TOOL_NAMES[$i]}" in
+      "Brave Search") mcp_path="/brave" ;;
+      "DeepWiki")     mcp_path="/deepwiki" ;;
+      *)              mcp_path="/mcp" ;;
+    esac
     api PUT "/api/v1/admin/tools/${tid}" \
-      "{\"endpoint\":\"http://localhost:${MOCK_MCP_PORT}/mcp\",\"transport\":\"streamable-http\",\"budget_limit\":100000}" >/dev/null
-    echo "    ${TOOL_NAMES[$i]} -> http://localhost:${MOCK_MCP_PORT}/mcp (MCP)"
+      "{\"endpoint\":\"http://localhost:${MOCK_MCP_PORT}${mcp_path}\",\"transport\":\"streamable-http\",\"budget_limit\":100000}" >/dev/null
+    echo "    ${TOOL_NAMES[$i]} -> http://localhost:${MOCK_MCP_PORT}${mcp_path} (MCP)"
   else
     api PUT "/api/v1/admin/tools/${tid}" \
       "{\"endpoint\":\"http://localhost:${MOCK_PORT}\",\"budget_limit\":100000}" >/dev/null
@@ -724,7 +752,11 @@ while true; do
 
   if [[ "${TOOL_MODES[$tool_idx]}" == "mcp" ]]; then
     # MCP tools: POST to /proxy/{toolID}/{subTool} with JSON body.
-    MCP_TOOLS=(brave_web_search brave_local_search read_wiki_structure read_wiki_contents ask_question)
+    case "${TOOL_NAMES[$tool_idx]}" in
+      "Brave Search") MCP_TOOLS=(brave_web_search brave_local_search brave_news_search) ;;
+      "DeepWiki")     MCP_TOOLS=(read_wiki_structure read_wiki_contents ask_question) ;;
+      *)              MCP_TOOLS=(unknown_tool) ;;
+    esac
     rng; mcp_idx=$(( (RNG & 0x7FFFFFFF) % ${#MCP_TOOLS[@]} ))
     sub_tool="${MCP_TOOLS[$mcp_idx]}"
     http_code=$(curl -s -o /dev/null -w "%{http_code}" \
