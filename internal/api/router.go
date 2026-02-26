@@ -112,6 +112,7 @@ type RouterDeps struct {
 	ToolStore          *registry.Store
 	AgentStore         *agent.Store
 	BudgetStore        *agent.BudgetStore
+	PermissionStore    *agent.PermissionStore
 	MeterStore         *metering.Store
 	Collector          *metering.Collector
 	Auth               *auth.Service
@@ -258,6 +259,15 @@ func NewRouter(deps RouterDeps) http.Handler {
 		ar.Put("/agents/{agentID}/budgets/{toolID}", agents.SetBudget)
 		ar.Get("/agents/{agentID}/budgets/{toolID}", agents.GetBudget)
 		ar.Get("/agents/{agentID}/budgets", agents.ListBudgets)
+
+		// Agent tool permissions.
+		if deps.PermissionStore != nil {
+			perms := newPermissionsHandler(deps.PermissionStore, deps.AgentStore)
+			ar.Get("/agents/{agentID}/permissions", perms.ListPermissions)
+			ar.Put("/agents/{agentID}/permissions/{toolID}", perms.SetPermission)
+			ar.Put("/agents/{agentID}/permissions", perms.BulkSetPermissions)
+			ar.Delete("/agents/{agentID}/permissions/{toolID}", perms.DeletePermission)
+		}
 
 		// Admin usage queries.
 		ar.Get("/usage", usage.GetUsageAdmin)

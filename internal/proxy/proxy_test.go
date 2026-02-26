@@ -19,6 +19,14 @@ import (
 
 // --- Fakes ---
 
+type fakePermissionChecker struct {
+	allowed bool
+}
+
+func (f *fakePermissionChecker) IsAllowed(_ context.Context, _, _ string) (bool, error) {
+	return f.allowed, nil
+}
+
 type fakeToolStore struct {
 	tools map[string]*registry.Tool
 }
@@ -553,4 +561,60 @@ func TestQueryAuth(t *testing.T) {
 			t.Errorf("expected query to contain both foo=bar and api_key=secret123, got %s", receivedQuery)
 		}
 	})
+}
+
+func TestPermissionDenied(t *testing.T) {
+	upstream := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
+		w.WriteHeader(http.StatusOK)
+	}))
+	defer upstream.Close()
+
+	tool := newTestTool(upstream.URL)
+	store := &fakeToolStore{tools: map[string]*registry.Tool{"tool-1": tool}}
+	budgets := &fakeBudgetChecker{agentAllowed: true, globalAllowed: true}
+	collector := &fakeCollector{}
+	handler := NewHandler(store, budgets, collector, 5*time.Second, 1<<20)
+	handler.SetPermissionChecker(&fakePermissionChecker{allowed: false})
+
+	router := setupRouter(handler)
+
+	req := httptest.NewRequest("GET", "/proxy/tool-1/test", nil)
+	req = withAgent(req, newTestAgent())
+	rr := httptest.NewRecorder()
+	router.ServeHTTP(rr, req)
+
+	if rr.Code != http.StatusForbidden {
+		t.Fatalf("expected 403, got %d", rr.Code)
+	}
+
+	var errResp proxyError
+	_ = json.NewDecoder(rr.Body).Decode(&errResp)
+	if errResp.Error.Code != "permission_denied" {
+		t.Errorf("expected error code permission_denied, got %s", errResp.Error.Code)
+	}
+}
+
+func TestPermissionAllowed(t *testing.T) {
+	upstream := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
+		w.WriteHeader(http.StatusOK)
+	}))
+	defer upstream.Close()
+
+	tool := newTestTool(upstream.URL)
+	store := &fakeToolStore{tools: map[string]*registry.Tool{"tool-1": tool}}
+	budgets := &fakeBudgetChecker{agentAllowed: true, globalAllowed: true}
+	collector := &fakeCollector{}
+	handler := NewHandler(store, budgets, collector, 5*time.Second, 1<<20)
+	handler.SetPermissionChecker(&fakePermissionChecker{allowed: true})
+
+	router := setupRouter(handler)
+
+	req := httptest.NewRequest("GET", "/proxy/tool-1/test", nil)
+	req = withAgent(req, newTestAgent())
+	rr := httptest.NewRecorder()
+	router.ServeHTTP(rr, req)
+
+	if rr.Code != http.StatusOK {
+		t.Fatalf("expected 200, got %d", rr.Code)
+	}
 }

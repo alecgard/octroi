@@ -878,6 +878,16 @@ body.shift-held .txn-filter-pending { background: var(--surface2); }
         <input type="number" id="agent-rate-limit" placeholder="0">
       </div>
     </div>
+    <div class="form-group" id="agent-allowlist-section" style="display:none">
+      <label style="display:inline-flex;align-items:center;gap:6px;text-transform:uppercase;font-size:10px;font-weight:600;letter-spacing:0.5px;color:var(--text2);cursor:pointer">
+        <input type="checkbox" id="agent-allowlist-mode"> Tool Allowlist Mode
+      </label>
+      <div style="font-size:11px;color:var(--text2);margin-top:2px">When enabled, agent can only access explicitly permitted tools</div>
+    </div>
+    <div id="agent-permissions-section" style="display:none;margin-bottom:12px">
+      <label style="text-transform:uppercase;font-size:10px;font-weight:600;letter-spacing:0.5px;color:var(--text2)">Tool Permissions</label>
+      <div id="agent-permissions-list" style="max-height:200px;overflow-y:auto;margin-top:4px;border:1px solid var(--border);border-radius:6px;padding:6px"></div>
+    </div>
     <div class="modal-actions">
       <button class="btn-warn" id="agent-regen-btn" onclick="regenKeyFromModal()" style="display:none;margin-right:auto">Regenerate Key</button>
       <button class="btn-ghost" onclick="closeModal('agent-modal')">Cancel</button>
@@ -1699,7 +1709,35 @@ function openAgentModal(ag) {
   } else {
     keyGroup.style.display = 'none';
   }
+  // Allowlist mode + permissions (edit mode only)
+  const allowlistSection = document.getElementById('agent-allowlist-section');
+  const permsSection = document.getElementById('agent-permissions-section');
+  const allowlistCb = document.getElementById('agent-allowlist-mode');
+  allowlistCb.checked = ag ? !!ag.allowlist_mode : false;
+  allowlistSection.style.display = ag ? '' : 'none';
+  permsSection.style.display = ag && ag.allowlist_mode ? '' : 'none';
+  allowlistCb.onchange = function() { permsSection.style.display = this.checked ? '' : 'none'; };
+  if (ag) loadAgentPermissions(ag.id);
   document.getElementById('agent-modal').classList.add('open');
+}
+
+async function loadAgentPermissions(agentId) {
+  const list = document.getElementById('agent-permissions-list');
+  list.innerHTML = '<div style="color:var(--text2);font-size:11px">Loading tools…</div>';
+  try {
+    const tools = await api('GET', '/api/v1/tools');
+    const permRes = await api('GET', apiBase() + '/agents/' + agentId + '/permissions');
+    const perms = permRes.permissions || [];
+    const permMap = {};
+    perms.forEach(p => { permMap[p.tool_id] = p.allowed; });
+    if (!tools.length) { list.innerHTML = '<div style="color:var(--text2);font-size:11px">No tools registered</div>'; return; }
+    list.innerHTML = tools.map(t => {
+      const checked = permMap[t.id] === true ? 'checked' : '';
+      return `<label style="display:flex;align-items:center;gap:6px;padding:3px 2px;font-size:12px;cursor:pointer" title="${esc(t.description || '')}">
+        <input type="checkbox" data-tool-id="${t.id}" class="agent-perm-cb" ${checked}> ${esc(t.name)}
+      </label>`;
+    }).join('');
+  } catch (e) { list.innerHTML = '<div style="color:var(--warn);font-size:11px">Failed to load</div>'; }
 }
 
 function editAgent(id) {
@@ -1717,7 +1755,16 @@ async function submitAgent() {
   if (!body.team) { toast('Team is required'); return; }
   try {
     if (id) {
+      const allowlistMode = document.getElementById('agent-allowlist-mode').checked;
+      body.allowlist_mode = allowlistMode;
       await api('PUT', apiBase() + '/agents/' + id, body);
+      // Save permissions if allowlist mode is on
+      const permCbs = document.querySelectorAll('.agent-perm-cb');
+      if (permCbs.length > 0) {
+        const permissions = {};
+        permCbs.forEach(cb => { permissions[cb.dataset.toolId] = cb.checked; });
+        await api('PUT', apiBase() + '/agents/' + id + '/permissions', { permissions, allowlist_mode: allowlistMode });
+      }
       closeModal('agent-modal');
     } else {
       const res = await api('POST', apiBase() + '/agents', body);

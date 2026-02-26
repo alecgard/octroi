@@ -45,6 +45,11 @@ type ToolRateLimitChecker interface {
 	CheckToolRateLimit(ctx context.Context, toolID, team, agentID string) (allowed bool, limit, remaining int, resetAt time.Time, err error)
 }
 
+// PermissionChecker checks if an agent is allowed to use a tool.
+type PermissionChecker interface {
+	IsAllowed(ctx context.Context, agentID, toolID string) (bool, error)
+}
+
 // MetricsRecorder is an optional interface for recording proxy-level metrics.
 type MetricsRecorder interface {
 	IncProxyRequests(toolID, toolName, agentID, method string, statusCode int)
@@ -62,6 +67,7 @@ type Handler struct {
 	budgets        BudgetChecker
 	collector      MeteringRecorder
 	toolRateLimits ToolRateLimitChecker
+	permissions    PermissionChecker
 	client         *http.Client
 	maxRequestSize int64
 	metrics        MetricsRecorder
@@ -89,6 +95,11 @@ func (h *Handler) SetMetrics(m MetricsRecorder) {
 	h.metrics = m
 }
 
+// SetPermissionChecker sets the optional permission checker for agent tool allowlists.
+func (h *Handler) SetPermissionChecker(c PermissionChecker) {
+	h.permissions = c
+}
+
 // SetMCPCaller sets the optional MCP upstream caller for proxying MCP tools.
 func (h *Handler) SetMCPCaller(c MCPCaller) {
 	h.mcpCaller = c
@@ -114,6 +125,15 @@ func (h *Handler) ServeHTTP(w http.ResponseWriter, r *http.Request) {
 	if agent == nil {
 		writeError(w, http.StatusUnauthorized, "unauthorized", "missing agent credentials")
 		return
+	}
+
+	// Check agent tool permissions.
+	if h.permissions != nil {
+		allowed, permErr := h.permissions.IsAllowed(r.Context(), agent.ID, tool.ID)
+		if permErr == nil && !allowed {
+			writeError(w, http.StatusForbidden, "permission_denied", "agent not permitted to use this tool")
+			return
+		}
 	}
 
 	// Track active requests.

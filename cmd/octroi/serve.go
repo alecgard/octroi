@@ -131,8 +131,11 @@ func runServe(cmd *cobra.Command, args []string) error {
 	toolRateLimitStore := ratelimit.NewToolRateLimitStore(pool)
 	toolRateLimiter := ratelimit.NewToolRateLimiter(toolRateLimitStore, limiter)
 
+	permissionStore := agent.NewPermissionStore(pool, agentStore)
+
 	proxyHandler := proxy.NewHandler(toolStore, budgetStore, collector, cfg.Proxy.Timeout, cfg.Proxy.MaxRequestSize)
 	proxyHandler.SetToolRateLimitChecker(toolRateLimiter)
+	proxyHandler.SetPermissionChecker(permissionStore)
 	proxyHandler.SetMetrics(m)
 
 	// MCP components.
@@ -177,6 +180,7 @@ func runServe(cmd *cobra.Command, args []string) error {
 		ToolStore:          toolStore,
 		AgentStore:         agentStore,
 		BudgetStore:        budgetStore,
+		PermissionStore:    permissionStore,
 		MeterStore:         meterStore,
 		Collector:          collector,
 		Auth:               authService,
