@@ -2769,6 +2769,7 @@ function cleanPath(path, toolId) {
 }
 
 function filterFromTxn(type, value, event) {
+  if (event) event.stopPropagation();
   if (shiftHeld && value) {
     // Shift held: toggle in pending set, don't reload yet.
     const setKey = type === 'team' ? 'teams' : type === 'agent' ? 'agents' : type === 'path' ? 'paths' : 'tools';
@@ -2819,6 +2820,7 @@ function filterFromTxn(type, value, event) {
 
 // Remove a single item from the active filter (used by the × icon on active rows).
 function removeFilterItem(type, value, event) {
+  if (event) event.stopPropagation();
   if (shiftHeld) {
     // During shift, treat as a pending toggle (same as filterFromTxn shift path).
     filterFromTxn(type, value, event);
