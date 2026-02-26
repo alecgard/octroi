@@ -1420,7 +1420,7 @@ function renderTools() {
   const chevron = id => `<span class="mcp-chevron" id="mcp-chev-${id}" onclick="toggleMcpSubTools('${id}')" title="Show sub-tools">&#x25B6;</span>`;
   tbody.innerHTML = filtered.map(t => {
     const isMcp = isAdmin && t.mode === 'mcp';
-    const mcpBtns = isMcp ? `<button class="btn-ghost btn-sm" onclick="refreshMcpTools('${t.id}')">Rediscover</button> ` : '';
+    const mcpBtns = isMcp ? `<button class="btn-ghost btn-sm has-tooltip" style="cursor:pointer" onclick="refreshMcpTools('${t.id}')">Rediscover<span class="tip">Re-scan the upstream MCP server for available tools</span></button> ` : '';
     const enabledBadge = t.mode === 'mcp' ? (t.enabled !== false ? '' : ' <span style="color:var(--text2);font-size:10px">(disabled)</span>') : '';
     const namePrefix = isMcp ? chevron(t.id) + ' ' : '';
     return `<tr>
