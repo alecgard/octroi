@@ -885,6 +885,17 @@ body.shift-held .txn-filter-pending { background: var(--surface2); }
         <input type="number" id="tool-retry-backoff-ms" placeholder="1000" min="100" max="30000">
       </div>
     </div>
+    <div id="tool-webhook-section" style="display:none">
+      <label style="display:block;text-transform:uppercase;font-size:10px;font-weight:600;letter-spacing:0.5px;color:var(--text2);margin:12px 0 6px">Webhooks</label>
+      <div class="form-group">
+        <label title="URL to POST a JSON payload when budget usage crosses the threshold">Webhook URL</label>
+        <input type="url" id="tool-webhook-url" placeholder="https://hooks.example.com/budget-alert">
+      </div>
+      <div class="form-group">
+        <label title="Fire webhook when usage reaches this % of the budget limit">Threshold (%)</label>
+        <input type="number" id="tool-webhook-threshold-pct" placeholder="80" min="1" max="100">
+      </div>
+    </div>
     <div class="modal-actions">
       <button class="btn-ghost" onclick="closeModal('tool-modal')">Cancel</button>
       <button class="btn-primary" id="tool-submit-btn" onclick="submitTool()">Create</button>
@@ -1550,6 +1561,9 @@ function openToolModal(tool) {
   document.getElementById('tool-max-retries').value = tool ? (tool.max_retries || 0) : 0;
   document.getElementById('tool-retry-backoff-ms').value = tool ? (tool.retry_backoff_ms || 1000) : 1000;
   document.getElementById('tool-resilience-section').style.display = tool ? '' : 'none';
+  document.getElementById('tool-webhook-url').value = tool ? (tool.webhook_url || '') : '';
+  document.getElementById('tool-webhook-threshold-pct').value = tool ? (tool.webhook_threshold_pct || 80) : 80;
+  document.getElementById('tool-webhook-section').style.display = tool ? '' : 'none';
   toggleToolMode();
   document.getElementById('tool-rate-limit').value = tool ? tool.rate_limit || '' : '';
   document.getElementById('tool-auth-config').value = tool && tool.auth_config ? JSON.stringify(tool.auth_config) : '';
@@ -1644,6 +1658,8 @@ async function submitTool() {
     timeout_ms: parseInt(document.getElementById('tool-timeout-ms').value) || 30000,
     max_retries: parseInt(document.getElementById('tool-max-retries').value) || 0,
     retry_backoff_ms: parseInt(document.getElementById('tool-retry-backoff-ms').value) || 1000,
+    webhook_url: document.getElementById('tool-webhook-url').value.trim(),
+    webhook_threshold_pct: parseInt(document.getElementById('tool-webhook-threshold-pct').value) || 80,
   };
   try {
     if (id) {

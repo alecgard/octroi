@@ -22,6 +22,7 @@ import (
 	"github.com/alecgard/octroi/internal/ratelimit"
 	"github.com/alecgard/octroi/internal/registry"
 	"github.com/alecgard/octroi/internal/user"
+	"github.com/alecgard/octroi/internal/webhook"
 	"github.com/jackc/pgx/v5/pgxpool"
 	"github.com/spf13/cobra"
 )
@@ -171,6 +172,7 @@ func runServe(cmd *cobra.Command, args []string) error {
 	proxyHandler.SetToolRateLimitChecker(toolRateLimiter)
 	proxyHandler.SetPermissionChecker(permissionStore)
 	proxyHandler.SetBodyRecorder(&bodyRecorderAdapter{store: bodyStore})
+	proxyHandler.SetWebhookDispatcher(webhook.NewDispatcher(1 * time.Hour))
 	proxyHandler.SetMetrics(m)
 
 	// MCP components.

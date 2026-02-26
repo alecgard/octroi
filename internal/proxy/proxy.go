@@ -60,6 +60,11 @@ type PermissionChecker interface {
 	IsAllowed(ctx context.Context, agentID, toolID string) (bool, error)
 }
 
+// WebhookDispatcher dispatches budget threshold webhooks.
+type WebhookDispatcher interface {
+	MaybeDispatch(toolID, toolName, webhookURL string, thresholdPct int, budgetLimit, currentUsage float64)
+}
+
 // MetricsRecorder is an optional interface for recording proxy-level metrics.
 type MetricsRecorder interface {
 	IncProxyRequests(toolID, toolName, agentID, method string, statusCode int)
@@ -79,6 +84,7 @@ type Handler struct {
 	toolRateLimits ToolRateLimitChecker
 	permissions    PermissionChecker
 	bodyRecorder   BodyRecorder
+	webhooks       WebhookDispatcher
 	client         *http.Client
 	maxRequestSize int64
 	metrics        MetricsRecorder
@@ -114,6 +120,11 @@ func (h *Handler) SetPermissionChecker(c PermissionChecker) {
 // SetBodyRecorder sets the optional body recorder for request/response body logging.
 func (h *Handler) SetBodyRecorder(r BodyRecorder) {
 	h.bodyRecorder = r
+}
+
+// SetWebhookDispatcher sets the optional webhook dispatcher for budget threshold alerts.
+func (h *Handler) SetWebhookDispatcher(d WebhookDispatcher) {
+	h.webhooks = d
 }
 
 // SetMCPCaller sets the optional MCP upstream caller for proxying MCP tools.
@@ -188,7 +199,7 @@ func (h *Handler) ServeHTTP(w http.ResponseWriter, r *http.Request) {
 	}
 
 	// Check global tool budget.
-	globalAllowed, _, err := h.budgets.CheckToolGlobalBudget(r.Context(), tool.ID)
+	globalAllowed, globalRemaining, err := h.budgets.CheckToolGlobalBudget(r.Context(), tool.ID)
 	if err == nil && !globalAllowed {
 		if h.metrics != nil {
 			h.metrics.IncBudgetRejection("global")
@@ -420,6 +431,12 @@ func (h *Handler) ServeHTTP(w http.ResponseWriter, r *http.Request) {
 			reqRedacted := metering.RedactBody(capturedReqBody, redactCfg)
 			respRedacted := metering.RedactBody(capturedRespBody, redactCfg)
 			go h.bodyRecorder.RecordBody(context.Background(), attemptTxnID, reqRedacted, respRedacted)
+		}
+
+		// Check budget threshold webhooks.
+		if h.webhooks != nil && tool.WebhookURL != "" && tool.BudgetLimit > 0 {
+			currentUsage := tool.BudgetLimit - globalRemaining
+			h.webhooks.MaybeDispatch(tool.ID, tool.Name, tool.WebhookURL, tool.WebhookThresholdPct, tool.BudgetLimit, currentUsage)
 		}
 		return
 	}

@@ -22,7 +22,9 @@ type Tool struct {
 	LogBodies       bool              `json:"log_bodies"`
 	TimeoutMs       int               `json:"timeout_ms"`
 	MaxRetries      int               `json:"max_retries"`
-	RetryBackoffMs  int               `json:"retry_backoff_ms"`
+	RetryBackoffMs    int               `json:"retry_backoff_ms"`
+	WebhookURL        string            `json:"webhook_url"`
+	WebhookThresholdPct int            `json:"webhook_threshold_pct"`
 	Enabled         bool              `json:"enabled"`
 	CreatedAt       time.Time         `json:"created_at"`
 	UpdatedAt       time.Time         `json:"updated_at"`
@@ -47,7 +49,9 @@ type CreateToolInput struct {
 	LogBodies       *bool             `json:"log_bodies"`
 	TimeoutMs       *int              `json:"timeout_ms"`
 	MaxRetries      *int              `json:"max_retries"`
-	RetryBackoffMs  *int              `json:"retry_backoff_ms"`
+	RetryBackoffMs    *int              `json:"retry_backoff_ms"`
+	WebhookURL        string           `json:"webhook_url"`
+	WebhookThresholdPct *int           `json:"webhook_threshold_pct"`
 	Enabled         *bool             `json:"enabled"`
 }
 
@@ -71,7 +75,9 @@ type UpdateToolInput struct {
 	LogBodies       *bool              `json:"log_bodies"`
 	TimeoutMs       *int               `json:"timeout_ms"`
 	MaxRetries      *int               `json:"max_retries"`
-	RetryBackoffMs  *int               `json:"retry_backoff_ms"`
+	RetryBackoffMs    *int               `json:"retry_backoff_ms"`
+	WebhookURL        *string            `json:"webhook_url"`
+	WebhookThresholdPct *int             `json:"webhook_threshold_pct"`
 	Enabled         *bool              `json:"enabled"`
 }
 
