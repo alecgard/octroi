@@ -2,7 +2,6 @@ package api
 
 import (
 	"encoding/json"
-	"fmt"
 	"net/http"
 	"strconv"
 	"strings"
@@ -47,36 +46,17 @@ func parseTimeParam(s string) (time.Time, error) {
 	return t, nil
 }
 
-// buildUsageQuery constructs a UsageQuery from query params, respecting agent auth scope.
-func buildUsageQuery(r *http.Request, isAdmin bool) (*metering.UsageQuery, error) {
-	q := &metering.UsageQuery{}
+// parseUsageFilters parses common usage query filters from the request.
+// It handles: tool_id (comma-sep), from, to, path (comma-sep), status_code,
+// min_latency_ms, channel, cursor, limit. It does NOT handle agent scoping.
+func parseUsageFilters(r *http.Request) (metering.UsageQuery, error) {
+	var q metering.UsageQuery
 
-	if isAdmin {
-		if agentParam := r.URL.Query().Get("agent_id"); agentParam != "" {
-			if strings.Contains(agentParam, ",") {
-				q.AgentIDs = strings.Split(agentParam, ",")
-			} else {
-				q.AgentID = agentParam
-			}
-		}
-		if toolParam := r.URL.Query().Get("tool_id"); toolParam != "" {
-			if strings.Contains(toolParam, ",") {
-				q.ToolIDs = strings.Split(toolParam, ",")
-			} else {
-				q.ToolID = toolParam
-			}
-		}
-	} else {
-		agent := auth.AgentFromContext(r.Context())
-		if agent != nil {
-			q.AgentID = agent.ID
-		}
-		if toolParam := r.URL.Query().Get("tool_id"); toolParam != "" {
-			if strings.Contains(toolParam, ",") {
-				q.ToolIDs = strings.Split(toolParam, ",")
-			} else {
-				q.ToolID = toolParam
-			}
+	if toolParam := r.URL.Query().Get("tool_id"); toolParam != "" {
+		if strings.Contains(toolParam, ",") {
+			q.ToolIDs = strings.Split(toolParam, ",")
+		} else {
+			q.ToolID = toolParam
 		}
 	}
 
@@ -86,27 +66,27 @@ func buildUsageQuery(r *http.Request, isAdmin bool) (*metering.UsageQuery, error
 
 	from, err := parseTimeParam(r.URL.Query().Get("from"))
 	if err != nil {
-		return nil, err
+		return q, err
 	}
 	q.From = from
 
 	to, err := parseTimeParam(r.URL.Query().Get("to"))
 	if err != nil {
-		return nil, err
+		return q, err
 	}
 	q.To = to
 
 	if scStr := r.URL.Query().Get("status_code"); scStr != "" {
 		sc, scErr := strconv.Atoi(scStr)
 		if scErr != nil {
-			return nil, scErr
+			return q, scErr
 		}
 		q.StatusCode = &sc
 	}
 	if mlStr := r.URL.Query().Get("min_latency_ms"); mlStr != "" {
 		ml, mlErr := strconv.ParseInt(mlStr, 10, 64)
 		if mlErr != nil {
-			return nil, mlErr
+			return q, mlErr
 		}
 		q.MinLatencyMs = &ml
 	}
@@ -120,12 +100,37 @@ func buildUsageQuery(r *http.Request, isAdmin bool) (*metering.UsageQuery, error
 	if limitStr := r.URL.Query().Get("limit"); limitStr != "" {
 		l, lErr := strconv.Atoi(limitStr)
 		if lErr != nil || l < 1 {
-			return nil, lErr
+			return q, lErr
 		}
 		q.Limit = l
 	}
 
 	return q, nil
+}
+
+// buildUsageQuery constructs a UsageQuery from query params, respecting agent auth scope.
+func buildUsageQuery(r *http.Request, isAdmin bool) (*metering.UsageQuery, error) {
+	q, err := parseUsageFilters(r)
+	if err != nil {
+		return nil, err
+	}
+
+	if isAdmin {
+		if agentParam := r.URL.Query().Get("agent_id"); agentParam != "" {
+			if strings.Contains(agentParam, ",") {
+				q.AgentIDs = strings.Split(agentParam, ",")
+			} else {
+				q.AgentID = agentParam
+			}
+		}
+	} else {
+		agent := auth.AgentFromContext(r.Context())
+		if agent != nil {
+			q.AgentID = agent.ID
+		}
+	}
+
+	return &q, nil
 }
 
 // GetUsage handles GET /api/v1/usage (agent-authed; agent can only see own usage).
@@ -189,110 +194,6 @@ func (h *usageHandler) GetUsageAdmin(w http.ResponseWriter, r *http.Request) {
 	}
 
 	summary, err := h.store.GetSummary(r.Context(), *q)
-	if err != nil {
-		writeError(w, http.StatusInternalServerError, "internal_error", "failed to get usage summary")
-		return
-	}
-
-	writeJSON(w, http.StatusOK, summary)
-}
-
-// GetUsageByAgent handles GET /api/v1/admin/usage/agents/{agentID} (admin).
-func (h *usageHandler) GetUsageByAgent(w http.ResponseWriter, r *http.Request) {
-	agentID := chi.URLParam(r, "agentID")
-	if agentID == "" {
-		writeError(w, http.StatusBadRequest, "invalid_params", "agent_id is required")
-		return
-	}
-
-	from, err := parseTimeParam(r.URL.Query().Get("from"))
-	if err != nil {
-		writeError(w, http.StatusBadRequest, "invalid_params", "invalid 'from' parameter")
-		return
-	}
-	to, err := parseTimeParam(r.URL.Query().Get("to"))
-	if err != nil {
-		writeError(w, http.StatusBadRequest, "invalid_params", "invalid 'to' parameter")
-		return
-	}
-
-	q := metering.UsageQuery{
-		AgentID: agentID,
-		From:    from,
-		To:      to,
-	}
-
-	summary, err := h.store.GetSummary(r.Context(), q)
-	if err != nil {
-		writeError(w, http.StatusInternalServerError, "internal_error", "failed to get usage summary")
-		return
-	}
-
-	writeJSON(w, http.StatusOK, summary)
-}
-
-// GetUsageByTool handles GET /api/v1/admin/usage/tools/{toolID} (admin).
-func (h *usageHandler) GetUsageByTool(w http.ResponseWriter, r *http.Request) {
-	toolID := chi.URLParam(r, "toolID")
-	if toolID == "" {
-		writeError(w, http.StatusBadRequest, "invalid_params", "tool_id is required")
-		return
-	}
-
-	from, err := parseTimeParam(r.URL.Query().Get("from"))
-	if err != nil {
-		writeError(w, http.StatusBadRequest, "invalid_params", "invalid 'from' parameter")
-		return
-	}
-	to, err := parseTimeParam(r.URL.Query().Get("to"))
-	if err != nil {
-		writeError(w, http.StatusBadRequest, "invalid_params", "invalid 'to' parameter")
-		return
-	}
-
-	q := metering.UsageQuery{
-		ToolID: toolID,
-		From:   from,
-		To:     to,
-	}
-
-	summary, err := h.store.GetSummary(r.Context(), q)
-	if err != nil {
-		writeError(w, http.StatusInternalServerError, "internal_error", "failed to get usage summary")
-		return
-	}
-
-	writeJSON(w, http.StatusOK, summary)
-}
-
-// GetUsageByAgentTool handles GET /api/v1/admin/usage/agents/{agentID}/tools/{toolID} (admin).
-func (h *usageHandler) GetUsageByAgentTool(w http.ResponseWriter, r *http.Request) {
-	agentID := chi.URLParam(r, "agentID")
-	toolID := chi.URLParam(r, "toolID")
-	if agentID == "" || toolID == "" {
-		writeError(w, http.StatusBadRequest, "invalid_params", "agent_id and tool_id are required")
-		return
-	}
-
-	from, err := parseTimeParam(r.URL.Query().Get("from"))
-	if err != nil {
-		writeError(w, http.StatusBadRequest, "invalid_params", "invalid 'from' parameter")
-		return
-	}
-	to, err := parseTimeParam(r.URL.Query().Get("to"))
-	if err != nil {
-		writeError(w, http.StatusBadRequest, "invalid_params", "invalid 'to' parameter")
-		return
-	}
-
-	q := metering.UsageQuery{
-		AgentID: agentID,
-		ToolID:  toolID,
-		From:    from,
-		To:      to,
-	}
-
-	summary, err := h.store.GetSummary(r.Context(), q)
 	if err != nil {
 		writeError(w, http.StatusInternalServerError, "internal_error", "failed to get usage summary")
 		return
@@ -417,41 +318,6 @@ func (h *usageHandler) GetTransactionDetail(w http.ResponseWriter, r *http.Reque
 	}
 
 	writeJSON(w, http.StatusOK, result)
-}
-
-// ExportTransactions handles GET /api/v1/admin/usage/transactions/export as CSV.
-func (h *usageHandler) ExportTransactions(w http.ResponseWriter, r *http.Request) {
-	q, err := buildUsageQuery(r, true)
-	if err != nil {
-		writeError(w, http.StatusBadRequest, "invalid_params", "invalid query parameters: "+err.Error())
-		return
-	}
-	q.Limit = 10000 // cap export
-
-	txns, _, err := h.store.ListTransactions(r.Context(), *q)
-	if err != nil {
-		writeError(w, http.StatusInternalServerError, "internal_error", "failed to list transactions")
-		return
-	}
-
-	w.Header().Set("Content-Type", "text/csv")
-	w.Header().Set("Content-Disposition", "attachment; filename=transactions.csv")
-	w.WriteHeader(http.StatusOK)
-
-	// CSV header.
-	fmt.Fprintln(w, "id,agent_id,tool_id,timestamp,method,path,status_code,latency_ms,request_size,response_size,success,cost,cost_source,error,channel")
-	for _, tx := range txns {
-		fmt.Fprintf(w, "%s,%s,%s,%s,%s,%s,%d,%d,%d,%d,%t,%.6f,%s,%s,%s\n",
-			tx.ID, tx.AgentID, tx.ToolID,
-			tx.Timestamp.Format(time.RFC3339),
-			tx.Method, tx.Path,
-			tx.StatusCode, tx.LatencyMs,
-			tx.RequestSize, tx.ResponseSize,
-			tx.Success, tx.Cost, tx.CostSource,
-			strings.ReplaceAll(tx.Error, ",", ";"),
-			tx.Channel,
-		)
-	}
 }
 
 // tryParseJSON attempts to parse bytes as JSON, returning the parsed value or the raw string.

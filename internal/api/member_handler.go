@@ -9,25 +9,20 @@ import (
 	"github.com/alecgard/octroi/internal/agent"
 	"github.com/alecgard/octroi/internal/auth"
 	"github.com/alecgard/octroi/internal/metering"
-	"github.com/alecgard/octroi/internal/registry"
 	"github.com/go-chi/chi/v5"
 	"github.com/jackc/pgx/v5"
 )
 
 // memberHandler groups member (team-scoped) HTTP handlers.
 type memberHandler struct {
-	agentStore  *agent.Store
-	toolStore   *registry.Store
-	toolService *registry.Service
-	meterStore  *metering.Store
+	agentStore *agent.Store
+	meterStore *metering.Store
 }
 
-func newMemberHandler(agentStore *agent.Store, toolStore *registry.Store, toolService *registry.Service, meterStore *metering.Store) *memberHandler {
+func newMemberHandler(agentStore *agent.Store, meterStore *metering.Store) *memberHandler {
 	return &memberHandler{
-		agentStore:  agentStore,
-		toolStore:   toolStore,
-		toolService: toolService,
-		meterStore:  meterStore,
+		agentStore: agentStore,
+		meterStore: meterStore,
 	}
 }
 
@@ -286,36 +281,6 @@ func (h *memberHandler) RegenerateKey(w http.ResponseWriter, r *http.Request) {
 	})
 }
 
-// ListTools handles GET /api/v1/member/tools — public tool list.
-func (h *memberHandler) ListTools(w http.ResponseWriter, r *http.Request) {
-	params := registry.ToolListParams{
-		Cursor: r.URL.Query().Get("cursor"),
-		Query:  r.URL.Query().Get("q"),
-	}
-	if limitStr := r.URL.Query().Get("limit"); limitStr != "" {
-		l, err := strconv.Atoi(limitStr)
-		if err != nil || l < 1 {
-			writeError(w, http.StatusBadRequest, "invalid_limit", "limit must be a positive integer")
-			return
-		}
-		params.Limit = l
-	}
-
-	tools, nextCursor, err := h.toolService.List(r.Context(), params)
-	if err != nil {
-		writeError(w, http.StatusInternalServerError, "internal_error", "failed to list tools")
-		return
-	}
-
-	resp := map[string]interface{}{
-		"tools": tools,
-	}
-	if nextCursor != "" {
-		resp["next_cursor"] = nextCursor
-	}
-	writeJSON(w, http.StatusOK, resp)
-}
-
 // GetUsage handles GET /api/v1/member/usage — team-scoped usage.
 func (h *memberHandler) GetUsage(w http.ResponseWriter, r *http.Request) {
 	u := auth.UserFromContext(r.Context())
@@ -352,32 +317,12 @@ func (h *memberHandler) GetUsage(w http.ResponseWriter, r *http.Request) {
 		return
 	}
 
-	q := metering.UsageQuery{
-		AgentIDs: agentIDs,
-	}
-
-	// Optional tool_id filter (supports comma-separated).
-	if toolParam := r.URL.Query().Get("tool_id"); toolParam != "" {
-		if strings.Contains(toolParam, ",") {
-			q.ToolIDs = strings.Split(toolParam, ",")
-		} else {
-			q.ToolID = toolParam
-		}
-	}
-
-	from, err := parseTimeParam(r.URL.Query().Get("from"))
+	q, err := parseUsageFilters(r)
 	if err != nil {
-		writeError(w, http.StatusBadRequest, "invalid_params", "invalid 'from' parameter")
+		writeError(w, http.StatusBadRequest, "invalid_params", "invalid query parameters: "+err.Error())
 		return
 	}
-	q.From = from
-
-	to, err := parseTimeParam(r.URL.Query().Get("to"))
-	if err != nil {
-		writeError(w, http.StatusBadRequest, "invalid_params", "invalid 'to' parameter")
-		return
-	}
-	q.To = to
+	q.AgentIDs = agentIDs
 
 	summary, err := h.meterStore.GetSummary(r.Context(), q)
 	if err != nil {
@@ -424,42 +369,12 @@ func (h *memberHandler) ListTransactions(w http.ResponseWriter, r *http.Request)
 		return
 	}
 
-	q := metering.UsageQuery{
-		AgentIDs: agentIDs,
-		Cursor:   r.URL.Query().Get("cursor"),
-	}
-
-	// Optional tool_id filter (supports comma-separated).
-	if toolParam := r.URL.Query().Get("tool_id"); toolParam != "" {
-		if strings.Contains(toolParam, ",") {
-			q.ToolIDs = strings.Split(toolParam, ",")
-		} else {
-			q.ToolID = toolParam
-		}
-	}
-
-	from, err := parseTimeParam(r.URL.Query().Get("from"))
+	q, err := parseUsageFilters(r)
 	if err != nil {
-		writeError(w, http.StatusBadRequest, "invalid_params", "invalid 'from' parameter")
+		writeError(w, http.StatusBadRequest, "invalid_params", "invalid query parameters: "+err.Error())
 		return
 	}
-	q.From = from
-
-	to, err := parseTimeParam(r.URL.Query().Get("to"))
-	if err != nil {
-		writeError(w, http.StatusBadRequest, "invalid_params", "invalid 'to' parameter")
-		return
-	}
-	q.To = to
-
-	if limitStr := r.URL.Query().Get("limit"); limitStr != "" {
-		l, lErr := strconv.Atoi(limitStr)
-		if lErr != nil || l < 1 {
-			writeError(w, http.StatusBadRequest, "invalid_limit", "limit must be a positive integer")
-			return
-		}
-		q.Limit = l
-	}
+	q.AgentIDs = agentIDs
 
 	txns, nextCursor, err := h.meterStore.ListTransactions(r.Context(), q)
 	if err != nil {

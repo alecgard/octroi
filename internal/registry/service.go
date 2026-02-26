@@ -127,11 +127,6 @@ func (s *Service) Delete(ctx context.Context, id string) error {
 	return s.store.Archive(ctx, id)
 }
 
-// Search performs a text search across tools.
-func (s *Service) Search(ctx context.Context, query string, limit int, cursor string) ([]*Tool, string, error) {
-	return s.store.Search(ctx, query, limit, cursor)
-}
-
 // validateCreate checks that all required fields are present and valid.
 func validateCreate(input CreateToolInput) error {
 	if strings.TrimSpace(input.Name) == "" {

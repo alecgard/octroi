@@ -94,7 +94,7 @@ func TestWellKnownHandler(t *testing.T) {
 	if !ok {
 		t.Fatal("endpoints field is not an object")
 	}
-	expectedEndpoints := []string{"tools", "tools_search", "agents", "usage", "proxy"}
+	expectedEndpoints := []string{"tools", "agents", "usage", "proxy"}
 	for _, ep := range expectedEndpoints {
 		if _, ok := endpoints[ep]; !ok {
 			t.Errorf("endpoints missing %q", ep)

@@ -1665,7 +1665,7 @@ window.addEventListener('hashchange', onHashChange);
 async function loadTools() {
   if (!currentUser) return;
   try {
-    const path = isAdmin ? '/api/v1/admin/tools?limit=100' : '/api/v1/member/tools?limit=100';
+    const path = isAdmin ? '/api/v1/admin/tools?limit=100' : '/api/v1/tools?limit=100';
     const data = await api('GET', path);
     toolsCache = data.tools || [];
     renderTools();

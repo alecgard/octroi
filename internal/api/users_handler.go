@@ -178,23 +178,6 @@ func (h *usersHandler) UpdateUser(w http.ResponseWriter, r *http.Request) {
 	writeJSON(w, http.StatusOK, u)
 }
 
-// MemberListUsers handles GET /api/v1/member/users — read-only user list for any member.
-func (h *usersHandler) MemberListUsers(w http.ResponseWriter, r *http.Request) {
-	users, err := h.store.List(r.Context())
-	if err != nil {
-		writeError(w, http.StatusInternalServerError, "internal_error", "failed to list users")
-		return
-	}
-
-	if users == nil {
-		users = []*user.User{}
-	}
-
-	writeJSON(w, http.StatusOK, map[string]interface{}{
-		"users": users,
-	})
-}
-
 // UpdateSelf handles PUT /api/v1/member/users/me — update own profile (name only).
 func (h *usersHandler) UpdateSelf(w http.ResponseWriter, r *http.Request) {
 	caller := auth.UserFromContext(r.Context())
