@@ -65,6 +65,20 @@ type WebhookDispatcher interface {
 	MaybeDispatch(toolID, toolName, webhookURL string, thresholdPct int, budgetLimit, currentUsage float64)
 }
 
+// CircuitBreakerChecker checks whether a tool's circuit is open and records results.
+type CircuitBreakerChecker interface {
+	Allow(toolID string, cfg CircuitBreakerConfig) bool
+	RecordResult(toolID string, cfg CircuitBreakerConfig, statusCode int)
+}
+
+// CircuitBreakerConfig holds CB settings passed from the tool.
+type CircuitBreakerConfig struct {
+	Enabled           bool
+	ErrorThresholdPct int
+	WindowSeconds     int
+	CooldownSeconds   int
+}
+
 // MetricsRecorder is an optional interface for recording proxy-level metrics.
 type MetricsRecorder interface {
 	IncProxyRequests(toolID, toolName, agentID, method string, statusCode int)
@@ -85,6 +99,7 @@ type Handler struct {
 	permissions    PermissionChecker
 	bodyRecorder   BodyRecorder
 	webhooks       WebhookDispatcher
+	circuitBreaker CircuitBreakerChecker
 	client         *http.Client
 	maxRequestSize int64
 	metrics        MetricsRecorder
@@ -120,6 +135,11 @@ func (h *Handler) SetPermissionChecker(c PermissionChecker) {
 // SetBodyRecorder sets the optional body recorder for request/response body logging.
 func (h *Handler) SetBodyRecorder(r BodyRecorder) {
 	h.bodyRecorder = r
+}
+
+// SetCircuitBreaker sets the optional circuit breaker checker.
+func (h *Handler) SetCircuitBreaker(cb CircuitBreakerChecker) {
+	h.circuitBreaker = cb
 }
 
 // SetWebhookDispatcher sets the optional webhook dispatcher for budget threshold alerts.
@@ -206,6 +226,20 @@ func (h *Handler) ServeHTTP(w http.ResponseWriter, r *http.Request) {
 		}
 		writeError(w, http.StatusForbidden, "budget_exceeded", "global tool budget exceeded")
 		return
+	}
+
+	// Check circuit breaker.
+	cbCfg := CircuitBreakerConfig{
+		Enabled:           tool.CBEnabled,
+		ErrorThresholdPct: tool.CBErrorThresholdPct,
+		WindowSeconds:     tool.CBWindowSeconds,
+		CooldownSeconds:   tool.CBCooldownSeconds,
+	}
+	if h.circuitBreaker != nil && tool.CBEnabled {
+		if !h.circuitBreaker.Allow(tool.ID, cbCfg) {
+			writeError(w, http.StatusServiceUnavailable, "circuit_open", "circuit breaker is open for this tool")
+			return
+		}
 	}
 
 	// Handle MCP mode: forward to upstream MCP server.
@@ -375,6 +409,9 @@ func (h *Handler) ServeHTTP(w http.ResponseWriter, r *http.Request) {
 				h.metrics.IncProxyRequests(tool.ID, tool.Name, agent.ID, r.Method, 502)
 				h.metrics.IncUpstreamError(classifyUpstreamError(doErr), tool.ID, tool.Name)
 			}
+			if h.circuitBreaker != nil && tool.CBEnabled {
+				h.circuitBreaker.RecordResult(tool.ID, cbCfg, 502)
+			}
 			h.recordTransactionWithID(attemptTxnID, agent.ID, tool, r, 502, latency, requestSize, 0, false, "")
 			lastErr = doErr
 			lastLatency = latency
@@ -391,6 +428,9 @@ func (h *Handler) ServeHTTP(w http.ResponseWriter, r *http.Request) {
 			// Record failed attempt, drain body, and retry.
 			io.Copy(io.Discard, resp.Body)
 			resp.Body.Close()
+			if h.circuitBreaker != nil && tool.CBEnabled {
+				h.circuitBreaker.RecordResult(tool.ID, cbCfg, resp.StatusCode)
+			}
 			h.recordTransactionWithID(attemptTxnID, agent.ID, tool, r, resp.StatusCode, latency, requestSize, 0, false, resp.Header.Get("X-Octroi-Cost"))
 			lastErr = nil
 			lastResp = nil
@@ -421,6 +461,10 @@ func (h *Handler) ServeHTTP(w http.ResponseWriter, r *http.Request) {
 			responseSize, _ = io.Copy(w, resp.Body)
 		}
 		resp.Body.Close()
+
+		if h.circuitBreaker != nil && tool.CBEnabled {
+			h.circuitBreaker.RecordResult(tool.ID, cbCfg, resp.StatusCode)
+		}
 
 		success := resp.StatusCode >= 200 && resp.StatusCode < 300
 		h.recordTransactionWithID(attemptTxnID, agent.ID, tool, r, resp.StatusCode, latency, requestSize, responseSize, success, reportedCostHeader)

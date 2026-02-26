@@ -2,6 +2,7 @@ package api
 
 import (
 	"context"
+	"encoding/json"
 	"fmt"
 	"log/slog"
 	"math"
@@ -12,6 +13,7 @@ import (
 	"github.com/alecgard/octroi/internal/agent"
 	"github.com/alecgard/octroi/internal/audit"
 	"github.com/alecgard/octroi/internal/auth"
+	"github.com/alecgard/octroi/internal/circuitbreaker"
 	"github.com/alecgard/octroi/internal/mcp"
 	"github.com/alecgard/octroi/internal/metering"
 	"github.com/alecgard/octroi/internal/metrics"
@@ -127,6 +129,7 @@ type RouterDeps struct {
 	MCPServer          *mcp.Server
 	MCPAggregator      *mcp.Aggregator
 	AuditStore         *audit.Store
+	CBRegistry         *circuitbreaker.Registry
 }
 
 // NewRouter builds the chi router with all routes and middleware.
@@ -320,6 +323,19 @@ func NewRouter(deps RouterDeps) http.Handler {
 		if deps.UserStore != nil {
 			teams := newTeamsHandler(deps.AgentStore, deps.UserStore)
 			ar.Get("/teams", teams.AdminListTeams)
+		}
+
+		// Circuit breaker status (admin).
+		if deps.CBRegistry != nil {
+			ar.Get("/tools/{id}/circuit-breaker", func(w http.ResponseWriter, r *http.Request) {
+				id := chi.URLParam(r, "id")
+				stats := deps.CBRegistry.GetStats(id)
+				if stats == nil {
+					stats = &circuitbreaker.Stats{State: "closed"}
+				}
+				w.Header().Set("Content-Type", "application/json")
+				json.NewEncoder(w).Encode(stats)
+			})
 		}
 
 		// Audit log (admin).

@@ -14,6 +14,7 @@ import (
 	"github.com/alecgard/octroi/internal/api"
 	"github.com/alecgard/octroi/internal/audit"
 	"github.com/alecgard/octroi/internal/auth"
+	"github.com/alecgard/octroi/internal/circuitbreaker"
 	"github.com/alecgard/octroi/internal/config"
 	"github.com/alecgard/octroi/internal/crypto"
 	"github.com/alecgard/octroi/internal/mcp"
@@ -49,6 +50,31 @@ type toolRegistryAdapter struct {
 
 func (a *toolRegistryAdapter) List(ctx context.Context) ([]*registry.Tool, error) {
 	return a.store.ListEnabled(ctx)
+}
+
+// circuitBreakerAdapter adapts circuitbreaker.Registry to the proxy.CircuitBreakerChecker interface.
+type circuitBreakerAdapter struct {
+	reg *circuitbreaker.Registry
+}
+
+func (a *circuitBreakerAdapter) Allow(toolID string, cfg proxy.CircuitBreakerConfig) bool {
+	cb := a.reg.Get(toolID, circuitbreaker.Config{
+		Enabled:           cfg.Enabled,
+		ErrorThresholdPct: cfg.ErrorThresholdPct,
+		WindowSeconds:     cfg.WindowSeconds,
+		CooldownSeconds:   cfg.CooldownSeconds,
+	})
+	return cb.Allow()
+}
+
+func (a *circuitBreakerAdapter) RecordResult(toolID string, cfg proxy.CircuitBreakerConfig, statusCode int) {
+	cb := a.reg.Get(toolID, circuitbreaker.Config{
+		Enabled:           cfg.Enabled,
+		ErrorThresholdPct: cfg.ErrorThresholdPct,
+		WindowSeconds:     cfg.WindowSeconds,
+		CooldownSeconds:   cfg.CooldownSeconds,
+	})
+	cb.RecordResult(statusCode)
 }
 
 var serveCmd = &cobra.Command{
@@ -174,6 +200,8 @@ func runServe(cmd *cobra.Command, args []string) error {
 	proxyHandler.SetPermissionChecker(permissionStore)
 	proxyHandler.SetBodyRecorder(&bodyRecorderAdapter{store: bodyStore})
 	proxyHandler.SetWebhookDispatcher(webhook.NewDispatcher(1 * time.Hour))
+	cbRegistry := circuitbreaker.NewRegistry()
+	proxyHandler.SetCircuitBreaker(&circuitBreakerAdapter{reg: cbRegistry})
 	proxyHandler.SetMetrics(m)
 
 	// MCP components.
@@ -232,6 +260,7 @@ func runServe(cmd *cobra.Command, args []string) error {
 		MCPServer:          mcpServer,
 		MCPAggregator:      aggregator,
 		AuditStore:         audit.NewStore(pool),
+		CBRegistry:         cbRegistry,
 	})
 
 	srv := &http.Server{

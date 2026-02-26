@@ -25,6 +25,10 @@ type Tool struct {
 	RetryBackoffMs    int               `json:"retry_backoff_ms"`
 	WebhookURL        string            `json:"webhook_url"`
 	WebhookThresholdPct int            `json:"webhook_threshold_pct"`
+	CBEnabled           bool          `json:"cb_enabled"`
+	CBErrorThresholdPct int           `json:"cb_error_threshold_pct"`
+	CBWindowSeconds     int           `json:"cb_window_seconds"`
+	CBCooldownSeconds   int           `json:"cb_cooldown_seconds"`
 	Enabled         bool              `json:"enabled"`
 	CreatedAt       time.Time         `json:"created_at"`
 	UpdatedAt       time.Time         `json:"updated_at"`
@@ -52,6 +56,10 @@ type CreateToolInput struct {
 	RetryBackoffMs    *int              `json:"retry_backoff_ms"`
 	WebhookURL        string           `json:"webhook_url"`
 	WebhookThresholdPct *int           `json:"webhook_threshold_pct"`
+	CBEnabled           *bool          `json:"cb_enabled"`
+	CBErrorThresholdPct *int           `json:"cb_error_threshold_pct"`
+	CBWindowSeconds     *int           `json:"cb_window_seconds"`
+	CBCooldownSeconds   *int           `json:"cb_cooldown_seconds"`
 	Enabled         *bool             `json:"enabled"`
 }
 
@@ -78,6 +86,10 @@ type UpdateToolInput struct {
 	RetryBackoffMs    *int               `json:"retry_backoff_ms"`
 	WebhookURL        *string            `json:"webhook_url"`
 	WebhookThresholdPct *int             `json:"webhook_threshold_pct"`
+	CBEnabled           *bool            `json:"cb_enabled"`
+	CBErrorThresholdPct *int             `json:"cb_error_threshold_pct"`
+	CBWindowSeconds     *int             `json:"cb_window_seconds"`
+	CBCooldownSeconds   *int             `json:"cb_cooldown_seconds"`
 	Enabled         *bool              `json:"enabled"`
 }
 

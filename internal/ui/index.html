@@ -923,6 +923,28 @@ body.shift-held .txn-filter-pending { background: var(--surface2); }
         <input type="number" id="tool-retry-backoff-ms" placeholder="1000" min="100" max="30000">
       </div>
     </div>
+    <div id="tool-cb-section" style="display:none">
+      <label style="display:block;text-transform:uppercase;font-size:10px;font-weight:600;letter-spacing:0.5px;color:var(--text2);margin:12px 0 6px">Circuit Breaker</label>
+      <div class="form-group">
+        <label style="display:inline-flex;align-items:center;gap:6px;text-transform:uppercase;font-size:10px;font-weight:600;letter-spacing:0.5px;color:var(--text2);cursor:pointer">
+          <input type="checkbox" id="tool-cb-enabled"> Enable Circuit Breaker
+        </label>
+      </div>
+      <div class="form-row">
+        <div class="form-group">
+          <label title="Open circuit when error % exceeds this threshold (needs >= 10 requests)">Error Threshold (%)</label>
+          <input type="number" id="tool-cb-error-threshold-pct" placeholder="90" min="1" max="100">
+        </div>
+        <div class="form-group">
+          <label title="Sliding window duration for error rate calculation">Window (seconds)</label>
+          <input type="number" id="tool-cb-window-seconds" placeholder="120" min="10" max="600">
+        </div>
+      </div>
+      <div class="form-group">
+        <label title="Wait this long before attempting a half-open probe">Cooldown (seconds)</label>
+        <input type="number" id="tool-cb-cooldown-seconds" placeholder="60" min="5" max="300">
+      </div>
+    </div>
     <div id="tool-webhook-section" style="display:none">
       <label style="display:block;text-transform:uppercase;font-size:10px;font-weight:600;letter-spacing:0.5px;color:var(--text2);margin:12px 0 6px">Webhooks</label>
       <div class="form-group">
@@ -1603,6 +1625,11 @@ function openToolModal(tool) {
   document.getElementById('tool-webhook-url').value = tool ? (tool.webhook_url || '') : '';
   document.getElementById('tool-webhook-threshold-pct').value = tool ? (tool.webhook_threshold_pct || 80) : 80;
   document.getElementById('tool-webhook-section').style.display = tool ? '' : 'none';
+  document.getElementById('tool-cb-enabled').checked = tool ? !!tool.cb_enabled : false;
+  document.getElementById('tool-cb-error-threshold-pct').value = tool ? (tool.cb_error_threshold_pct || 90) : 90;
+  document.getElementById('tool-cb-window-seconds').value = tool ? (tool.cb_window_seconds || 120) : 120;
+  document.getElementById('tool-cb-cooldown-seconds').value = tool ? (tool.cb_cooldown_seconds || 60) : 60;
+  document.getElementById('tool-cb-section').style.display = tool ? '' : 'none';
   toggleToolMode();
   document.getElementById('tool-rate-limit').value = tool ? tool.rate_limit || '' : '';
   document.getElementById('tool-auth-config').value = tool && tool.auth_config ? JSON.stringify(tool.auth_config) : '';
@@ -1699,6 +1726,10 @@ async function submitTool() {
     retry_backoff_ms: parseInt(document.getElementById('tool-retry-backoff-ms').value) || 1000,
     webhook_url: document.getElementById('tool-webhook-url').value.trim(),
     webhook_threshold_pct: parseInt(document.getElementById('tool-webhook-threshold-pct').value) || 80,
+    cb_enabled: document.getElementById('tool-cb-enabled').checked,
+    cb_error_threshold_pct: parseInt(document.getElementById('tool-cb-error-threshold-pct').value) || 90,
+    cb_window_seconds: parseInt(document.getElementById('tool-cb-window-seconds').value) || 120,
+    cb_cooldown_seconds: parseInt(document.getElementById('tool-cb-cooldown-seconds').value) || 60,
   };
   try {
     if (id) {

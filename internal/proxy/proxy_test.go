@@ -757,3 +757,86 @@ func TestPermissionAllowed(t *testing.T) {
 		t.Fatalf("expected 200, got %d", rr.Code)
 	}
 }
+
+// --- Circuit Breaker Fakes ---
+
+type fakeCircuitBreaker struct {
+	allowResult bool
+	results     []int
+}
+
+func (f *fakeCircuitBreaker) Allow(_ string, _ CircuitBreakerConfig) bool {
+	return f.allowResult
+}
+
+func (f *fakeCircuitBreaker) RecordResult(_ string, _ CircuitBreakerConfig, statusCode int) {
+	f.results = append(f.results, statusCode)
+}
+
+func TestCircuitBreakerOpen(t *testing.T) {
+	upstream := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
+		w.WriteHeader(http.StatusOK)
+	}))
+	defer upstream.Close()
+
+	tool := newTestTool(upstream.URL)
+	tool.CBEnabled = true
+	tool.CBErrorThresholdPct = 90
+	tool.CBWindowSeconds = 120
+	tool.CBCooldownSeconds = 60
+	store := &fakeToolStore{tools: map[string]*registry.Tool{"tool-1": tool}}
+	budgets := &fakeBudgetChecker{agentAllowed: true, globalAllowed: true}
+	collector := &fakeCollector{}
+	handler := NewHandler(store, budgets, collector, 5*time.Second, 1<<20)
+	handler.SetCircuitBreaker(&fakeCircuitBreaker{allowResult: false})
+
+	router := setupRouter(handler)
+
+	req := httptest.NewRequest("GET", "/proxy/tool-1/test", nil)
+	req = withAgent(req, newTestAgent())
+	rr := httptest.NewRecorder()
+	router.ServeHTTP(rr, req)
+
+	if rr.Code != http.StatusServiceUnavailable {
+		t.Fatalf("expected 503, got %d", rr.Code)
+	}
+
+	var errResp proxyError
+	_ = json.NewDecoder(rr.Body).Decode(&errResp)
+	if errResp.Error.Code != "circuit_open" {
+		t.Errorf("expected error code circuit_open, got %s", errResp.Error.Code)
+	}
+}
+
+func TestCircuitBreakerRecordsResult(t *testing.T) {
+	upstream := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
+		w.WriteHeader(http.StatusOK)
+	}))
+	defer upstream.Close()
+
+	tool := newTestTool(upstream.URL)
+	tool.CBEnabled = true
+	tool.CBErrorThresholdPct = 90
+	tool.CBWindowSeconds = 120
+	tool.CBCooldownSeconds = 60
+	store := &fakeToolStore{tools: map[string]*registry.Tool{"tool-1": tool}}
+	budgets := &fakeBudgetChecker{agentAllowed: true, globalAllowed: true}
+	collector := &fakeCollector{}
+	cb := &fakeCircuitBreaker{allowResult: true}
+	handler := NewHandler(store, budgets, collector, 5*time.Second, 1<<20)
+	handler.SetCircuitBreaker(cb)
+
+	router := setupRouter(handler)
+
+	req := httptest.NewRequest("GET", "/proxy/tool-1/test", nil)
+	req = withAgent(req, newTestAgent())
+	rr := httptest.NewRecorder()
+	router.ServeHTTP(rr, req)
+
+	if rr.Code != http.StatusOK {
+		t.Fatalf("expected 200, got %d", rr.Code)
+	}
+	if len(cb.results) != 1 || cb.results[0] != 200 {
+		t.Errorf("expected CB result [200], got %v", cb.results)
+	}
+}
