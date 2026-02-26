@@ -40,6 +40,10 @@ type Metrics struct {
 	// Proxy upstream error metrics.
 	ProxyUpstreamErrorsTotal *prometheus.CounterVec
 
+	// MCP metrics.
+	MCPRequestsTotal    *prometheus.CounterVec
+	MCPToolCallDuration *prometheus.HistogramVec
+
 	// Server lifecycle.
 	ServerStartTime prometheus.Gauge
 }
@@ -136,6 +140,17 @@ func New() *Metrics {
 			Help: "Total number of upstream request errors by error type.",
 		}, []string{"error_type", "tool_id", "tool_name"}),
 
+		MCPRequestsTotal: prometheus.NewCounterVec(prometheus.CounterOpts{
+			Name: "octroi_mcp_requests_total",
+			Help: "Total number of MCP protocol requests.",
+		}, []string{"method"}),
+
+		MCPToolCallDuration: prometheus.NewHistogramVec(prometheus.HistogramOpts{
+			Name:    "octroi_mcp_tool_call_duration_seconds",
+			Help:    "MCP tool call duration in seconds (including governance checks and upstream).",
+			Buckets: prometheus.DefBuckets,
+		}, []string{"tool_name"}),
+
 		ServerStartTime: prometheus.NewGauge(prometheus.GaugeOpts{
 			Name: "octroi_server_start_time_seconds",
 			Help: "Unix timestamp when the server started.",
@@ -160,6 +175,8 @@ func New() *Metrics {
 		m.AuthFailuresTotal,
 		m.AuthSuccessesTotal,
 		m.ProxyUpstreamErrorsTotal,
+		m.MCPRequestsTotal,
+		m.MCPToolCallDuration,
 		m.ServerStartTime,
 	)
 
@@ -231,4 +248,14 @@ func (m *Metrics) IncAuthSuccess(authType string) {
 // IncUpstreamError increments the upstream error counter with error type classification.
 func (m *Metrics) IncUpstreamError(errorType, toolID, toolName string) {
 	m.ProxyUpstreamErrorsTotal.WithLabelValues(errorType, toolID, toolName).Inc()
+}
+
+// IncMCPRequests increments the MCP requests counter for the given method.
+func (m *Metrics) IncMCPRequests(method string) {
+	m.MCPRequestsTotal.WithLabelValues(method).Inc()
+}
+
+// ObserveMCPToolCallDuration records the duration of an MCP tool call.
+func (m *Metrics) ObserveMCPToolCallDuration(toolName string, seconds float64) {
+	m.MCPToolCallDuration.WithLabelValues(toolName).Observe(seconds)
 }

@@ -11,6 +11,7 @@ import (
 
 	"github.com/alecgard/octroi/internal/agent"
 	"github.com/alecgard/octroi/internal/auth"
+	octroiMCP "github.com/alecgard/octroi/internal/mcp"
 	"github.com/alecgard/octroi/internal/metering"
 	"github.com/alecgard/octroi/internal/metrics"
 	"github.com/alecgard/octroi/internal/proxy"
@@ -116,6 +117,7 @@ type RouterDeps struct {
 	Auth               *auth.Service
 	Limiter            *ratelimit.Limiter
 	Proxy              *proxy.Handler
+	MCPHandler         *octroiMCP.Handler
 	UserStore          *user.Store
 	ToolRateLimitStore *ratelimit.ToolRateLimitStore
 	AllowedOrigins     []string
@@ -334,6 +336,11 @@ func NewRouter(deps RouterDeps) http.Handler {
 
 		pr.Handle("/{toolID}/*", deps.Proxy)
 	})
+
+	// MCP endpoint (auth handled internally by the MCP handler via WithHTTPContextFunc).
+	if deps.MCPHandler != nil {
+		r.Handle("/mcp", deps.MCPHandler)
+	}
 
 	return r
 }

@@ -15,6 +15,7 @@ import (
 	"github.com/alecgard/octroi/internal/auth"
 	"github.com/alecgard/octroi/internal/config"
 	"github.com/alecgard/octroi/internal/crypto"
+	octroiMCP "github.com/alecgard/octroi/internal/mcp"
 	"github.com/alecgard/octroi/internal/metering"
 	"github.com/alecgard/octroi/internal/metrics"
 	"github.com/alecgard/octroi/internal/proxy"
@@ -115,7 +116,8 @@ func runServe(cmd *cobra.Command, args []string) error {
 	}()
 
 	limiter := ratelimit.New(cfg.RateLimit.Default, cfg.RateLimit.Window)
-	authService := auth.NewService(agent.NewAuthAdapter(agentStore))
+	agentLookup := agent.NewAuthAdapter(agentStore)
+	authService := auth.NewService(agentLookup)
 
 	toolRateLimitStore := ratelimit.NewToolRateLimitStore(pool)
 	toolRateLimiter := ratelimit.NewToolRateLimiter(toolRateLimitStore, limiter)
@@ -123,6 +125,23 @@ func runServe(cmd *cobra.Command, args []string) error {
 	proxyHandler := proxy.NewHandler(toolStore, budgetStore, collector, cfg.Proxy.Timeout, cfg.Proxy.MaxRequestSize)
 	proxyHandler.SetToolRateLimitChecker(toolRateLimiter)
 	proxyHandler.SetMetrics(m)
+
+	// MCP endpoint.
+	mcpHandler := octroiMCP.NewHandler(octroiMCP.HandlerDeps{
+		Tools:          toolStore,
+		Budgets:        budgetStore,
+		Collector:      collector,
+		ToolRateLimits: toolRateLimiter,
+		Limiter:        limiter,
+		Metrics:        m,
+		MCPMetrics:     m,
+		AgentLookup:    agentLookup,
+		ProxyTimeout:   cfg.Proxy.Timeout,
+		MaxRequestSize: cfg.Proxy.MaxRequestSize,
+	})
+	if err := mcpHandler.RefreshTools(ctx); err != nil {
+		return fmt.Errorf("loading MCP tools: %w", err)
+	}
 
 	router := api.NewRouter(api.RouterDeps{
 		DBPool:             pool,
@@ -135,6 +154,7 @@ func runServe(cmd *cobra.Command, args []string) error {
 		Auth:               authService,
 		Limiter:            limiter,
 		Proxy:              proxyHandler,
+		MCPHandler:         mcpHandler,
 		UserStore:          userStore,
 		ToolRateLimitStore: toolRateLimitStore,
 		AllowedOrigins:     cfg.CORS.AllowedOrigins,
