@@ -185,7 +185,7 @@ func (h *memberHandler) UpdateAgent(w http.ResponseWriter, r *http.Request) {
 		return
 	}
 
-	auditLog(r, "update", "agent", id)
+	auditLog(r, "update", "agent", id, "name", ag.Name)
 
 	writeJSON(w, http.StatusOK, ag)
 }
@@ -224,7 +224,7 @@ func (h *memberHandler) DeleteAgent(w http.ResponseWriter, r *http.Request) {
 		return
 	}
 
-	auditLog(r, "delete", "agent", id)
+	auditLog(r, "delete", "agent", id, "name", existing.Name)
 
 	w.WriteHeader(http.StatusNoContent)
 }
@@ -270,7 +270,7 @@ func (h *memberHandler) RegenerateKey(w http.ResponseWriter, r *http.Request) {
 		return
 	}
 
-	auditLog(r, "regenerate_key", "agent", id)
+	auditLog(r, "regenerate_key", "agent", id, "name", ag.Name)
 
 	writeJSON(w, http.StatusOK, map[string]interface{}{
 		"id":             ag.ID,

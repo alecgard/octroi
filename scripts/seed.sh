@@ -30,13 +30,26 @@ DB_URL="${OCTROI_DB_URL:-postgres://octroi:octroi@localhost:5433/octroi?sslmode=
 
 # --- helpers ---------------------------------------------------------------
 
+retry() {
+  # Retry a command every 1s until it succeeds (exit code 0).
+  local result
+  while true; do
+    if result=$("$@" 2>/dev/null); then
+      break
+    fi
+    echo "    (server unavailable, retrying in 1s...)" >&2
+    sleep 1
+  done
+  echo "$result"
+}
+
 api() {
   local method="$1" path="$2" body="${3:-}"
   local args=(-s -H "Authorization: Bearer $TOKEN" -H "Content-Type: application/json")
   if [[ -n "$body" ]]; then
     args+=(-d "$body")
   fi
-  curl "${args[@]}" -X "$method" "${BASE}${path}"
+  retry curl "${args[@]}" -X "$method" "${BASE}${path}"
 }
 
 check_error() {
@@ -776,7 +789,7 @@ while true; do
       -H "Content-Type: application/json" \
       -d '{"query":"test","repoName":"octroi"}' \
       -X POST \
-      "${BASE}/proxy/${tool_id}/${sub_tool}")
+      "${BASE}/proxy/${tool_id}/${sub_tool}" 2>/dev/null) || http_code="000"
     method="POST"
     path="/${sub_tool}"
   else
@@ -785,15 +798,19 @@ while true; do
     method="${METHODS[$method_idx]}"
     path="${PATHS[$path_idx]}"
     # REST tools: standard proxy request (include body for POST/PUT).
-    local rest_args=(-s -o /dev/null -w "%{http_code}" -H "Authorization: Bearer $agent_key" -X "$method")
+    rest_args=(-s -o /dev/null -w "%{http_code}" -H "Authorization: Bearer $agent_key" -X "$method")
     if [[ "$method" == "POST" || "$method" == "PUT" ]]; then
       rest_args+=(-H "Content-Type: application/json" -d '{"query":"test","limit":10}')
     fi
-    http_code=$(curl "${rest_args[@]}" "${BASE}/proxy/${tool_id}${path}")
+    http_code=$(curl "${rest_args[@]}" "${BASE}/proxy/${tool_id}${path}" 2>/dev/null) || http_code="000"
   fi
 
   count=$(( count + 1 ))
-  if (( http_code >= 400 )); then
+  if [[ "$http_code" == "000" ]]; then
+    echo "  [$count] ${agent_name} -> ${tool_name}  ${method} ${path}  --- DOWN (retrying in 1s...)"
+    sleep 1
+    continue
+  elif (( http_code >= 400 )); then
     echo "  [$count] ${agent_name} -> ${tool_name}  ${method} ${path}  ${http_code} ERR"
   else
     echo "  [$count] ${agent_name} -> ${tool_name}  ${method} ${path}  ${http_code} OK"

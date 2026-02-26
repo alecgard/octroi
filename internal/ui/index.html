@@ -165,9 +165,13 @@ tbody tr:hover { background: var(--surface); }
   width: 100%;
   max-width: 520px;
   max-height: calc(100vh - 120px);
-  overflow-y: auto;
-  padding: 16px;
+  overflow: hidden;
+  padding: 0;
+  display: flex;
+  flex-direction: column;
 }
+.modal > h3 { padding: 16px 16px 0; }
+.modal-body { flex: 1; overflow-y: auto; padding: 0 16px; }
 .modal h3 { font-size: 11px; font-weight: 700; text-transform: uppercase; letter-spacing: 1px; margin-bottom: 12px; }
 .form-group { margin-bottom: 10px; }
 .form-group label {
@@ -200,7 +204,7 @@ tbody tr:hover { background: var(--surface); }
   border-color: var(--text);
 }
 .form-row { display: grid; grid-template-columns: 1fr 1fr; gap: 10px; }
-.modal-actions { display: flex; justify-content: flex-end; gap: 6px; margin-top: 14px; }
+.modal-actions { display: flex; justify-content: flex-end; gap: 6px; padding: 12px 16px; border-top: 1px solid var(--border); flex-shrink: 0; }
 /* Confirm dialog */
 .confirm-modal .modal { max-width: 360px; }
 .confirm-modal .confirm-msg { font-size: 12px; line-height: 1.5; margin-bottom: 14px; }
@@ -629,6 +633,7 @@ body.shift-held .txn-filter-pending { background: var(--surface2); }
       <div class="multi-select" id="usage-agent-select" data-placeholder="All agents"></div>
       <div class="multi-select" id="usage-tool-select" data-placeholder="All tools"></div>
       <div class="multi-select" id="usage-path-select" data-placeholder="All paths"></div>
+      <button class="btn-ghost" id="clear-all-filters" onclick="clearAllUsageFilters()" title="Clear all filters" style="padding:4px 6px;font-size:14px;line-height:1;display:none">&times;</button>
       <div style="flex:1"></div>
       <div id="usage-date-controls" style="display:none;gap:8px;align-items:center">
         <input type="date" id="usage-from">
@@ -711,6 +716,7 @@ body.shift-held .txn-filter-pending { background: var(--surface2); }
           <th class="has-tooltip">Path / Sub-tool<span class="tip">API path for Service/API tools, sub-tool name for MCP tools</span></th>
           <th>Latency</th>
           <th>Cost</th>
+          <th style="width:28px"></th>
         </tr>
       </thead>
       <tbody id="txn-body"></tbody>
@@ -800,6 +806,7 @@ body.shift-held .txn-filter-pending { background: var(--surface2); }
 <div class="modal-overlay" id="tool-modal">
   <div class="modal">
     <h3 id="tool-modal-title">Create Tool</h3>
+    <div class="modal-body">
     <input type="hidden" id="tool-edit-id">
     <div class="form-group" id="tool-id-group" style="display:none">
       <label>Tool ID</label>
@@ -957,6 +964,7 @@ body.shift-held .txn-filter-pending { background: var(--surface2); }
         <input type="number" id="tool-webhook-threshold-pct" placeholder="80" min="1" max="100">
       </div>
     </div>
+    </div>
     <div class="modal-actions">
       <button class="btn-ghost" onclick="closeModal('tool-modal')">Cancel</button>
       <button class="btn-primary" id="tool-submit-btn" onclick="submitTool()">Create</button>
@@ -968,6 +976,7 @@ body.shift-held .txn-filter-pending { background: var(--surface2); }
 <div class="modal-overlay" id="agent-modal">
   <div class="modal">
     <h3 id="agent-modal-title">Create Agent</h3>
+    <div class="modal-body">
     <input type="hidden" id="agent-edit-id">
     <div class="form-group" id="agent-key-group" style="display:none">
       <label>Key</label>
@@ -997,6 +1006,7 @@ body.shift-held .txn-filter-pending { background: var(--surface2); }
       <label style="text-transform:uppercase;font-size:10px;font-weight:600;letter-spacing:0.5px;color:var(--text2)" title="Check the tools this agent may use. For MCP tools, you can also restrict access to specific sub-tools.">Tool Permissions</label>
       <div id="agent-permissions-list" style="max-height:200px;overflow-y:auto;margin-top:4px;border:1px solid var(--border);border-radius:6px;padding:6px"></div>
     </div>
+    </div>
     <div class="modal-actions">
       <button class="btn-warn" id="agent-regen-btn" onclick="regenKeyFromModal()" style="display:none;margin-right:auto">Regenerate Key</button>
       <button class="btn-ghost" onclick="closeModal('agent-modal')">Cancel</button>
@@ -1009,7 +1019,12 @@ body.shift-held .txn-filter-pending { background: var(--surface2); }
 <div class="modal-overlay" id="user-modal">
   <div class="modal">
     <h3 id="user-modal-title">Create User</h3>
+    <div class="modal-body">
     <input type="hidden" id="user-edit-id">
+    <div class="form-group" id="user-id-group" style="display:none">
+      <label>User ID</label>
+      <code id="user-id-display" style="display:block;padding:6px 8px;background:var(--surface);border:1px solid var(--border);border-radius:4px;font-size:12px;color:var(--text2);user-select:all"></code>
+    </div>
     <div class="form-group">
       <label>Email *</label>
       <input type="email" id="user-email" placeholder="user@example.com">
@@ -1039,6 +1054,7 @@ body.shift-held .txn-filter-pending { background: var(--surface2); }
         <option value="org_admin">org_admin</option>
       </select>
     </div>
+    </div>
     <div class="modal-actions">
       <button class="btn-ghost" onclick="closeModal('user-modal')">Cancel</button>
       <button class="btn-primary" id="user-submit-btn" onclick="submitUser()">Create</button>
@@ -1050,6 +1066,7 @@ body.shift-held .txn-filter-pending { background: var(--surface2); }
 <div class="modal-overlay" id="add-member-modal">
   <div class="modal">
     <h3>Add Team Member</h3>
+    <div class="modal-body">
     <input type="hidden" id="add-member-team">
     <div class="form-group">
       <label>User</label>
@@ -1062,6 +1079,7 @@ body.shift-held .txn-filter-pending { background: var(--surface2); }
         <option value="admin">admin</option>
       </select>
     </div>
+    </div>
     <div class="modal-actions">
       <button class="btn-ghost" onclick="closeModal('add-member-modal')">Cancel</button>
       <button class="btn-primary" onclick="submitAddMember()">Add</button>
@@ -1073,6 +1091,7 @@ body.shift-held .txn-filter-pending { background: var(--surface2); }
 <div class="modal-overlay" id="create-team-modal">
   <div class="modal">
     <h3>Create Team</h3>
+    <div class="modal-body">
     <div class="form-group">
       <label>Team Name *</label>
       <input type="text" id="create-team-name" placeholder="e.g. backend">
@@ -1080,6 +1099,7 @@ body.shift-held .txn-filter-pending { background: var(--surface2); }
     <div class="form-group">
       <label>First Admin *</label>
       <select id="create-team-admin"></select>
+    </div>
     </div>
     <div class="modal-actions">
       <button class="btn-ghost" onclick="closeModal('create-team-modal')">Cancel</button>
@@ -1091,7 +1111,9 @@ body.shift-held .txn-filter-pending { background: var(--surface2); }
 <div class="modal-overlay confirm-modal" id="confirm-modal">
   <div class="modal">
     <h3 id="confirm-title">Confirm</h3>
+    <div class="modal-body">
     <div class="confirm-msg" id="confirm-msg"></div>
+    </div>
     <div class="modal-actions">
       <button class="btn-ghost" id="confirm-cancel">Cancel</button>
       <button class="btn-danger-fill" id="confirm-ok">Delete</button>
@@ -1183,10 +1205,48 @@ let usersCache = [];
 let shiftHeld = false;
 let pendingFilters = { teams: new Set(), agents: new Set(), tools: new Set(), paths: new Set() };
 
+// --- Modal dirty-state tracking ---
+const formModalIds = ['tool-modal', 'agent-modal', 'user-modal', 'add-member-modal', 'create-team-modal'];
+let modalDirty = false;
+let modalSnapshot = '';
+
+function snapshotModal(modalId) {
+  const el = document.getElementById(modalId);
+  if (!el) return '';
+  const inputs = el.querySelectorAll('input, select, textarea');
+  return Array.from(inputs).map(i => i.type === 'checkbox' ? i.checked : i.value).join('\x00');
+}
+
+function markModalClean(modalId) {
+  modalSnapshot = snapshotModal(modalId);
+  modalDirty = false;
+}
+
+function isModalDirty(modalId) {
+  return snapshotModal(modalId) !== modalSnapshot;
+}
+
+document.addEventListener('input', e => {
+  const modal = e.target.closest('.modal-overlay');
+  if (modal && formModalIds.includes(modal.id)) modalDirty = true;
+});
+document.addEventListener('change', e => {
+  const modal = e.target.closest('.modal-overlay');
+  if (modal && formModalIds.includes(modal.id)) modalDirty = true;
+});
+
 document.addEventListener('keydown', e => {
   if (e.key === 'Escape') {
     const open = document.querySelector('.modal-overlay.open');
-    if (open) { open.classList.remove('open'); e.preventDefault(); }
+    if (!open) return;
+    e.preventDefault();
+    if (formModalIds.includes(open.id) && isModalDirty(open.id)) {
+      appConfirm('You have unsaved changes. Discard them?', { title: 'Unsaved Changes', okLabel: 'Discard' })
+        .then(yes => { if (yes) { modalDirty = false; open.classList.remove('open'); } });
+    } else {
+      open.classList.remove('open');
+    }
+    return;
   }
   if (e.key === 'Shift' && !shiftHeld) {
     shiftHeld = true;
@@ -1322,8 +1382,38 @@ function msUpdateDisplay(id, selectedArr, resolveName) {
   });
 }
 
-// Render filter pills
-function renderFilterPills() {}
+// Render filter pills — show/hide clear-all button based on active filters.
+function renderFilterPills() {
+  const hasFilters = usageAgentIds.length || usageToolIds.length || usageTeamFilters.length || usagePathFilters.length;
+  const btn = document.getElementById('clear-all-filters');
+  if (btn) btn.style.display = hasFilters ? '' : 'none';
+}
+
+// Navigate to Usage tab with pre-set tool and path filters.
+function navigateToUsageFiltered(toolId, subToolName) {
+  usageAgentIds = [];
+  usageTeamFilters = [];
+  usageToolIds = [toolId];
+  usagePathFilters = subToolName ? [subToolName] : [];
+  syncDropdowns();
+  renderFilterPills();
+  navigateTo('usage');
+}
+
+// Clear all usage filters.
+function clearAllUsageFilters() {
+  usageAgentIds = [];
+  usageToolIds = [];
+  usageTeamFilters = [];
+  usagePathFilters = [];
+  syncDropdowns();
+  renderFilterPills();
+  chartLegendHover = false;
+  document.body.classList.remove('chart-paused');
+  renderTxnTable();
+  renderUsageChart(lastChartTxns);
+  loadUsage();
+}
 
 // Compute the effective (preview) filter sets: committed state with pending toggles applied.
 function effectiveFilters() {
@@ -1676,6 +1766,7 @@ function openToolModal(tool) {
   }
 
   document.getElementById('tool-modal').classList.add('open');
+  setTimeout(() => markModalClean('tool-modal'), 0);
 }
 
 async function loadToolRateOverrides(toolID) {
@@ -1875,6 +1966,7 @@ function openAgentModal(ag) {
   permsSection.style.display = ag && ag.allowlist_mode ? '' : 'none';
   allowlistCb.onchange = function() { permsSection.style.display = this.checked ? '' : 'none'; };
   if (ag) loadAgentPermissions(ag.id);
+  else setTimeout(() => markModalClean('agent-modal'), 0);
   document.getElementById('agent-modal').classList.add('open');
 }
 
@@ -1929,6 +2021,7 @@ async function loadAgentPermissions(agentId) {
         if (subDiv) subDiv.style.display = this.checked ? '' : 'none';
       });
     });
+    markModalClean('agent-modal');
   } catch (e) { list.innerHTML = '<div style="color:var(--warn);font-size:11px">Failed to load</div>'; }
 }
 
@@ -2067,6 +2160,7 @@ function openAddMemberModal(team) {
     sel.innerHTML = '<option value="">No users available</option>';
   }
   document.getElementById('add-member-modal').classList.add('open');
+  setTimeout(() => markModalClean('add-member-modal'), 0);
 }
 
 async function submitAddMember() {
@@ -2100,6 +2194,7 @@ function openCreateTeamModal() {
     sel.innerHTML = '<option value="">No eligible users</option>';
   }
   document.getElementById('create-team-modal').classList.add('open');
+  setTimeout(() => markModalClean('create-team-modal'), 0);
 }
 
 async function submitCreateTeam() {
@@ -2309,6 +2404,7 @@ function renderTxnTable(prevTimestamp) {
     <td class="txn-filterable${pathExcl} mono" style="font-size:12px">${esc(cleaned)}${txnFilterBtn('path', esc(cleaned), cleaned)}</td>
     <td>${t.latency_ms}ms</td>
     <td>$${(t.cost || 0).toFixed(4)}</td>
+    <td style="text-align:center;vertical-align:middle;padding:0 4px" title="View detail"><svg width="14" height="14" style="display:block;margin:auto" viewBox="0 0 24 24" fill="none" stroke="var(--text2)" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><path d="M1 12s4-8 11-8 11 8 11 8-4 8-11 8-11-8-11-8z"/><circle cx="12" cy="12" r="3"/></svg></td>
   </tr>`;
   }).join('');
   const rangeEnd = txnOffset + txnAll.length;
@@ -2540,8 +2636,14 @@ async function showTransactionDetail(txnId) {
     html += '<div><b>Latency:</b> ' + tx.latency_ms + 'ms</div>';
     html += '<div><b>Cost:</b> ' + tx.cost + ' (' + tx.cost_source + ')</div>';
     if (body) {
-      if (body.request_body) html += '<div style="margin-top:8px"><b>Request Body:</b><pre style="background:var(--bg);padding:8px;border-radius:4px;overflow:auto;max-height:200px;font-size:11px">' + esc(typeof body.request_body === 'string' ? body.request_body : JSON.stringify(body.request_body, null, 2)) + '</pre></div>';
-      if (body.response_body) html += '<div style="margin-top:8px"><b>Response Body:</b><pre style="background:var(--bg);padding:8px;border-radius:4px;overflow:auto;max-height:200px;font-size:11px">' + esc(typeof body.response_body === 'string' ? body.response_body : JSON.stringify(body.response_body, null, 2)) + '</pre></div>';
+      const reqRaw = body.request_body;
+      const resRaw = body.response_body;
+      const preStyle = 'background:var(--bg);padding:8px;border-radius:4px;overflow:auto;max-height:200px;font-size:11px';
+      const emptyStyle = 'color:var(--text2);font-style:italic';
+      html += '<div style="margin-top:8px"><b>Request Body:</b>' + (reqRaw ? '<pre style="' + preStyle + '">' + esc(typeof reqRaw === 'string' ? reqRaw : JSON.stringify(reqRaw, null, 2)) + '</pre>' : '<div style="' + emptyStyle + '">No request body recorded</div>') + '</div>';
+      html += '<div style="margin-top:8px"><b>Response Body:</b>' + (resRaw ? '<pre style="' + preStyle + '">' + esc(typeof resRaw === 'string' ? resRaw : JSON.stringify(resRaw, null, 2)) + '</pre>' : '<div style="' + emptyStyle + '">No response body recorded</div>') + '</div>';
+    } else {
+      html += '<div style="margin-top:8px;color:var(--text2);font-style:italic">Body logging not enabled for this tool</div>';
     }
     html += '</div>';
     await appAlert(html, { title: 'Transaction Detail' });
@@ -2571,7 +2673,7 @@ function renderUsers() {
   const tbody = document.getElementById('users-body');
   const empty = document.getElementById('users-empty');
   const q = (document.getElementById('users-search').value || '').toLowerCase();
-  const filtered = usersCache.filter(u => !q || u.email.toLowerCase().includes(q) || (u.name || '').toLowerCase().includes(q) || (u.role || '').toLowerCase().includes(q));
+  const filtered = usersCache.filter(u => !q || u.id.toLowerCase().includes(q) || u.email.toLowerCase().includes(q) || (u.name || '').toLowerCase().includes(q) || (u.role || '').toLowerCase().includes(q));
   if (!filtered.length) { tbody.innerHTML = ''; empty.style.display = 'block'; return; }
   empty.style.display = 'none';
   tbody.innerHTML = filtered.map(u => {
@@ -2601,6 +2703,8 @@ function renderUsers() {
 function openUserModal(u) {
   const isSelfEdit = u && currentUser && u.id === currentUser.id && !isAdmin;
   document.getElementById('user-edit-id').value = u ? u.id : '';
+  document.getElementById('user-id-group').style.display = u ? '' : 'none';
+  document.getElementById('user-id-display').textContent = u ? u.id : '';
   document.getElementById('user-modal-title').textContent = u ? 'Edit User' : 'Create User';
   document.getElementById('user-submit-btn').textContent = u ? 'Save' : 'Create';
   document.getElementById('user-email').value = u ? u.email : '';
@@ -2623,6 +2727,7 @@ function openUserModal(u) {
     pwGroup.querySelector('label').textContent = u ? 'Password (leave blank to keep)' : 'Password *';
   }
   document.getElementById('user-modal').classList.add('open');
+  setTimeout(() => markModalClean('user-modal'), 0);
 }
 
 function editUser(id) {
@@ -2730,7 +2835,10 @@ async function toggleMcpSubTools(toolId) {
       const callCount = counts[st.name] != null ? Number(counts[st.name]).toLocaleString() : '\u2014';
       const subRow = document.createElement('tr');
       subRow.className = 'mcp-subrow mcp-subrow-' + toolId;
-      subRow.innerHTML = `<td style="padding-left:26px"><span style="font-size:12px;font-weight:600">${esc(st.name)}</span><br><span style="color:var(--text2);font-size:11px">${esc(st.description || '')}</span></td><td colspan="3"></td><td>${callCount}</td><td></td>`;
+      subRow.style.cursor = 'pointer';
+      subRow.title = 'View usage for this sub-tool';
+      subRow.onclick = () => navigateToUsageFiltered(toolId, st.name);
+      subRow.innerHTML = `<td style="padding-left:26px"><span style="font-size:12px;font-weight:600;text-decoration:underline;color:var(--accent)">${esc(st.name)}</span><br><span style="color:var(--text2);font-size:11px">${esc(st.description || '')}</span></td><td colspan="3"></td><td>${callCount}</td><td></td>`;
       parentRow.after(subRow);
     }
   } catch (e) {
@@ -3254,7 +3362,7 @@ async function loadAuditLog(more) {
         const ts = new Date(e.timestamp).toLocaleString();
         const detailStr = e.details && Object.keys(e.details).length ? JSON.stringify(e.details) : '';
         const prettyDetail = detailStr ? JSON.stringify(e.details, null, 2) : '';
-        tr.innerHTML = '<td>' + ts + '</td><td>' + esc(e.action) + '</td><td>' + esc(e.resource_type) + '</td><td style="font-size:10px">' + esc(e.resource_id) + '</td><td style="font-size:10px">' + esc(e.user_id || '-') + '</td><td>' + esc(e.ip) + '</td><td class="has-tooltip" style="font-size:10px;max-width:300px;overflow:hidden;text-overflow:ellipsis;white-space:nowrap">' + esc(detailStr) + (prettyDetail ? '<span class="tip" style="white-space:pre;text-align:left;max-width:400px;font-family:var(--font)">' + esc(prettyDetail) + '</span>' : '') + '</td>';
+        tr.innerHTML = '<td>' + ts + '</td><td>' + esc(e.action) + '</td><td>' + esc(e.resource_type) + '</td><td style="font-size:10px">' + esc(e.resource_id) + '</td><td style="font-size:10px">' + esc(e.user_id || '-') + '</td><td>' + esc(e.ip) + '</td><td style="font-size:10px;max-width:300px;word-break:break-all;white-space:pre-wrap;font-family:var(--font)">' + esc(detailStr) + '</td>';
         tbody.appendChild(tr);
       });
     }

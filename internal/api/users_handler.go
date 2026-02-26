@@ -173,7 +173,7 @@ func (h *usersHandler) UpdateUser(w http.ResponseWriter, r *http.Request) {
 		return
 	}
 
-	auditLog(r, "update", "user", id)
+	auditLog(r, "update", "user", id, "email", u.Email)
 
 	writeJSON(w, http.StatusOK, u)
 }
@@ -311,7 +311,7 @@ func (h *usersHandler) DeleteUser(w http.ResponseWriter, r *http.Request) {
 		return
 	}
 
-	auditLog(r, "delete", "user", id)
+	auditLog(r, "delete", "user", id, "email", existing.Email)
 
 	w.WriteHeader(http.StatusNoContent)
 }

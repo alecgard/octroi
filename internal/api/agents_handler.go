@@ -103,7 +103,7 @@ func (h *agentsHandler) UpdateAgent(w http.ResponseWriter, r *http.Request) {
 		return
 	}
 
-	auditLog(r, "update", "agent", id)
+	auditLog(r, "update", "agent", id, "name", ag.Name)
 
 	writeJSON(w, http.StatusOK, ag)
 }
@@ -116,13 +116,18 @@ func (h *agentsHandler) DeleteAgent(w http.ResponseWriter, r *http.Request) {
 		return
 	}
 
+	var agentName string
+	if ag, err := h.store.GetByID(r.Context(), id); err == nil {
+		agentName = ag.Name
+	}
+
 	err := h.store.Delete(r.Context(), id)
 	if err != nil {
 		writeError(w, http.StatusInternalServerError, "internal_error", "failed to delete agent")
 		return
 	}
 
-	auditLog(r, "delete", "agent", id)
+	auditLog(r, "delete", "agent", id, "name", agentName)
 
 	w.WriteHeader(http.StatusNoContent)
 }
@@ -199,7 +204,7 @@ func (h *agentsHandler) RegenerateKey(w http.ResponseWriter, r *http.Request) {
 		return
 	}
 
-	auditLog(r, "regenerate_key", "agent", id)
+	auditLog(r, "regenerate_key", "agent", id, "name", ag.Name)
 
 	resp := map[string]interface{}{
 		"id":             ag.ID,
