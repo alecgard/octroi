@@ -2961,37 +2961,37 @@ function loadMetrics() {
 
 function renderMetricsLive(d) {
   const sections = [
-    { title: 'Inbound (Agent \u2192 Octroi)', tip: 'HTTP requests from agents hitting the /proxy endpoint', cards: [
-      { label: 'Total Requests', value: fmtNum(d.http.totalRequests), tip: 'Total proxy HTTP requests from agents since startup' },
+    { title: 'Inbound (Agent \u2192 Octroi)', tip: 'HTTP requests from agents to the proxy endpoint. Includes all tool modes: Service, API, and MCP.', cards: [
+      { label: 'Total Requests', value: fmtNum(d.http.totalRequests), tip: 'Total proxy HTTP requests from agents since startup (Service, API, and MCP)' },
       { label: 'Error Rate', value: d.http.errorRate.toFixed(2) + '%', tip: 'Percentage of proxy requests that returned 4xx/5xx' },
-      { label: 'P50 Latency', value: fmtMs(d.http.p50Latency), tip: '50th percentile proxy request duration' },
-      { label: 'P95 Latency', value: fmtMs(d.http.p95Latency), tip: '95th percentile proxy request duration' },
-      { label: 'P99 Latency', value: fmtMs(d.http.p99Latency), tip: '99th percentile proxy request duration' },
+      { label: 'P50 Latency', value: fmtMs(d.http.p50Latency), tip: '50th percentile end-to-end proxy request duration' },
+      { label: 'P95 Latency', value: fmtMs(d.http.p95Latency), tip: '95th percentile end-to-end proxy request duration' },
+      { label: 'P99 Latency', value: fmtMs(d.http.p99Latency), tip: '99th percentile end-to-end proxy request duration' },
     ]},
-    { title: 'Management', tip: 'Non-proxy HTTP traffic: admin UI, API calls, metrics scrapes, login', cards: [
+    { title: 'Management', tip: 'Non-proxy HTTP traffic: admin UI, API calls, metrics scrapes, login, and direct MCP client connections (/mcp). Does not include agent proxy requests.', cards: [
       { label: 'Total Requests', value: fmtNum((d.management||{}).totalRequests), tip: 'Total management HTTP requests (UI, API, metrics) since startup' },
       { label: 'Error Rate', value: ((d.management||{}).errorRate||0).toFixed(2) + '%', tip: 'Percentage of management requests that returned 4xx/5xx' },
       { label: 'P50 Latency', value: fmtMs((d.management||{}).p50Latency), tip: '50th percentile management request duration' },
       { label: 'P95 Latency', value: fmtMs((d.management||{}).p95Latency), tip: '95th percentile management request duration' },
     ]},
-    { title: 'Upstream (Octroi \u2192 Tool)', tip: 'Requests forwarded from Octroi to upstream tool endpoints', cards: [
-      { label: 'Requests', value: fmtNum(d.proxy.totalRequests), tip: 'Total requests proxied to upstream tool endpoints' },
-      { label: 'Errors', value: fmtNum((d.server||{}).upstreamErrors), tip: 'Proxy requests that failed to reach the upstream tool (timeouts, DNS, connection errors)' },
+    { title: 'Upstream (Octroi \u2192 Tool)', tip: 'Requests forwarded to upstream tool endpoints. Includes all tool modes: Service, API, and MCP.', cards: [
+      { label: 'Requests', value: fmtNum(d.proxy.totalRequests), tip: 'Total requests proxied to upstream tools (Service, API, and MCP)' },
+      { label: 'Errors', value: fmtNum((d.server||{}).upstreamErrors), tip: 'Requests that failed to reach the upstream tool (timeouts, DNS, connection errors)' },
       { label: 'P50 Latency', value: fmtMs(d.proxy.p50Upstream), tip: '50th percentile upstream tool response time' },
       { label: 'P95 Latency', value: fmtMs(d.proxy.p95Upstream), tip: '95th percentile upstream tool response time' },
       { label: 'Active', value: fmtNum(d.proxy.activeRequests), tip: 'Requests currently in-flight to upstream tools' },
     ]},
-    { title: 'Security', tip: 'Rate limiting, budget enforcement, and authentication events', cards: [
+    { title: 'Security', tip: 'Rate limiting, budget enforcement, and authentication. Applies to all tool modes.', cards: [
       { label: 'Rate Limit Rejects', value: fmtNum(d.rateLimit.rejections), tip: 'Requests rejected due to agent or tool rate limits (HTTP 429)' },
-      { label: 'Budget Rejects', value: fmtNum(d.budget.rejections), tip: 'Requests rejected due to agent or global tool budget limits' },
+      { label: 'Budget Rejects', value: fmtNum(d.budget.rejections), tip: 'Requests rejected due to agent or tool budget limits' },
       { label: 'Auth Failures', value: fmtNum(d.auth.failures), tip: 'Failed authentication attempts (invalid API keys or sessions)' },
       { label: 'Auth Successes', value: fmtNum(d.auth.successes), tip: 'Successful authentication attempts (agent keys and user sessions)' },
     ]},
-    { title: 'Collector', tip: 'Metering collector that buffers and flushes usage data to the database', cards: [
-      { label: 'Buffer Size', value: fmtNum(d.collector.bufferSize), tip: 'Metering transactions buffered in memory awaiting flush to database' },
-      { label: 'Total Flushes', value: fmtNum(d.collector.totalFlushes), tip: 'Total metering collector flush operations (both successful and failed)' },
-      { label: 'Flush Errors', value: fmtNum(d.collector.flushErrors), tip: 'Metering collector flushes that failed to write to the database' },
-      { label: 'Transactions', value: fmtNum(d.collector.transactions), tip: 'Total metering transactions recorded (proxy calls tracked for billing/usage)' },
+    { title: 'Collector', tip: 'Metering collector that buffers and flushes usage data to the database. Records all proxied tool calls.', cards: [
+      { label: 'Buffer Size', value: fmtNum(d.collector.bufferSize), tip: 'Transactions buffered in memory awaiting flush to database' },
+      { label: 'Total Flushes', value: fmtNum(d.collector.totalFlushes), tip: 'Total flush operations (both successful and failed)' },
+      { label: 'Flush Errors', value: fmtNum(d.collector.flushErrors), tip: 'Flushes that failed to write to the database' },
+      { label: 'Transactions', value: fmtNum(d.collector.transactions), tip: 'Total transactions recorded across all tool modes (Service, API, MCP)' },
     ]},
     { title: 'System', tip: 'Server uptime and PostgreSQL connection pool status', cards: [
       { label: 'Uptime', value: fmtUptime((d.server||{}).uptimeSeconds), tip: 'Time since the Octroi server process started' },
