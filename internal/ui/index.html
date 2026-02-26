@@ -868,6 +868,23 @@ body.shift-held .txn-filter-pending { background: var(--surface2); }
         <option value="monthly">monthly</option>
       </select>
     </div>
+    <div id="tool-resilience-section" style="display:none">
+      <label style="display:block;text-transform:uppercase;font-size:10px;font-weight:600;letter-spacing:0.5px;color:var(--text2);margin:12px 0 6px">Resilience</label>
+      <div class="form-row">
+        <div class="form-group">
+          <label title="Per-request timeout in milliseconds. Overrides the global proxy timeout.">Timeout (ms)</label>
+          <input type="number" id="tool-timeout-ms" placeholder="30000" min="100" max="300000">
+        </div>
+        <div class="form-group">
+          <label title="Max retry attempts on 5xx / timeout. 0 = no retries.">Max Retries</label>
+          <input type="number" id="tool-max-retries" placeholder="0" min="0" max="5">
+        </div>
+      </div>
+      <div class="form-group">
+        <label title="Base backoff between retries in milliseconds. Doubles on each attempt.">Retry Backoff (ms)</label>
+        <input type="number" id="tool-retry-backoff-ms" placeholder="1000" min="100" max="30000">
+      </div>
+    </div>
     <div class="modal-actions">
       <button class="btn-ghost" onclick="closeModal('tool-modal')">Cancel</button>
       <button class="btn-primary" id="tool-submit-btn" onclick="submitTool()">Create</button>
@@ -1529,6 +1546,10 @@ function openToolModal(tool) {
   document.getElementById('tool-enabled').checked = tool ? (tool.enabled !== false) : true;
   document.getElementById('tool-log-bodies').checked = tool ? !!tool.log_bodies : false;
   document.getElementById('tool-log-bodies-section').style.display = tool ? '' : 'none';
+  document.getElementById('tool-timeout-ms').value = tool ? (tool.timeout_ms || 30000) : 30000;
+  document.getElementById('tool-max-retries').value = tool ? (tool.max_retries || 0) : 0;
+  document.getElementById('tool-retry-backoff-ms').value = tool ? (tool.retry_backoff_ms || 1000) : 1000;
+  document.getElementById('tool-resilience-section').style.display = tool ? '' : 'none';
   toggleToolMode();
   document.getElementById('tool-rate-limit').value = tool ? tool.rate_limit || '' : '';
   document.getElementById('tool-auth-config').value = tool && tool.auth_config ? JSON.stringify(tool.auth_config) : '';
@@ -1620,6 +1641,9 @@ async function submitTool() {
     transport: mode === 'mcp' ? document.getElementById('tool-transport').value : '',
     enabled: mode === 'mcp' ? document.getElementById('tool-enabled').checked : true,
     log_bodies: document.getElementById('tool-log-bodies').checked,
+    timeout_ms: parseInt(document.getElementById('tool-timeout-ms').value) || 30000,
+    max_retries: parseInt(document.getElementById('tool-max-retries').value) || 0,
+    retry_backoff_ms: parseInt(document.getElementById('tool-retry-backoff-ms').value) || 1000,
   };
   try {
     if (id) {

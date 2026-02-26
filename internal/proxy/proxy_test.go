@@ -594,6 +594,145 @@ func TestPermissionDenied(t *testing.T) {
 	}
 }
 
+func TestRetryOn5xx(t *testing.T) {
+	attempts := 0
+	upstream := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
+		attempts++
+		if attempts <= 2 {
+			w.WriteHeader(http.StatusServiceUnavailable)
+			return
+		}
+		w.WriteHeader(http.StatusOK)
+		w.Write([]byte(`{"ok":true}`))
+	}))
+	defer upstream.Close()
+
+	tool := newTestTool(upstream.URL)
+	tool.MaxRetries = 2
+	tool.RetryBackoffMs = 10 // fast for tests
+	tool.TimeoutMs = 5000
+	store := &fakeToolStore{tools: map[string]*registry.Tool{"tool-1": tool}}
+	budgets := &fakeBudgetChecker{agentAllowed: true, globalAllowed: true}
+	collector := &fakeCollector{}
+	handler := NewHandler(store, budgets, collector, 5*time.Second, 1<<20)
+	router := setupRouter(handler)
+
+	req := httptest.NewRequest("GET", "/proxy/tool-1/test", nil)
+	req = withAgent(req, newTestAgent())
+	rr := httptest.NewRecorder()
+	router.ServeHTTP(rr, req)
+
+	if rr.Code != http.StatusOK {
+		t.Fatalf("expected 200, got %d", rr.Code)
+	}
+	if attempts != 3 {
+		t.Errorf("expected 3 upstream attempts, got %d", attempts)
+	}
+	// Should have 3 transactions: 2 failed + 1 success.
+	if len(collector.transactions) != 3 {
+		t.Fatalf("expected 3 transactions, got %d", len(collector.transactions))
+	}
+	if collector.transactions[0].StatusCode != 503 || collector.transactions[1].StatusCode != 503 {
+		t.Errorf("expected first two transactions to be 503")
+	}
+	if collector.transactions[2].StatusCode != 200 {
+		t.Errorf("expected last transaction to be 200, got %d", collector.transactions[2].StatusCode)
+	}
+}
+
+func TestRetryExhausted(t *testing.T) {
+	upstream := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
+		w.WriteHeader(http.StatusBadGateway)
+	}))
+	defer upstream.Close()
+
+	tool := newTestTool(upstream.URL)
+	tool.MaxRetries = 2
+	tool.RetryBackoffMs = 10
+	tool.TimeoutMs = 5000
+	store := &fakeToolStore{tools: map[string]*registry.Tool{"tool-1": tool}}
+	budgets := &fakeBudgetChecker{agentAllowed: true, globalAllowed: true}
+	collector := &fakeCollector{}
+	handler := NewHandler(store, budgets, collector, 5*time.Second, 1<<20)
+	router := setupRouter(handler)
+
+	req := httptest.NewRequest("GET", "/proxy/tool-1/test", nil)
+	req = withAgent(req, newTestAgent())
+	rr := httptest.NewRecorder()
+	router.ServeHTTP(rr, req)
+
+	if rr.Code != http.StatusBadGateway {
+		t.Fatalf("expected 502, got %d", rr.Code)
+	}
+	// 3 attempts total (1 + 2 retries), all recorded as transactions.
+	if len(collector.transactions) != 3 {
+		t.Fatalf("expected 3 transactions, got %d", len(collector.transactions))
+	}
+}
+
+func TestNoRetryOn4xx(t *testing.T) {
+	attempts := 0
+	upstream := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
+		attempts++
+		w.WriteHeader(http.StatusBadRequest)
+	}))
+	defer upstream.Close()
+
+	tool := newTestTool(upstream.URL)
+	tool.MaxRetries = 2
+	tool.RetryBackoffMs = 10
+	tool.TimeoutMs = 5000
+	store := &fakeToolStore{tools: map[string]*registry.Tool{"tool-1": tool}}
+	budgets := &fakeBudgetChecker{agentAllowed: true, globalAllowed: true}
+	collector := &fakeCollector{}
+	handler := NewHandler(store, budgets, collector, 5*time.Second, 1<<20)
+	router := setupRouter(handler)
+
+	req := httptest.NewRequest("GET", "/proxy/tool-1/test", nil)
+	req = withAgent(req, newTestAgent())
+	rr := httptest.NewRecorder()
+	router.ServeHTTP(rr, req)
+
+	if rr.Code != http.StatusBadRequest {
+		t.Fatalf("expected 400, got %d", rr.Code)
+	}
+	// 4xx should not be retried.
+	if attempts != 1 {
+		t.Errorf("expected 1 attempt for 4xx, got %d", attempts)
+	}
+	if len(collector.transactions) != 1 {
+		t.Fatalf("expected 1 transaction, got %d", len(collector.transactions))
+	}
+}
+
+func TestPerToolTimeout(t *testing.T) {
+	upstream := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
+		time.Sleep(500 * time.Millisecond)
+		w.WriteHeader(http.StatusOK)
+	}))
+	defer upstream.Close()
+
+	tool := newTestTool(upstream.URL)
+	tool.TimeoutMs = 50 // 50ms timeout, upstream takes 500ms
+	store := &fakeToolStore{tools: map[string]*registry.Tool{"tool-1": tool}}
+	budgets := &fakeBudgetChecker{agentAllowed: true, globalAllowed: true}
+	collector := &fakeCollector{}
+	handler := NewHandler(store, budgets, collector, 30*time.Second, 1<<20)
+	router := setupRouter(handler)
+
+	req := httptest.NewRequest("GET", "/proxy/tool-1/test", nil)
+	req = withAgent(req, newTestAgent())
+	rr := httptest.NewRecorder()
+	router.ServeHTTP(rr, req)
+
+	if rr.Code != http.StatusBadGateway {
+		t.Fatalf("expected 502 (timeout), got %d", rr.Code)
+	}
+	if len(collector.transactions) != 1 {
+		t.Fatalf("expected 1 transaction, got %d", len(collector.transactions))
+	}
+}
+
 func TestPermissionAllowed(t *testing.T) {
 	upstream := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
 		w.WriteHeader(http.StatusOK)

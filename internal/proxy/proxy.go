@@ -7,6 +7,8 @@ import (
 	"errors"
 	"fmt"
 	"io"
+	"log/slog"
+	"math"
 	"net"
 	"net/http"
 	"strconv"
@@ -243,13 +245,20 @@ func (h *Handler) ServeHTTP(w http.ResponseWriter, r *http.Request) {
 		}
 	}
 
-	outReq, err := http.NewRequestWithContext(r.Context(), r.Method, targetURL, body)
-	if err != nil {
-		writeError(w, http.StatusBadGateway, "proxy_error", "failed to build upstream request")
-		return
+	// Determine per-tool timeout (fall back to client default).
+	toolTimeout := h.client.Timeout
+	if tool.TimeoutMs > 0 {
+		toolTimeout = time.Duration(tool.TimeoutMs) * time.Millisecond
 	}
 
-	// Forward headers, excluding Authorization, Host, Connection.
+	// Determine request size from Content-Length header, or 0.
+	requestSize := r.ContentLength
+	if requestSize < 0 {
+		requestSize = 0
+	}
+
+	// Collect forwarded headers once (reused across retries).
+	forwardHeaders := make(http.Header)
 	skipHeaders := map[string]bool{
 		"Authorization": true,
 		"Host":          true,
@@ -260,94 +269,166 @@ func (h *Handler) ServeHTTP(w http.ResponseWriter, r *http.Request) {
 			continue
 		}
 		for _, v := range values {
-			outReq.Header.Add(key, v)
+			forwardHeaders.Add(key, v)
 		}
 	}
 
-	// Inject tool auth credentials.
-	switch tool.AuthType {
-	case "bearer":
-		outReq.Header.Set("Authorization", "Bearer "+tool.AuthConfig["key"])
-	case "header":
-		headerName := tool.AuthConfig["header_name"]
-		if headerName != "" {
-			outReq.Header.Set(headerName, tool.AuthConfig["key"])
-		}
-	case "query":
-		paramName := tool.AuthConfig["param_name"]
-		if paramName == "" {
-			paramName = "api_key"
-		}
-		q := outReq.URL.Query()
-		q.Set(paramName, tool.AuthConfig["key"])
-		outReq.URL.RawQuery = q.Encode()
-	case "none":
-		// No auth injection.
+	maxAttempts := 1 + tool.MaxRetries
+	if maxAttempts < 1 {
+		maxAttempts = 1
 	}
 
-	// Execute the upstream request.
-	start := time.Now()
-	resp, err := h.client.Do(outReq)
-	latency := time.Since(start)
-
-	if h.metrics != nil {
-		h.metrics.ObserveUpstreamDuration(tool.ID, tool.Name, latency.Seconds())
+	// When retries are configured and body was not already buffered for logging, buffer it now.
+	if tool.MaxRetries > 0 && capturedReqBody == nil && body != nil {
+		data, readErr := io.ReadAll(body)
+		if readErr != nil {
+			writeError(w, http.StatusBadRequest, "bad_request", "failed to read request body")
+			return
+		}
+		capturedReqBody = data
+		body = bytes.NewReader(data)
 	}
 
-	if err != nil {
+	var lastResp *http.Response
+	var lastErr error
+	var lastLatency time.Duration
+
+	for attempt := 0; attempt < maxAttempts; attempt++ {
+		attemptTxnID := txnID
+		if attempt > 0 {
+			attemptTxnID = uuid.New().String()
+
+			// Exponential backoff before retry.
+			backoff := time.Duration(tool.RetryBackoffMs) * time.Millisecond * time.Duration(math.Pow(2, float64(attempt-1)))
+			if backoff > 30*time.Second {
+				backoff = 30 * time.Second
+			}
+			slog.Info("retrying upstream request", "tool", tool.Name, "attempt", attempt+1, "backoff_ms", backoff.Milliseconds())
+			time.Sleep(backoff)
+
+			// Reset body reader for retry.
+			if capturedReqBody != nil {
+				body = bytes.NewReader(capturedReqBody)
+			}
+		}
+
+		// Build upstream request with per-tool timeout.
+		reqCtx, reqCancel := context.WithTimeout(r.Context(), toolTimeout)
+		outReq, err := http.NewRequestWithContext(reqCtx, r.Method, targetURL, body)
+		if err != nil {
+			reqCancel()
+			writeError(w, http.StatusBadGateway, "proxy_error", "failed to build upstream request")
+			return
+		}
+
+		// Copy forwarded headers.
+		for key, values := range forwardHeaders {
+			for _, v := range values {
+				outReq.Header.Add(key, v)
+			}
+		}
+
+		// Inject tool auth credentials.
+		switch tool.AuthType {
+		case "bearer":
+			outReq.Header.Set("Authorization", "Bearer "+tool.AuthConfig["key"])
+		case "header":
+			headerName := tool.AuthConfig["header_name"]
+			if headerName != "" {
+				outReq.Header.Set(headerName, tool.AuthConfig["key"])
+			}
+		case "query":
+			paramName := tool.AuthConfig["param_name"]
+			if paramName == "" {
+				paramName = "api_key"
+			}
+			q := outReq.URL.Query()
+			q.Set(paramName, tool.AuthConfig["key"])
+			outReq.URL.RawQuery = q.Encode()
+		case "none":
+			// No auth injection.
+		}
+
+		// Execute the upstream request.
+		start := time.Now()
+		resp, doErr := h.client.Do(outReq)
+		latency := time.Since(start)
+		reqCancel()
+
 		if h.metrics != nil {
-			h.metrics.IncProxyRequests(tool.ID, tool.Name, agent.ID, r.Method, 502)
-			h.metrics.IncUpstreamError(classifyUpstreamError(err), tool.ID, tool.Name)
+			h.metrics.ObserveUpstreamDuration(tool.ID, tool.Name, latency.Seconds())
 		}
-		h.recordTransaction(agent.ID, tool, r, 502, latency, 0, 0, false, "")
-		writeError(w, http.StatusBadGateway, "proxy_error", "upstream request failed")
+
+		if doErr != nil {
+			if h.metrics != nil {
+				h.metrics.IncProxyRequests(tool.ID, tool.Name, agent.ID, r.Method, 502)
+				h.metrics.IncUpstreamError(classifyUpstreamError(doErr), tool.ID, tool.Name)
+			}
+			h.recordTransactionWithID(attemptTxnID, agent.ID, tool, r, 502, latency, requestSize, 0, false, "")
+			lastErr = doErr
+			lastLatency = latency
+			lastResp = nil
+			continue // retry
+		}
+
+		if h.metrics != nil {
+			h.metrics.IncProxyRequests(tool.ID, tool.Name, agent.ID, r.Method, resp.StatusCode)
+		}
+
+		// Only retry on 5xx (server errors). 4xx and success are final.
+		if resp.StatusCode >= 500 && attempt < maxAttempts-1 {
+			// Record failed attempt, drain body, and retry.
+			io.Copy(io.Discard, resp.Body)
+			resp.Body.Close()
+			h.recordTransactionWithID(attemptTxnID, agent.ID, tool, r, resp.StatusCode, latency, requestSize, 0, false, resp.Header.Get("X-Octroi-Cost"))
+			lastErr = nil
+			lastResp = nil
+			lastLatency = latency
+			continue
+		}
+
+		// Final response — either success, 4xx, or last retry attempt.
+		reportedCostHeader := resp.Header.Get("X-Octroi-Cost")
+
+		// Copy response headers.
+		for key, values := range resp.Header {
+			for _, v := range values {
+				w.Header().Add(key, v)
+			}
+		}
+		w.WriteHeader(resp.StatusCode)
+
+		// Copy response body, optionally capturing it for logging.
+		var responseSize int64
+		var capturedRespBody []byte
+		if tool.LogBodies && h.bodyRecorder != nil {
+			respData, _ := io.ReadAll(resp.Body)
+			capturedRespBody = respData
+			responseSize = int64(len(respData))
+			w.Write(respData)
+		} else {
+			responseSize, _ = io.Copy(w, resp.Body)
+		}
+		resp.Body.Close()
+
+		success := resp.StatusCode >= 200 && resp.StatusCode < 300
+		h.recordTransactionWithID(attemptTxnID, agent.ID, tool, r, resp.StatusCode, latency, requestSize, responseSize, success, reportedCostHeader)
+
+		// Record bodies asynchronously if enabled.
+		if tool.LogBodies && h.bodyRecorder != nil && (len(capturedReqBody) > 0 || len(capturedRespBody) > 0) {
+			redactCfg := metering.RedactConfig{AuthType: tool.AuthType, AuthConfig: tool.AuthConfig}
+			reqRedacted := metering.RedactBody(capturedReqBody, redactCfg)
+			respRedacted := metering.RedactBody(capturedRespBody, redactCfg)
+			go h.bodyRecorder.RecordBody(context.Background(), attemptTxnID, reqRedacted, respRedacted)
+		}
 		return
 	}
-	defer resp.Body.Close()
 
-	if h.metrics != nil {
-		h.metrics.IncProxyRequests(tool.ID, tool.Name, agent.ID, r.Method, resp.StatusCode)
-	}
-
-	// Capture the upstream cost header before copying headers.
-	reportedCostHeader := resp.Header.Get("X-Octroi-Cost")
-
-	// Copy response headers.
-	for key, values := range resp.Header {
-		for _, v := range values {
-			w.Header().Add(key, v)
-		}
-	}
-	w.WriteHeader(resp.StatusCode)
-
-	// Copy response body, optionally capturing it for logging.
-	var responseSize int64
-	var capturedRespBody []byte
-	if tool.LogBodies && h.bodyRecorder != nil {
-		respData, _ := io.ReadAll(resp.Body)
-		capturedRespBody = respData
-		responseSize = int64(len(respData))
-		w.Write(respData)
-	} else {
-		responseSize, _ = io.Copy(w, resp.Body)
-	}
-
-	// Determine request size from Content-Length header, or 0.
-	requestSize := r.ContentLength
-	if requestSize < 0 {
-		requestSize = 0
-	}
-
-	success := resp.StatusCode >= 200 && resp.StatusCode < 300
-	h.recordTransactionWithID(txnID, agent.ID, tool, r, resp.StatusCode, latency, requestSize, responseSize, success, reportedCostHeader)
-
-	// Record bodies asynchronously if enabled.
-	if tool.LogBodies && h.bodyRecorder != nil && (len(capturedReqBody) > 0 || len(capturedRespBody) > 0) {
-		redactCfg := metering.RedactConfig{AuthType: tool.AuthType, AuthConfig: tool.AuthConfig}
-		reqRedacted := metering.RedactBody(capturedReqBody, redactCfg)
-		respRedacted := metering.RedactBody(capturedRespBody, redactCfg)
-		go h.bodyRecorder.RecordBody(context.Background(), txnID, reqRedacted, respRedacted)
-	}
+	// All retries exhausted — return 502.
+	_ = lastLatency
+	_ = lastErr
+	writeError(w, http.StatusBadGateway, "proxy_error", "upstream request failed after retries")
+	_ = lastResp
 }
 
 func (h *Handler) recordTransaction(agentID string, tool *registry.Tool, r *http.Request, statusCode int, latency time.Duration, requestSize int64, responseSize int64, success bool, reportedCostHeader string) {
