@@ -86,7 +86,7 @@ func (g *GovernedCaller) callREST(ctx context.Context, agent AgentInfo, name str
 	if g.rateLimits != nil {
 		allowed, _, _, _, rlErr := g.rateLimits.CheckToolRateLimit(ctx, tool.ID, agent.Team, agent.ID)
 		if rlErr == nil && !allowed {
-			g.recordTransaction(agent, tool.ID, name, 429, 0, false, 0, "flat")
+			g.recordTransaction(agent, tool.ID, tool.Name, name, 429, 0, false, 0, "flat")
 			return mcp.NewToolResultError(fmt.Sprintf("rate limit exceeded for tool %s", tool.Name)), nil
 		}
 	}
@@ -94,14 +94,14 @@ func (g *GovernedCaller) callREST(ctx context.Context, agent AgentInfo, name str
 	// Check per-agent budget.
 	allowed, _, _, err := g.budgets.CheckBudget(ctx, agent.ID, tool.ID)
 	if err == nil && !allowed {
-		g.recordTransaction(agent, tool.ID, name, 403, 0, false, 0, "flat")
+		g.recordTransaction(agent, tool.ID, tool.Name, name, 403, 0, false, 0, "flat")
 		return mcp.NewToolResultError(fmt.Sprintf("agent budget exceeded for tool %s", tool.Name)), nil
 	}
 
 	// Check global tool budget.
 	globalAllowed, _, err := g.budgets.CheckToolGlobalBudget(ctx, tool.ID)
 	if err == nil && !globalAllowed {
-		g.recordTransaction(agent, tool.ID, name, 403, 0, false, 0, "flat")
+		g.recordTransaction(agent, tool.ID, tool.Name, name, 403, 0, false, 0, "flat")
 		return mcp.NewToolResultError(fmt.Sprintf("global budget exceeded for tool %s", tool.Name)), nil
 	}
 
@@ -111,7 +111,7 @@ func (g *GovernedCaller) callREST(ctx context.Context, agent AgentInfo, name str
 	latency := time.Since(start)
 
 	if err != nil {
-		g.recordTransaction(agent, tool.ID, name, 502, latency, false, 0, "flat")
+		g.recordTransaction(agent, tool.ID, tool.Name, name, 502, latency, false, 0, "flat")
 		return nil, fmt.Errorf("rest call failed: %w", err)
 	}
 
@@ -127,7 +127,7 @@ func (g *GovernedCaller) callREST(ctx context.Context, agent AgentInfo, name str
 		latency = callResult.Latency
 	}
 
-	g.recordTransaction(agent, tool.ID, name, statusCode, latency, success, cost, costSource)
+	g.recordTransaction(agent, tool.ID, tool.Name, name, statusCode, latency, success, cost, costSource)
 	return result, nil
 }
 
@@ -145,7 +145,7 @@ func (g *GovernedCaller) callMCP(ctx context.Context, agent AgentInfo, name stri
 	if g.permissions != nil {
 		allowed, permErr := g.permissions.IsSubToolAllowed(ctx, agent.ID, toolID, route.UpstreamToolName)
 		if permErr == nil && !allowed {
-			g.recordTransaction(agent, toolID, name, 403, 0, false, 0, "flat")
+			g.recordTransaction(agent, toolID, tool.Name, name, 403, 0, false, 0, "flat")
 			return mcp.NewToolResultError(fmt.Sprintf("sub-tool %s not permitted for tool %s", route.UpstreamToolName, tool.Name)), nil
 		}
 	}
@@ -154,7 +154,7 @@ func (g *GovernedCaller) callMCP(ctx context.Context, agent AgentInfo, name stri
 	if g.rateLimits != nil {
 		allowed, _, _, _, rlErr := g.rateLimits.CheckToolRateLimit(ctx, tool.ID, agent.Team, agent.ID)
 		if rlErr == nil && !allowed {
-			g.recordTransaction(agent, toolID, name, 429, 0, false, 0, "flat")
+			g.recordTransaction(agent, toolID, tool.Name, name, 429, 0, false, 0, "flat")
 			return mcp.NewToolResultError(fmt.Sprintf("rate limit exceeded for tool %s", tool.Name)), nil
 		}
 	}
@@ -162,14 +162,14 @@ func (g *GovernedCaller) callMCP(ctx context.Context, agent AgentInfo, name stri
 	// Check per-agent budget.
 	allowed, _, _, err := g.budgets.CheckBudget(ctx, agent.ID, tool.ID)
 	if err == nil && !allowed {
-		g.recordTransaction(agent, toolID, name, 403, 0, false, 0, "flat")
+		g.recordTransaction(agent, toolID, tool.Name, name, 403, 0, false, 0, "flat")
 		return mcp.NewToolResultError(fmt.Sprintf("agent budget exceeded for tool %s", tool.Name)), nil
 	}
 
 	// Check global tool budget.
 	globalAllowed, _, err := g.budgets.CheckToolGlobalBudget(ctx, tool.ID)
 	if err == nil && !globalAllowed {
-		g.recordTransaction(agent, toolID, name, 403, 0, false, 0, "flat")
+		g.recordTransaction(agent, toolID, tool.Name, name, 403, 0, false, 0, "flat")
 		return mcp.NewToolResultError(fmt.Sprintf("global budget exceeded for tool %s", tool.Name)), nil
 	}
 
@@ -178,7 +178,7 @@ func (g *GovernedCaller) callMCP(ctx context.Context, agent AgentInfo, name stri
 	latency := time.Since(start)
 
 	if err != nil {
-		g.recordTransaction(agent, toolID, name, 502, latency, false, 0, "flat")
+		g.recordTransaction(agent, toolID, tool.Name, name, 502, latency, false, 0, "flat")
 		return nil, fmt.Errorf("mcp upstream call failed: %w", err)
 	}
 
@@ -195,14 +195,16 @@ func (g *GovernedCaller) callMCP(ctx context.Context, agent AgentInfo, name stri
 		cost = tool.PricingAmount
 	}
 
-	g.recordTransaction(agent, toolID, name, statusCode, latency, success, cost, costSource)
+	g.recordTransaction(agent, toolID, tool.Name, name, statusCode, latency, success, cost, costSource)
 	return result, nil
 }
 
-func (g *GovernedCaller) recordTransaction(agent AgentInfo, toolID, name string, statusCode int, latency time.Duration, success bool, cost float64, costSource string) {
+func (g *GovernedCaller) recordTransaction(agent AgentInfo, toolID, toolName, name string, statusCode int, latency time.Duration, success bool, cost float64, costSource string) {
 	g.collector.Record(metering.Transaction{
 		AgentID:    agent.ID,
+		AgentName:  agent.Name,
 		ToolID:     toolID,
+		ToolName:   toolName,
 		Timestamp:  time.Now().UTC(),
 		Method:     "tools/call",
 		Path:       name,

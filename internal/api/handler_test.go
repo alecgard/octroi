@@ -14,13 +14,6 @@ import (
 // Health check handler tests
 // ---------------------------------------------------------------------------
 
-// fakePinger implements the Ping(ctx) method used by the health handler.
-type fakePinger struct {
-	err error
-}
-
-func (f *fakePinger) Ping(_ interface{}) error { return f.err }
-
 func TestHealthCheck_OK(t *testing.T) {
 	// Build a minimal router with no DBPool (the nil path returns "ok").
 	deps := RouterDeps{

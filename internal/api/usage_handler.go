@@ -393,31 +393,11 @@ func (h *usageHandler) GetTransactionDetail(w http.ResponseWriter, r *http.Reque
 		return
 	}
 
-	// Get the transaction itself.
-	q := metering.UsageQuery{Limit: 1}
-	txns, _, err := h.store.ListTransactions(r.Context(), q)
+	// Get the transaction by ID.
+	found, err := h.store.GetByID(r.Context(), id)
 	if err != nil {
-		writeError(w, http.StatusInternalServerError, "internal_error", "failed to query transaction")
+		writeError(w, http.StatusNotFound, "not_found", "transaction not found")
 		return
-	}
-
-	// Find by ID.
-	var found *metering.Transaction
-	for _, t := range txns {
-		if t.ID == id {
-			found = t
-			break
-		}
-	}
-
-	// If not found via list, query directly.
-	if found == nil {
-		tx, txErr := h.store.GetByID(r.Context(), id)
-		if txErr != nil {
-			writeError(w, http.StatusNotFound, "not_found", "transaction not found")
-			return
-		}
-		found = tx
 	}
 
 	result := map[string]interface{}{
@@ -473,10 +453,6 @@ func (h *usageHandler) ExportTransactions(w http.ResponseWriter, r *http.Request
 		)
 	}
 }
-
-// transactionView is an alias — Transaction already contains agent_name/tool_name
-// stored at write time, so no server-side enrichment is needed.
-type transactionView = metering.Transaction
 
 // tryParseJSON attempts to parse bytes as JSON, returning the parsed value or the raw string.
 func tryParseJSON(data []byte) interface{} {

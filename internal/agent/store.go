@@ -127,12 +127,6 @@ func (s *Store) List(ctx context.Context, params AgentListParams) ([]*Agent, str
 	return agents, nextCursor, nil
 }
 
-// ListByTeam returns a page of agents filtered by team, ordered by created_at
-// DESC, id DESC using cursor-based pagination.
-func (s *Store) ListByTeam(ctx context.Context, team string, params AgentListParams) ([]*Agent, string, error) {
-	return s.ListByTeams(ctx, []string{team}, params)
-}
-
 // ListByTeams returns a page of agents filtered by any of the given teams,
 // ordered by created_at DESC, id DESC using cursor-based pagination.
 func (s *Store) ListByTeams(ctx context.Context, teams []string, params AgentListParams) ([]*Agent, string, error) {

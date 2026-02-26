@@ -370,10 +370,6 @@ func (h *Handler) ServeHTTP(w http.ResponseWriter, r *http.Request) {
 		body = bytes.NewReader(data)
 	}
 
-	var lastResp *http.Response
-	var lastErr error
-	var lastLatency time.Duration
-
 	for attempt := 0; attempt < maxAttempts; attempt++ {
 		attemptTxnID := txnID
 		if attempt > 0 {
@@ -449,9 +445,6 @@ func (h *Handler) ServeHTTP(w http.ResponseWriter, r *http.Request) {
 				h.circuitBreaker.RecordResult(tool.ID, cbCfg, 502)
 			}
 			h.recordTransactionWithID(attemptTxnID, agent.ID, agent.Name, tool, r, 502, latency, requestSize, 0, false, "")
-			lastErr = doErr
-			lastLatency = latency
-			lastResp = nil
 			continue // retry
 		}
 
@@ -468,9 +461,6 @@ func (h *Handler) ServeHTTP(w http.ResponseWriter, r *http.Request) {
 				h.circuitBreaker.RecordResult(tool.ID, cbCfg, resp.StatusCode)
 			}
 			h.recordTransactionWithID(attemptTxnID, agent.ID, agent.Name, tool, r, resp.StatusCode, latency, requestSize, 0, false, resp.Header.Get("X-Octroi-Cost"))
-			lastErr = nil
-			lastResp = nil
-			lastLatency = latency
 			continue
 		}
 
@@ -522,14 +512,7 @@ func (h *Handler) ServeHTTP(w http.ResponseWriter, r *http.Request) {
 	}
 
 	// All retries exhausted — return 502.
-	_ = lastLatency
-	_ = lastErr
 	writeError(w, http.StatusBadGateway, "proxy_error", "upstream request failed after retries")
-	_ = lastResp
-}
-
-func (h *Handler) recordTransaction(agentID, agentName string, tool *registry.Tool, r *http.Request, statusCode int, latency time.Duration, requestSize int64, responseSize int64, success bool, reportedCostHeader string) {
-	h.recordTransactionWithID("", agentID, agentName, tool, r, statusCode, latency, requestSize, responseSize, success, reportedCostHeader)
 }
 
 func (h *Handler) recordTransactionWithID(txnID string, agentID, agentName string, tool *registry.Tool, r *http.Request, statusCode int, latency time.Duration, requestSize int64, responseSize int64, success bool, reportedCostHeader string) {

@@ -178,8 +178,14 @@ func TestGovernedCaller_RESTSuccess(t *testing.T) {
 	if tx.AgentID != "agent-1" {
 		t.Errorf("tx.AgentID = %q, want %q", tx.AgentID, "agent-1")
 	}
+	if tx.AgentName != "test-agent" {
+		t.Errorf("tx.AgentName = %q, want %q", tx.AgentName, "test-agent")
+	}
 	if tx.ToolID != testToolID {
 		t.Errorf("tx.ToolID = %q, want %q", tx.ToolID, testToolID)
+	}
+	if tx.ToolName != "search" {
+		t.Errorf("tx.ToolName = %q, want %q", tx.ToolName, "search")
 	}
 	if tx.Method != "tools/call" {
 		t.Errorf("tx.Method = %q, want %q", tx.Method, "tools/call")
@@ -353,8 +359,14 @@ func TestGovernedCaller_MCPUpstreamSuccess(t *testing.T) {
 		t.Fatalf("expected 1 transaction, got %d", len(collector.transactions))
 	}
 	tx := collector.transactions[0]
+	if tx.AgentName != "test-agent" {
+		t.Errorf("tx.AgentName = %q, want %q", tx.AgentName, "test-agent")
+	}
 	if tx.ToolID != mcpToolID {
 		t.Errorf("tx.ToolID = %q, want %q", tx.ToolID, mcpToolID)
+	}
+	if tx.ToolName != "upstream" {
+		t.Errorf("tx.ToolName = %q, want %q", tx.ToolName, "upstream")
 	}
 	if tx.Path != "upstream__search" {
 		t.Errorf("tx.Path = %q, want %q", tx.Path, "upstream__search")
@@ -428,8 +440,14 @@ func TestGovernedCaller_MeteringRecorded(t *testing.T) {
 	if tx.AgentID != "agent-1" {
 		t.Errorf("tx.AgentID = %q, want %q", tx.AgentID, "agent-1")
 	}
+	if tx.AgentName != "test-agent" {
+		t.Errorf("tx.AgentName = %q, want %q", tx.AgentName, "test-agent")
+	}
 	if tx.ToolID != testToolID {
 		t.Errorf("tx.ToolID = %q, want %q", tx.ToolID, testToolID)
+	}
+	if tx.ToolName != "search" {
+		t.Errorf("tx.ToolName = %q, want %q", tx.ToolName, "search")
 	}
 	if tx.Method != "tools/call" {
 		t.Errorf("tx.Method = %q, want %q", tx.Method, "tools/call")

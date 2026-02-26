@@ -221,7 +221,7 @@ func TestPermissionStore_IsSubToolAllowed_ParentDenied(t *testing.T) {
 	}
 
 	// Set parent allowed=false.
-	if err := permStore.Set(ctx, a.ID, toolID, false); err != nil {
+	if err := permStore.SetWithSubTools(ctx, a.ID, toolID, false, nil); err != nil {
 		t.Fatalf("Set: %v", err)
 	}
 	defer permStore.Delete(ctx, a.ID, toolID)

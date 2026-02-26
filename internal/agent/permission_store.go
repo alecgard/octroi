@@ -100,20 +100,6 @@ func (s *PermissionStore) IsSubToolAllowed(ctx context.Context, agentID, toolID,
 	return false, nil
 }
 
-// Set upserts a permission for an agent-tool pair.
-func (s *PermissionStore) Set(ctx context.Context, agentID, toolID string, allowed bool) error {
-	_, err := s.pool.Exec(ctx,
-		`INSERT INTO agent_tool_permissions (agent_id, tool_id, allowed)
-		 VALUES ($1, $2, $3)
-		 ON CONFLICT (agent_id, tool_id) DO UPDATE SET allowed = $3`,
-		agentID, toolID, allowed,
-	)
-	if err != nil {
-		return fmt.Errorf("setting permission: %w", err)
-	}
-	return nil
-}
-
 // SetWithSubTools upserts a permission for an agent-tool pair including sub-tools.
 func (s *PermissionStore) SetWithSubTools(ctx context.Context, agentID, toolID string, allowed bool, subTools []string) error {
 	_, err := s.pool.Exec(ctx,
