@@ -111,6 +111,10 @@ func buildUsageQuery(r *http.Request, isAdmin bool) (*metering.UsageQuery, error
 		q.MinLatencyMs = &ml
 	}
 
+	if ch := r.URL.Query().Get("channel"); ch != "" {
+		q.Channel = ch
+	}
+
 	q.Cursor = r.URL.Query().Get("cursor")
 
 	if limitStr := r.URL.Query().Get("limit"); limitStr != "" {
@@ -455,9 +459,9 @@ func (h *usageHandler) ExportTransactions(w http.ResponseWriter, r *http.Request
 	w.WriteHeader(http.StatusOK)
 
 	// CSV header.
-	fmt.Fprintln(w, "id,agent_id,tool_id,timestamp,method,path,status_code,latency_ms,request_size,response_size,success,cost,cost_source,error")
+	fmt.Fprintln(w, "id,agent_id,tool_id,timestamp,method,path,status_code,latency_ms,request_size,response_size,success,cost,cost_source,error,channel")
 	for _, tx := range txns {
-		fmt.Fprintf(w, "%s,%s,%s,%s,%s,%s,%d,%d,%d,%d,%t,%.6f,%s,%s\n",
+		fmt.Fprintf(w, "%s,%s,%s,%s,%s,%s,%d,%d,%d,%d,%t,%.6f,%s,%s,%s\n",
 			tx.ID, tx.AgentID, tx.ToolID,
 			tx.Timestamp.Format(time.RFC3339),
 			tx.Method, tx.Path,
@@ -465,6 +469,7 @@ func (h *usageHandler) ExportTransactions(w http.ResponseWriter, r *http.Request
 			tx.RequestSize, tx.ResponseSize,
 			tx.Success, tx.Cost, tx.CostSource,
 			strings.ReplaceAll(tx.Error, ",", ";"),
+			tx.Channel,
 		)
 	}
 }

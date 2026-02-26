@@ -211,5 +211,6 @@ func (g *GovernedCaller) recordTransaction(agent AgentInfo, toolID, name string,
 		Success:    success,
 		Cost:       cost,
 		CostSource: costSource,
+		Channel:    "mcp",
 	})
 }

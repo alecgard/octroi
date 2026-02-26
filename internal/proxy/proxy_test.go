@@ -163,6 +163,9 @@ func TestProxyForwarding(t *testing.T) {
 	if tx.StatusCode != 200 || !tx.Success || tx.AgentID != "agent-1" || tx.ToolID != "tool-1" {
 		t.Errorf("unexpected transaction: %+v", tx)
 	}
+	if tx.Channel != "http" {
+		t.Errorf("tx.Channel = %q, want %q", tx.Channel, "http")
+	}
 }
 
 func TestToolNotFound(t *testing.T) {

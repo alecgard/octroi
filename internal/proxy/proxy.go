@@ -197,6 +197,7 @@ func (h *Handler) ServeHTTP(w http.ResponseWriter, r *http.Request) {
 				StatusCode: http.StatusNotFound,
 				Success:    false,
 				Error:      "tool not found",
+				Channel:    "http",
 			})
 		}
 		writeError(w, http.StatusNotFound, "not_found", "tool not found")
@@ -562,6 +563,7 @@ func (h *Handler) recordTransactionWithID(txnID string, agentID, agentName strin
 		CostSource:   costSource,
 		AgentName:    agentName,
 		ToolName:     tool.Name,
+		Channel:      "http",
 	})
 }
 

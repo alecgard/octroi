@@ -712,6 +712,7 @@ body.shift-held .txn-filter-pending { background: var(--surface2); }
           <th>Agent</th>
           <th>Tool</th>
           <th>Type</th>
+          <th>Channel</th>
           <th>Method</th>
           <th class="has-tooltip">Path / Sub-tool<span class="tip">API path for Service/API tools, sub-tool name for MCP tools</span></th>
           <th>Status</th>
@@ -2455,6 +2456,7 @@ function renderTxnTable(prevTimestamp) {
     <td class="txn-filterable${agentExcl}">${esc(resolveAgentName(t.agent_id, t))}${txnFilterBtn('agent', t.agent_id, t.agent_id)}</td>
     <td class="txn-filterable${toolExcl}">${esc(resolveToolName(t.tool_id, t))}${txnFilterBtn('tool', t.tool_id, t.tool_id)}</td>
     <td><span class="badge-mode badge-${(resolveToolMode(t.tool_id) || '').toLowerCase()}">${resolveToolMode(t.tool_id)}</span></td>
+    <td><span class="badge-mode badge-${(t.channel || 'http') === 'mcp' ? 'mcp' : 'service'}" style="font-size:11px">${esc(t.channel || 'http')}</span></td>
     <td>${esc(t.method)}</td>
     <td class="txn-filterable${pathExcl} mono" style="font-size:12px">${esc(cleaned)}${txnFilterBtn('path', esc(cleaned), cleaned)}</td>
     <td><span class="badge-mode badge-${t.status_code >= 200 && t.status_code < 300 ? 'service' : t.status_code >= 400 ? 'api' : 'mcp'}" style="font-size:11px">${t.status_code}</span></td>
@@ -2636,7 +2638,7 @@ function showUsageLoading() {
     document.getElementById(id).innerHTML = '<span class="usage-spinner"></span>';
   });
   document.getElementById('txn-empty').style.display = 'none';
-  document.getElementById('txn-body').innerHTML = '<tr><td colspan="8"><div class="usage-spinner"></div></td></tr>';
+  document.getElementById('txn-body').innerHTML = '<tr><td colspan="9"><div class="usage-spinner"></div></td></tr>';
   document.getElementById('usage-chart').innerHTML = '<div class="usage-spinner"></div>';
 }
 
@@ -2691,6 +2693,7 @@ async function showTransactionDetail(txnId) {
     html += '<div><b>Status:</b> ' + tx.status_code + '</div>';
     html += '<div><b>Latency:</b> ' + tx.latency_ms + 'ms</div>';
     html += '<div><b>Cost:</b> ' + tx.cost + ' (' + tx.cost_source + ')</div>';
+    html += '<div><b>Channel:</b> ' + esc(tx.channel || 'http') + '</div>';
     if (body) {
       const reqRaw = body.request_body;
       const resRaw = body.response_body;

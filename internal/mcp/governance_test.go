@@ -196,6 +196,9 @@ func TestGovernedCaller_RESTSuccess(t *testing.T) {
 	if tx.Cost != 0.01 {
 		t.Errorf("tx.Cost = %f, want %f", tx.Cost, 0.01)
 	}
+	if tx.Channel != "mcp" {
+		t.Errorf("tx.Channel = %q, want %q", tx.Channel, "mcp")
+	}
 }
 
 func TestGovernedCaller_RateLimitRejection(t *testing.T) {
@@ -358,6 +361,9 @@ func TestGovernedCaller_MCPUpstreamSuccess(t *testing.T) {
 	}
 	if tx.StatusCode != 200 {
 		t.Errorf("tx.StatusCode = %d, want 200", tx.StatusCode)
+	}
+	if tx.Channel != "mcp" {
+		t.Errorf("tx.Channel = %q, want %q", tx.Channel, "mcp")
 	}
 }
 

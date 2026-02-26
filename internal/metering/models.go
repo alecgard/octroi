@@ -20,6 +20,7 @@ type Transaction struct {
 	Error        string    `json:"error"`
 	AgentName    string    `json:"agent_name"`
 	ToolName     string    `json:"tool_name"`
+	Channel      string    `json:"channel"`
 }
 
 // UsageSummary holds aggregate metrics for a set of transactions.
@@ -42,6 +43,7 @@ type UsageQuery struct {
 	To       time.Time `json:"to"`
 	StatusCode   *int      `json:"status_code,omitempty"`
 	MinLatencyMs *int64    `json:"min_latency_ms,omitempty"`
+	Channel      string    `json:"channel,omitempty"`
 	Cursor       string    `json:"cursor,omitempty"`
 	Limit        int       `json:"limit"`
 }
