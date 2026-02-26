@@ -1465,7 +1465,7 @@ function openToolModal(tool) {
   document.getElementById('tool-id-display').textContent = tool ? tool.id : '';
   document.getElementById('tool-modal-title').textContent = tool ? 'Edit Tool' : 'Create Tool';
   document.getElementById('tool-submit-btn').textContent = tool ? 'Save' : 'Create';
-  document.getElementById('tool-mode').value = tool ? tool.mode || 'service' : 'service';
+  document.getElementById('tool-mode').value = tool ? tool.mode || 'service' : 'mcp';
   document.getElementById('tool-name').value = tool ? tool.name : '';
   document.getElementById('tool-description').value = tool ? tool.description : '';
   document.getElementById('tool-endpoint').value = tool ? tool.endpoint || '' : '';
