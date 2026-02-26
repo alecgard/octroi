@@ -78,6 +78,10 @@ button:disabled { opacity: 0.4; cursor: not-allowed; }
 .btn-ghost { background: transparent; color: var(--text2); }
 .btn-ghost:hover:not(:disabled) { color: var(--text); background: var(--surface); }
 .btn-sm { padding: 2px 8px; font-size: 11px; }
+.badge-mode { font-size: 10px; font-weight: 600; padding: 1px 6px; border-radius: 3px; text-transform: uppercase; letter-spacing: 0.5px; }
+.badge-service { background: #e8f4fd; color: #1a73e8; }
+.badge-api { background: #fef3e0; color: #e65100; }
+.badge-mcp { background: #e8f5e9; color: #2e7d32; }
 .btn-warn { background: var(--bg); color: var(--warn); border-color: var(--warn); }
 .btn-warn:hover:not(:disabled) { background: #fef8f0; }
 /* Tabs */
@@ -682,6 +686,7 @@ body.shift-held .txn-filter-pending { background: var(--surface2); }
           <th>Team</th>
           <th>Agent</th>
           <th>Tool</th>
+          <th>Type</th>
           <th>Method</th>
           <th>Path</th>
           <th>Latency</th>
@@ -2017,6 +2022,7 @@ function renderTxnTable(prevTimestamp) {
     <td class="txn-filterable${teamExcl}">${team}${txnFilterBtn('team', esc(teamRaw), teamRaw)}</td>
     <td class="txn-filterable${agentExcl}">${esc(resolveAgentName(t.agent_id))}${txnFilterBtn('agent', t.agent_id, t.agent_id)}</td>
     <td class="txn-filterable${toolExcl}">${esc(resolveToolName(t.tool_id))}${txnFilterBtn('tool', t.tool_id, t.tool_id)}</td>
+    <td><span class="badge-mode badge-${(resolveToolMode(t.tool_id) || '').toLowerCase()}">${resolveToolMode(t.tool_id)}</span></td>
     <td>${esc(t.method)}</td>
     <td class="mono" style="font-size:12px">${esc(t.path || '')}</td>
     <td>${t.latency_ms}ms</td>
@@ -2395,6 +2401,7 @@ function fmtTime(s) { if (!s) return '\u2014'; const d = new Date(s); return d.t
 function resolveAgentName(id) { const a = agentsCache.find(a => a.id === id); return a ? a.name : id.slice(0,8); }
 function resolveAgentTeam(id) { const a = agentsCache.find(a => a.id === id); return a ? (a.team || '') : ''; }
 function resolveToolName(id) { const t = toolsCache.find(t => t.id === id); return t ? t.name : id.slice(0,8); }
+function resolveToolMode(id) { const t = toolsCache.find(t => t.id === id); return t ? (t.mode || '').toUpperCase() : ''; }
 
 function filterFromTxn(type, value, event) {
   if (shiftHeld && value) {
