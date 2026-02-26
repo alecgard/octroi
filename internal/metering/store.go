@@ -126,7 +126,7 @@ func (s *Store) GetToolCallCounts(ctx context.Context) (map[string]int64, error)
 func (s *Store) GetSubToolCallCounts(ctx context.Context, toolID string) (map[string]int64, error) {
 	prefix := "/proxy/" + toolID + "/"
 	rows, err := s.pool.Query(ctx,
-		`SELECT SUBSTRING(path FROM $1) AS sub_tool, COUNT(*)
+		`SELECT SUBSTR(path, $1) AS sub_tool, COUNT(*)
 		 FROM transactions
 		 WHERE tool_id = $2 AND path LIKE $3
 		 GROUP BY sub_tool`,
