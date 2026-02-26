@@ -41,13 +41,13 @@ jobs:
       - name: Build
         run: go build -o octroi ./cmd/octroi
 
-      - name: Test
-        run: go test -race -count=1 ./...
-        env:
-          OCTROI_DATABASE_URL: postgres://octroi:octroi@localhost:5433/octroi?sslmode=disable
-
       - name: Run migrations
         run: ./octroi migrate --config configs/octroi.dev.yaml
         env:
           OCTROI_DATABASE_URL: postgres://octroi:octroi@localhost:5433/octroi?sslmode=disable
           OCTROI_ENCRYPTION_KEY: "0000000000000000000000000000000000000000000000000000000000000000"
+
+      - name: Test
+        run: go test -race -count=1 ./...
+        env:
+          OCTROI_DATABASE_URL: postgres://octroi:octroi@localhost:5433/octroi?sslmode=disable
