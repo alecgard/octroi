@@ -53,6 +53,14 @@ func (a *Aggregator) AddUpstream(id, name string, client UpstreamClient) {
 	}
 }
 
+// HasUpstream returns true if an upstream with the given id is registered.
+func (a *Aggregator) HasUpstream(id string) bool {
+	a.mu.RLock()
+	defer a.mu.RUnlock()
+	_, ok := a.upstreams[id]
+	return ok
+}
+
 // RemoveUpstream removes an upstream by id and closes its client.
 func (a *Aggregator) RemoveUpstream(id string) {
 	a.mu.Lock()

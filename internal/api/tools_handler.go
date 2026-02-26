@@ -2,8 +2,10 @@ package api
 
 import (
 	"errors"
+	"log/slog"
 	"net/http"
 	"strconv"
+	"time"
 
 	"github.com/alecgard/octroi/internal/mcp"
 	"github.com/alecgard/octroi/internal/registry"
@@ -208,6 +210,22 @@ func (h *toolsHandler) RefreshMCPTools(agg *mcp.Aggregator) http.HandlerFunc {
 		if tool.Mode != "mcp" {
 			writeError(w, http.StatusBadRequest, "invalid_mode", "tool is not an MCP tool")
 			return
+		}
+
+		// If the upstream isn't connected yet (e.g. endpoint changed after
+		// server startup), create a new client and register it.
+		if !agg.HasUpstream(id) {
+			slog.Info("connecting to MCP upstream", "tool", tool.Name, "endpoint", tool.Endpoint)
+			c, err := mcp.NewClient(tool.Endpoint, tool.AuthType, tool.AuthConfig, 30*time.Second)
+			if err != nil {
+				writeError(w, http.StatusBadGateway, "connect_failed", "failed to create MCP client: "+err.Error())
+				return
+			}
+			if err := c.Initialize(r.Context()); err != nil {
+				writeError(w, http.StatusBadGateway, "connect_failed", "failed to initialize MCP client: "+err.Error())
+				return
+			}
+			agg.AddUpstream(id, tool.Name, c)
 		}
 
 		if err := agg.RefreshUpstream(r.Context(), id); err != nil {
