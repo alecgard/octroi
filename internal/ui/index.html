@@ -82,6 +82,10 @@ button:disabled { opacity: 0.4; cursor: not-allowed; }
 .badge-service { background: #e8f4fd; color: #1a73e8; }
 .badge-api { background: #fef3e0; color: #e65100; }
 .badge-mcp { background: #e8f5e9; color: #2e7d32; }
+.mcp-chevron { cursor: pointer; display: inline-block; font-size: 10px; color: var(--text2); transition: transform 0.15s ease; user-select: none; width: 14px; text-align: center; }
+.mcp-chevron:hover { color: var(--text); }
+.mcp-chevron.open { transform: rotate(90deg); }
+.mcp-subrow td { background: var(--surface); border-bottom: 1px solid var(--border); }
 .btn-warn { background: var(--bg); color: var(--warn); border-color: var(--warn); }
 .btn-warn:hover:not(:disabled) { background: #fef8f0; }
 /* Tabs */
@@ -1413,11 +1417,14 @@ function renderTools() {
 
   const disAttr = isAdmin ? '' : ' disabled title="Org admin only"';
   const modeLabel = m => m === 'api' ? 'API' : m === 'mcp' ? 'MCP' : 'Service';
+  const chevron = id => `<span class="mcp-chevron" id="mcp-chev-${id}" onclick="toggleMcpSubTools('${id}')" title="Show sub-tools">&#x25B6;</span>`;
   tbody.innerHTML = filtered.map(t => {
-    const mcpBtns = (isAdmin && t.mode === 'mcp') ? `<button class="btn-ghost btn-sm" onclick="toggleMcpSubTools('${t.id}')">Sub-tools</button> <button class="btn-ghost btn-sm" onclick="refreshMcpTools('${t.id}')">Refresh</button> ` : '';
+    const isMcp = isAdmin && t.mode === 'mcp';
+    const mcpBtns = isMcp ? `<button class="btn-ghost btn-sm" onclick="refreshMcpTools('${t.id}')">Refresh</button> ` : '';
     const enabledBadge = t.mode === 'mcp' ? (t.enabled !== false ? '' : ' <span style="color:var(--text2);font-size:10px">(disabled)</span>') : '';
+    const namePrefix = isMcp ? chevron(t.id) + ' ' : '';
     return `<tr>
-    <td><a href="#" onclick="viewToolUsage('${t.id}','${esc(t.name)}');return false" style="text-decoration:none;font-weight:700;border-bottom:1px solid var(--border)">${esc(t.name)}</a>${enabledBadge}<br><span style="color:var(--text2);font-size:11px">${esc(t.description || '')}</span></td>
+    <td>${namePrefix}<a href="#" onclick="viewToolUsage('${t.id}','${esc(t.name)}');return false" style="text-decoration:none;font-weight:700;border-bottom:1px solid var(--border)">${esc(t.name)}</a>${enabledBadge}<br><span style="color:var(--text2);font-size:11px;${isMcp ? 'margin-left:18px;display:inline-block' : ''}">${esc(t.description || '')}</span></td>
     <td>${modeLabel(t.mode)}</td>
     <td class="mono" style="word-break:break-all;max-width:220px">${isAdmin ? esc(t.endpoint || '\u2014') : esc(t.pricing_model || 'free')}</td>
     <td>${esc(t.auth_type || 'none')}</td>
@@ -1426,7 +1433,7 @@ function renderTools() {
       ${mcpBtns}<button class="btn-ghost btn-sm" onclick="editTool('${t.id}')"${disAttr}>Edit</button>
       <button class="btn-danger btn-sm" onclick="deleteTool('${t.id}','${esc(t.name)}')"${disAttr}>Delete</button>
     </td>
-  </tr><tr class="mcp-sub-tools" id="mcp-sub-${t.id}" style="display:none"><td colspan="6" style="padding:0 0 0 24px"><div id="mcp-sub-content-${t.id}"></div></td></tr>`;
+  </tr>`;
   }).join('');
 
   if (!isAdmin) {
@@ -2356,27 +2363,42 @@ async function deleteUser(id, email) {
 
 // --- MCP Sub-tools ---
 async function toggleMcpSubTools(toolId) {
-  const row = document.getElementById('mcp-sub-' + toolId);
-  if (!row) return;
-  if (row.style.display !== 'none') {
-    row.style.display = 'none';
+  const chev = document.getElementById('mcp-chev-' + toolId);
+  // Remove existing sub-rows if expanded (toggle off).
+  const existing = document.querySelectorAll('.mcp-subrow-' + toolId);
+  if (existing.length) {
+    existing.forEach(r => r.remove());
+    if (chev) chev.classList.remove('open');
     return;
   }
-  row.style.display = '';
-  const content = document.getElementById('mcp-sub-content-' + toolId);
-  content.innerHTML = '<span style="color:var(--text2);font-size:11px">Loading...</span>';
+  if (chev) chev.classList.add('open');
+  // Insert a loading row right after the parent.
+  const parentRow = chev.closest('tr');
+  const loadingRow = document.createElement('tr');
+  loadingRow.className = 'mcp-subrow mcp-subrow-' + toolId;
+  loadingRow.innerHTML = '<td colspan="6" style="padding:4px 0 4px 26px"><span style="color:var(--text2);font-size:11px">Loading sub-tools\u2026</span></td>';
+  parentRow.after(loadingRow);
   try {
     const data = await api('GET', '/api/v1/admin/tools/' + toolId + '/mcp-tools');
     const tools = data.tools || [];
+    loadingRow.remove();
     if (!tools.length) {
-      content.innerHTML = '<span style="color:var(--text2);font-size:11px">No sub-tools discovered. Try refreshing.</span>';
+      const emptyRow = document.createElement('tr');
+      emptyRow.className = 'mcp-subrow mcp-subrow-' + toolId;
+      emptyRow.innerHTML = '<td colspan="6" style="padding:4px 0 4px 26px"><span style="color:var(--text2);font-size:11px">No sub-tools discovered. Try refreshing.</span></td>';
+      parentRow.after(emptyRow);
       return;
     }
-    content.innerHTML = '<table style="margin:4px 0"><thead><tr><th style="font-size:11px">Sub-tool</th><th style="font-size:11px">Description</th></tr></thead><tbody>' +
-      tools.map(st => '<tr><td style="font-size:12px;font-weight:600">' + esc(st.name) + '</td><td style="font-size:11px;color:var(--text2)">' + esc(st.description || '') + '</td></tr>').join('') +
-      '</tbody></table>';
+    // Insert sub-tool rows in reverse so they appear in order after parentRow.
+    for (let i = tools.length - 1; i >= 0; i--) {
+      const st = tools[i];
+      const subRow = document.createElement('tr');
+      subRow.className = 'mcp-subrow mcp-subrow-' + toolId;
+      subRow.innerHTML = `<td style="padding-left:26px"><span style="font-size:12px;font-weight:600">${esc(st.name)}</span><br><span style="color:var(--text2);font-size:11px;margin-left:0">${esc(st.description || '')}</span></td><td colspan="5"></td>`;
+      parentRow.after(subRow);
+    }
   } catch (e) {
-    content.innerHTML = '<span style="color:var(--danger);font-size:11px">Failed to load sub-tools</span>';
+    loadingRow.innerHTML = '<td colspan="6" style="padding:4px 0 4px 26px"><span style="color:var(--danger);font-size:11px">Failed to load sub-tools</span></td>';
   }
 }
 
@@ -2384,10 +2406,12 @@ async function refreshMcpTools(toolId) {
   try {
     await api('POST', '/api/v1/admin/tools/' + toolId + '/refresh-mcp');
     toast('MCP tools refreshed');
-    // Reload sub-tools if visible.
-    const row = document.getElementById('mcp-sub-' + toolId);
-    if (row && row.style.display !== 'none') {
-      row.style.display = 'none';
+    // Reload sub-tools if currently expanded.
+    const existing = document.querySelectorAll('.mcp-subrow-' + toolId);
+    if (existing.length) {
+      existing.forEach(r => r.remove());
+      const chev = document.getElementById('mcp-chev-' + toolId);
+      if (chev) chev.classList.remove('open');
       toggleMcpSubTools(toolId);
     }
   } catch (e) { toast('Error: ' + e.message); }
