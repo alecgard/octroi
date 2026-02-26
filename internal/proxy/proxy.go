@@ -29,6 +29,11 @@ type MCPCaller interface {
 	Call(ctx context.Context, upstreamID string, toolName string, arguments map[string]any) (*mcp.CallToolResult, error)
 }
 
+// MCPToolLister lists sub-tools for an MCP upstream by tool ID.
+type MCPToolLister interface {
+	GetUpstreamTools(id string) ([]mcp.Tool, bool)
+}
+
 // ToolStore is the interface for looking up tools by ID.
 type ToolStore interface {
 	GetByID(ctx context.Context, id string) (*registry.Tool, error)
@@ -107,6 +112,7 @@ type Handler struct {
 	maxRequestSize int64
 	metrics        MetricsRecorder
 	mcpCaller      MCPCaller
+	mcpToolLister  MCPToolLister
 }
 
 // NewHandler creates a new proxy handler.
@@ -153,6 +159,11 @@ func (h *Handler) SetWebhookDispatcher(d WebhookDispatcher) {
 // SetMCPCaller sets the optional MCP upstream caller for proxying MCP tools.
 func (h *Handler) SetMCPCaller(c MCPCaller) {
 	h.mcpCaller = c
+}
+
+// SetMCPToolLister sets the optional MCP tool lister for sub-tool discovery.
+func (h *Handler) SetMCPToolLister(l MCPToolLister) {
+	h.mcpToolLister = l
 }
 
 // ServeHTTP handles proxy requests.
@@ -260,9 +271,15 @@ func (h *Handler) ServeHTTP(w http.ResponseWriter, r *http.Request) {
 		}
 	}
 
-	// Handle MCP mode: forward to upstream MCP server.
+	// Handle MCP mode: list sub-tools or forward to upstream MCP server.
 	if tool.Mode == "mcp" {
-		h.serveMCP(w, r, tool, agent)
+		subPath := strings.TrimPrefix(r.URL.Path, fmt.Sprintf("/proxy/%s", tool.ID))
+		subPath = strings.TrimPrefix(subPath, "/")
+		if subPath == "" {
+			h.serveListMCPTools(w, r, tool)
+			return
+		}
+		h.serveMCP(w, r, tool, agent, cbCfg)
 		return
 	}
 
@@ -581,7 +598,7 @@ func classifyUpstreamError(err error) string {
 
 // serveMCP handles proxy requests for MCP mode tools. The path after /proxy/{toolID}/
 // is treated as the MCP tool name, and the JSON body becomes the tool arguments.
-func (h *Handler) serveMCP(w http.ResponseWriter, r *http.Request, tool *registry.Tool, agent *auth.Agent) {
+func (h *Handler) serveMCP(w http.ResponseWriter, r *http.Request, tool *registry.Tool, agent *auth.Agent, cbCfg CircuitBreakerConfig) {
 	if h.mcpCaller == nil {
 		writeError(w, http.StatusBadGateway, "proxy_error", "MCP proxy not configured")
 		return
@@ -639,6 +656,9 @@ func (h *Handler) serveMCP(w http.ResponseWriter, r *http.Request, tool *registr
 			h.metrics.IncProxyRequests(tool.ID, tool.Name, agent.ID, r.Method, 502)
 			h.metrics.IncUpstreamError("mcp_call", tool.ID, tool.Name)
 		}
+		if h.circuitBreaker != nil && tool.CBEnabled {
+			h.circuitBreaker.RecordResult(tool.ID, cbCfg, 502)
+		}
 		h.recordTransactionWithID(txnID, agent.ID, agent.Name, tool, r, 502, latency, 0, 0, false, "")
 		writeError(w, http.StatusBadGateway, "proxy_error", "MCP upstream call failed")
 		return
@@ -660,12 +680,44 @@ func (h *Handler) serveMCP(w http.ResponseWriter, r *http.Request, tool *registr
 	w.WriteHeader(statusCode)
 	w.Write(respBytes)
 
+	if h.circuitBreaker != nil && tool.CBEnabled {
+		h.circuitBreaker.RecordResult(tool.ID, cbCfg, statusCode)
+	}
+
 	h.recordTransactionWithID(txnID, agent.ID, agent.Name, tool, r, statusCode, latency, 0, int64(len(respBytes)), success, "")
+
+	// Check budget threshold webhooks.
+	if h.webhooks != nil && tool.WebhookURL != "" && tool.BudgetLimit > 0 {
+		_, globalRemaining, budgetErr := h.budgets.CheckToolGlobalBudget(r.Context(), tool.ID)
+		if budgetErr == nil {
+			currentUsage := tool.BudgetLimit - globalRemaining
+			h.webhooks.MaybeDispatch(tool.ID, tool.Name, tool.WebhookURL, tool.WebhookThresholdPct, tool.BudgetLimit, currentUsage)
+		}
+	}
 
 	// Record bodies asynchronously if enabled.
 	if tool.LogBodies && h.bodyRecorder != nil && (len(capturedReqBody) > 0 || len(respBytes) > 0) {
 		go h.bodyRecorder.RecordBody(context.Background(), txnID, capturedReqBody, respBytes)
 	}
+}
+
+// serveListMCPTools returns the list of sub-tools available on an MCP upstream.
+func (h *Handler) serveListMCPTools(w http.ResponseWriter, r *http.Request, tool *registry.Tool) {
+	if h.mcpToolLister == nil {
+		writeError(w, http.StatusBadGateway, "proxy_error", "MCP tool listing not configured")
+		return
+	}
+	tools, ok := h.mcpToolLister.GetUpstreamTools(tool.ID)
+	if !ok {
+		writeError(w, http.StatusNotFound, "not_found", "no MCP upstream found for this tool")
+		return
+	}
+	w.Header().Set("Content-Type", "application/json")
+	json.NewEncoder(w).Encode(map[string]any{
+		"tool_id":   tool.ID,
+		"tool_name": tool.Name,
+		"sub_tools": tools,
+	})
 }
 
 func writeError(w http.ResponseWriter, status int, code, message string) {

@@ -860,12 +860,35 @@ func TestCircuitBreakerRecordsResult(t *testing.T) {
 // --- MCP sub-tool permission tests ---
 
 type fakeMCPCaller struct {
-	called bool
+	called  bool
+	err     error
+	isError bool // if true, returns result with IsError=true
 }
 
 func (f *fakeMCPCaller) Call(_ context.Context, _ string, _ string, _ map[string]any) (*mcpgo.CallToolResult, error) {
 	f.called = true
+	if f.err != nil {
+		return nil, f.err
+	}
+	if f.isError {
+		r := mcpgo.NewToolResultError("upstream error")
+		return r, nil
+	}
 	return mcpgo.NewToolResultText("ok"), nil
+}
+
+// --- Webhook Dispatcher Fake ---
+
+type fakeWebhookDispatcher struct {
+	dispatched bool
+	toolID     string
+	toolName   string
+}
+
+func (f *fakeWebhookDispatcher) MaybeDispatch(toolID, toolName, webhookURL string, thresholdPct int, budgetLimit, currentUsage float64) {
+	f.dispatched = true
+	f.toolID = toolID
+	f.toolName = toolName
 }
 
 func TestMCPSubToolPermissionDenied(t *testing.T) {
@@ -930,5 +953,222 @@ func TestMCPSubToolPermissionAllowed(t *testing.T) {
 	}
 	if !mcpUp.called {
 		t.Error("expected MCP caller to be invoked")
+	}
+}
+
+// --- MCP sub-tool listing fakes ---
+
+type fakeMCPToolLister struct {
+	tools map[string][]mcpgo.Tool
+}
+
+func (f *fakeMCPToolLister) GetUpstreamTools(id string) ([]mcpgo.Tool, bool) {
+	tools, ok := f.tools[id]
+	return tools, ok
+}
+
+// --- MCP sub-tool listing tests ---
+
+func TestListMCPSubTools(t *testing.T) {
+	tool := newTestTool("http://localhost")
+	tool.Mode = "mcp"
+	store := &fakeToolStore{tools: map[string]*registry.Tool{"tool-1": tool}}
+	budgets := &fakeBudgetChecker{agentAllowed: true, globalAllowed: true}
+	collector := &fakeCollector{}
+	handler := NewHandler(store, budgets, collector, 5*time.Second, 1<<20)
+	handler.SetMCPCaller(&fakeMCPCaller{})
+	handler.SetMCPToolLister(&fakeMCPToolLister{
+		tools: map[string][]mcpgo.Tool{
+			"tool-1": {
+				{Name: "search", Description: "Search the web"},
+				{Name: "fetch", Description: "Fetch a URL"},
+			},
+		},
+	})
+
+	router := setupRouter(handler)
+
+	req := httptest.NewRequest("GET", "/proxy/tool-1", nil)
+	req = withAgent(req, newTestAgent())
+	rr := httptest.NewRecorder()
+	router.ServeHTTP(rr, req)
+
+	if rr.Code != http.StatusOK {
+		t.Fatalf("expected 200, got %d: %s", rr.Code, rr.Body.String())
+	}
+
+	var resp map[string]any
+	if err := json.NewDecoder(rr.Body).Decode(&resp); err != nil {
+		t.Fatalf("failed to decode response: %v", err)
+	}
+	if resp["tool_id"] != "tool-1" {
+		t.Errorf("expected tool_id tool-1, got %v", resp["tool_id"])
+	}
+	if resp["tool_name"] != "test-tool" {
+		t.Errorf("expected tool_name test-tool, got %v", resp["tool_name"])
+	}
+	subTools, ok := resp["sub_tools"].([]any)
+	if !ok {
+		t.Fatalf("expected sub_tools to be an array, got %T", resp["sub_tools"])
+	}
+	if len(subTools) != 2 {
+		t.Fatalf("expected 2 sub-tools, got %d", len(subTools))
+	}
+}
+
+func TestListMCPSubToolsNotConfigured(t *testing.T) {
+	tool := newTestTool("http://localhost")
+	tool.Mode = "mcp"
+	store := &fakeToolStore{tools: map[string]*registry.Tool{"tool-1": tool}}
+	budgets := &fakeBudgetChecker{agentAllowed: true, globalAllowed: true}
+	collector := &fakeCollector{}
+	handler := NewHandler(store, budgets, collector, 5*time.Second, 1<<20)
+	// Do NOT set mcpToolLister — leave it nil.
+
+	router := setupRouter(handler)
+
+	req := httptest.NewRequest("GET", "/proxy/tool-1", nil)
+	req = withAgent(req, newTestAgent())
+	rr := httptest.NewRecorder()
+	router.ServeHTTP(rr, req)
+
+	if rr.Code != http.StatusBadGateway {
+		t.Fatalf("expected 502, got %d: %s", rr.Code, rr.Body.String())
+	}
+
+	var errResp proxyError
+	_ = json.NewDecoder(rr.Body).Decode(&errResp)
+	if errResp.Error.Code != "proxy_error" {
+		t.Errorf("expected error code proxy_error, got %s", errResp.Error.Code)
+	}
+}
+
+func TestListMCPSubToolsNotMCP(t *testing.T) {
+	upstream := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
+		w.WriteHeader(http.StatusOK)
+		w.Write([]byte(`{"ok":true}`))
+	}))
+	defer upstream.Close()
+
+	tool := newTestTool(upstream.URL)
+	// Mode is empty (default HTTP service mode), not "mcp".
+	store := &fakeToolStore{tools: map[string]*registry.Tool{"tool-1": tool}}
+	budgets := &fakeBudgetChecker{agentAllowed: true, globalAllowed: true}
+	collector := &fakeCollector{}
+	handler := NewHandler(store, budgets, collector, 5*time.Second, 1<<20)
+	handler.SetMCPToolLister(&fakeMCPToolLister{
+		tools: map[string][]mcpgo.Tool{
+			"tool-1": {{Name: "search"}},
+		},
+	})
+
+	router := setupRouter(handler)
+
+	// GET /proxy/tool-1 for a non-MCP tool should fall through to normal HTTP proxy.
+	req := httptest.NewRequest("GET", "/proxy/tool-1", nil)
+	req = withAgent(req, newTestAgent())
+	rr := httptest.NewRecorder()
+	router.ServeHTTP(rr, req)
+
+	// Should proxy to upstream successfully, not list sub-tools.
+	if rr.Code != http.StatusOK {
+		t.Fatalf("expected 200, got %d: %s", rr.Code, rr.Body.String())
+	}
+	if rr.Body.String() != `{"ok":true}` {
+		t.Errorf("expected upstream response body, got %s", rr.Body.String())
+	}
+}
+
+// --- MCP circuit breaker and webhook tests ---
+
+func TestMCPCircuitBreakerRecordsSuccess(t *testing.T) {
+	tool := newTestTool("http://localhost")
+	tool.Mode = "mcp"
+	tool.CBEnabled = true
+	tool.CBErrorThresholdPct = 90
+	tool.CBWindowSeconds = 120
+	tool.CBCooldownSeconds = 60
+	store := &fakeToolStore{tools: map[string]*registry.Tool{"tool-1": tool}}
+	budgets := &fakeBudgetChecker{agentAllowed: true, globalAllowed: true}
+	collector := &fakeCollector{}
+	cb := &fakeCircuitBreaker{allowResult: true}
+	handler := NewHandler(store, budgets, collector, 5*time.Second, 1<<20)
+	handler.SetCircuitBreaker(cb)
+	handler.SetMCPCaller(&fakeMCPCaller{})
+
+	router := setupRouter(handler)
+
+	req := httptest.NewRequest("POST", "/proxy/tool-1/search_code", bytes.NewReader([]byte(`{}`)))
+	req = withAgent(req, newTestAgent())
+	rr := httptest.NewRecorder()
+	router.ServeHTTP(rr, req)
+
+	if rr.Code != http.StatusOK {
+		t.Fatalf("expected 200, got %d: %s", rr.Code, rr.Body.String())
+	}
+	if len(cb.results) != 1 || cb.results[0] != 200 {
+		t.Errorf("expected CB result [200], got %v", cb.results)
+	}
+}
+
+func TestMCPCircuitBreakerRecordsError(t *testing.T) {
+	tool := newTestTool("http://localhost")
+	tool.Mode = "mcp"
+	tool.CBEnabled = true
+	tool.CBErrorThresholdPct = 90
+	tool.CBWindowSeconds = 120
+	tool.CBCooldownSeconds = 60
+	store := &fakeToolStore{tools: map[string]*registry.Tool{"tool-1": tool}}
+	budgets := &fakeBudgetChecker{agentAllowed: true, globalAllowed: true}
+	collector := &fakeCollector{}
+	cb := &fakeCircuitBreaker{allowResult: true}
+	handler := NewHandler(store, budgets, collector, 5*time.Second, 1<<20)
+	handler.SetCircuitBreaker(cb)
+	handler.SetMCPCaller(&fakeMCPCaller{err: fmt.Errorf("upstream unavailable")})
+
+	router := setupRouter(handler)
+
+	req := httptest.NewRequest("POST", "/proxy/tool-1/search_code", bytes.NewReader([]byte(`{}`)))
+	req = withAgent(req, newTestAgent())
+	rr := httptest.NewRecorder()
+	router.ServeHTTP(rr, req)
+
+	if rr.Code != http.StatusBadGateway {
+		t.Fatalf("expected 502, got %d: %s", rr.Code, rr.Body.String())
+	}
+	if len(cb.results) != 1 || cb.results[0] != 502 {
+		t.Errorf("expected CB result [502], got %v", cb.results)
+	}
+}
+
+func TestMCPWebhookDispatched(t *testing.T) {
+	tool := newTestTool("http://localhost")
+	tool.Mode = "mcp"
+	tool.BudgetLimit = 1000
+	tool.WebhookURL = "https://example.com/webhook"
+	tool.WebhookThresholdPct = 80
+	store := &fakeToolStore{tools: map[string]*registry.Tool{"tool-1": tool}}
+	budgets := &fakeBudgetChecker{agentAllowed: true, globalAllowed: true}
+	collector := &fakeCollector{}
+	wh := &fakeWebhookDispatcher{}
+	handler := NewHandler(store, budgets, collector, 5*time.Second, 1<<20)
+	handler.SetMCPCaller(&fakeMCPCaller{})
+	handler.SetWebhookDispatcher(wh)
+
+	router := setupRouter(handler)
+
+	req := httptest.NewRequest("POST", "/proxy/tool-1/search_code", bytes.NewReader([]byte(`{}`)))
+	req = withAgent(req, newTestAgent())
+	rr := httptest.NewRecorder()
+	router.ServeHTTP(rr, req)
+
+	if rr.Code != http.StatusOK {
+		t.Fatalf("expected 200, got %d: %s", rr.Code, rr.Body.String())
+	}
+	if !wh.dispatched {
+		t.Error("expected webhook dispatcher to be called")
+	}
+	if wh.toolID != "tool-1" {
+		t.Errorf("expected webhook toolID tool-1, got %s", wh.toolID)
 	}
 }

@@ -238,8 +238,9 @@ func runServe(cmd *cobra.Command, args []string) error {
 	governedCaller.SetPermissionChecker(permissionStore)
 	mcpServer := mcp.NewServer(aggregator, governedCaller)
 
-	// Wire MCP caller into the proxy for HTTP-based MCP tool access.
+	// Wire MCP caller and tool lister into the proxy for HTTP-based MCP tool access.
 	proxyHandler.SetMCPCaller(aggregator)
+	proxyHandler.SetMCPToolLister(aggregator)
 
 	router := api.NewRouter(api.RouterDeps{
 		DBPool:             pool,
