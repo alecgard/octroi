@@ -2389,7 +2389,7 @@ async function toggleMcpSubTools(toolId) {
     if (!tools.length) {
       const emptyRow = document.createElement('tr');
       emptyRow.className = 'mcp-subrow mcp-subrow-' + toolId;
-      emptyRow.innerHTML = '<td colspan="6" style="padding:4px 0 4px 26px"><span style="color:var(--text2);font-size:11px">No sub-tools discovered. Try refreshing.</span></td>';
+      emptyRow.innerHTML = '<td colspan="6" style="padding:4px 0 4px 26px"><span style="color:var(--text2);font-size:11px">No sub-tools discovered. Try rediscovering.</span></td>';
       parentRow.after(emptyRow);
       return;
     }
