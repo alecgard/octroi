@@ -1,6 +1,7 @@
 package api
 
 import (
+	"context"
 	"log/slog"
 	"net/http"
 
@@ -8,12 +9,19 @@ import (
 	"github.com/alecgard/octroi/internal/user"
 )
 
-// authHandler groups authentication HTTP handlers.
-type authHandler struct {
-	store *user.Store
+// authUserStore is the subset of user.Store methods used by authHandler.
+type authUserStore interface {
+	GetByEmail(ctx context.Context, email string) (*user.User, error)
+	CreateSession(ctx context.Context, userID string) (string, *user.Session, error)
+	DeleteSession(ctx context.Context, plaintext string) error
 }
 
-func newAuthHandler(store *user.Store) *authHandler {
+// authHandler groups authentication HTTP handlers.
+type authHandler struct {
+	store authUserStore
+}
+
+func newAuthHandler(store authUserStore) *authHandler {
 	return &authHandler{store: store}
 }
 

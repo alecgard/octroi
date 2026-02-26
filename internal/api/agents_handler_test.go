@@ -547,3 +547,255 @@ func TestGetSelfAgent_NoAuthContext(t *testing.T) {
 		t.Fatalf("expected 401, got %d: %s", rec.Code, rec.Body.String())
 	}
 }
+
+// ---------------------------------------------------------------------------
+// RegenerateKey tests
+// ---------------------------------------------------------------------------
+
+func TestRegenerateKey_Success(t *testing.T) {
+	store := newFakeAgentStore()
+	store.agents["a1"] = &agent.Agent{
+		ID:           "a1",
+		Name:         "test-agent",
+		APIKeyPrefix: "octroi_old123",
+		Team:         "eng",
+		RateLimit:    100,
+		CreatedAt:    time.Now().UTC(),
+	}
+
+	router := setupAdminAgentsRouter(store, newFakeBudgetStore())
+	req := httptest.NewRequest(http.MethodPost, "/agents/a1/regenerate-key", nil)
+	rec := httptest.NewRecorder()
+	router.ServeHTTP(rec, req)
+
+	if rec.Code != http.StatusOK {
+		t.Fatalf("expected 200, got %d: %s", rec.Code, rec.Body.String())
+	}
+
+	var resp map[string]interface{}
+	if err := json.NewDecoder(rec.Body).Decode(&resp); err != nil {
+		t.Fatalf("failed to decode response: %v", err)
+	}
+	if resp["id"] != "a1" {
+		t.Errorf("expected id=a1, got %v", resp["id"])
+	}
+	if resp["api_key"] == nil || resp["api_key"] == "" {
+		t.Error("expected api_key to be present in response")
+	}
+	if resp["api_key_prefix"] == nil || resp["api_key_prefix"] == "" {
+		t.Error("expected api_key_prefix to be present in response")
+	}
+	// The prefix should have changed from the old one.
+	if resp["api_key_prefix"] == "octroi_old123" {
+		t.Error("expected api_key_prefix to change after regeneration")
+	}
+}
+
+func TestRegenerateKey_NotFound(t *testing.T) {
+	store := newFakeAgentStore()
+	router := setupAdminAgentsRouter(store, newFakeBudgetStore())
+
+	req := httptest.NewRequest(http.MethodPost, "/agents/nonexistent/regenerate-key", nil)
+	rec := httptest.NewRecorder()
+	router.ServeHTTP(rec, req)
+
+	if rec.Code != http.StatusNotFound {
+		t.Fatalf("expected 404, got %d: %s", rec.Code, rec.Body.String())
+	}
+
+	var envelope errorEnvelope
+	if err := json.NewDecoder(rec.Body).Decode(&envelope); err != nil {
+		t.Fatalf("failed to decode error: %v", err)
+	}
+	if envelope.Error.Code != "not_found" {
+		t.Errorf("expected code=not_found, got %q", envelope.Error.Code)
+	}
+}
+
+// ---------------------------------------------------------------------------
+// SetBudget tests
+// ---------------------------------------------------------------------------
+
+func TestSetBudget_Success(t *testing.T) {
+	store := newFakeAgentStore()
+	budgetStore := newFakeBudgetStore()
+	router := setupAdminAgentsRouter(store, budgetStore)
+
+	body := `{"daily_limit":10.5,"monthly_limit":100.0}`
+	req := httptest.NewRequest(http.MethodPut, "/agents/agent-1/budgets/tool-1", strings.NewReader(body))
+	rec := httptest.NewRecorder()
+	router.ServeHTTP(rec, req)
+
+	if rec.Code != http.StatusOK {
+		t.Fatalf("expected 200, got %d: %s", rec.Code, rec.Body.String())
+	}
+
+	var resp agent.Budget
+	if err := json.NewDecoder(rec.Body).Decode(&resp); err != nil {
+		t.Fatalf("failed to decode response: %v", err)
+	}
+	if resp.AgentID != "agent-1" {
+		t.Errorf("expected agent_id=agent-1, got %q", resp.AgentID)
+	}
+	if resp.ToolID != "tool-1" {
+		t.Errorf("expected tool_id=tool-1, got %q", resp.ToolID)
+	}
+	if resp.DailyLimit != 10.5 {
+		t.Errorf("expected daily_limit=10.5, got %v", resp.DailyLimit)
+	}
+	if resp.MonthlyLimit != 100.0 {
+		t.Errorf("expected monthly_limit=100.0, got %v", resp.MonthlyLimit)
+	}
+}
+
+func TestSetBudget_InvalidBody(t *testing.T) {
+	store := newFakeAgentStore()
+	budgetStore := newFakeBudgetStore()
+	router := setupAdminAgentsRouter(store, budgetStore)
+
+	req := httptest.NewRequest(http.MethodPut, "/agents/agent-1/budgets/tool-1", strings.NewReader("not-json"))
+	rec := httptest.NewRecorder()
+	router.ServeHTTP(rec, req)
+
+	if rec.Code != http.StatusBadRequest {
+		t.Fatalf("expected 400, got %d: %s", rec.Code, rec.Body.String())
+	}
+
+	var envelope errorEnvelope
+	if err := json.NewDecoder(rec.Body).Decode(&envelope); err != nil {
+		t.Fatalf("failed to decode error: %v", err)
+	}
+	if envelope.Error.Code != "invalid_body" {
+		t.Errorf("expected code=invalid_body, got %q", envelope.Error.Code)
+	}
+}
+
+// ---------------------------------------------------------------------------
+// GetBudget tests
+// ---------------------------------------------------------------------------
+
+func TestGetBudget_Success(t *testing.T) {
+	store := newFakeAgentStore()
+	budgetStore := newFakeBudgetStore()
+	budgetStore.budgets["agent-1|tool-1"] = &agent.Budget{
+		ID:           "budget-1",
+		AgentID:      "agent-1",
+		ToolID:       "tool-1",
+		DailyLimit:   5.0,
+		MonthlyLimit: 50.0,
+	}
+	router := setupAdminAgentsRouter(store, budgetStore)
+
+	req := httptest.NewRequest(http.MethodGet, "/agents/agent-1/budgets/tool-1", nil)
+	rec := httptest.NewRecorder()
+	router.ServeHTTP(rec, req)
+
+	if rec.Code != http.StatusOK {
+		t.Fatalf("expected 200, got %d: %s", rec.Code, rec.Body.String())
+	}
+
+	var resp agent.Budget
+	if err := json.NewDecoder(rec.Body).Decode(&resp); err != nil {
+		t.Fatalf("failed to decode response: %v", err)
+	}
+	if resp.ID != "budget-1" {
+		t.Errorf("expected id=budget-1, got %q", resp.ID)
+	}
+	if resp.DailyLimit != 5.0 {
+		t.Errorf("expected daily_limit=5.0, got %v", resp.DailyLimit)
+	}
+}
+
+func TestGetBudget_NotFound(t *testing.T) {
+	store := newFakeAgentStore()
+	budgetStore := newFakeBudgetStore()
+	router := setupAdminAgentsRouter(store, budgetStore)
+
+	req := httptest.NewRequest(http.MethodGet, "/agents/agent-1/budgets/tool-nonexistent", nil)
+	rec := httptest.NewRecorder()
+	router.ServeHTTP(rec, req)
+
+	if rec.Code != http.StatusNotFound {
+		t.Fatalf("expected 404, got %d: %s", rec.Code, rec.Body.String())
+	}
+
+	var envelope errorEnvelope
+	if err := json.NewDecoder(rec.Body).Decode(&envelope); err != nil {
+		t.Fatalf("failed to decode error: %v", err)
+	}
+	if envelope.Error.Code != "not_found" {
+		t.Errorf("expected code=not_found, got %q", envelope.Error.Code)
+	}
+}
+
+// ---------------------------------------------------------------------------
+// ListBudgets tests
+// ---------------------------------------------------------------------------
+
+func TestListBudgets_Success(t *testing.T) {
+	store := newFakeAgentStore()
+	budgetStore := newFakeBudgetStore()
+	budgetStore.budgets["agent-1|tool-1"] = &agent.Budget{
+		ID:           "budget-1",
+		AgentID:      "agent-1",
+		ToolID:       "tool-1",
+		DailyLimit:   5.0,
+		MonthlyLimit: 50.0,
+	}
+	budgetStore.budgets["agent-1|tool-2"] = &agent.Budget{
+		ID:           "budget-2",
+		AgentID:      "agent-1",
+		ToolID:       "tool-2",
+		DailyLimit:   10.0,
+		MonthlyLimit: 100.0,
+	}
+	router := setupAdminAgentsRouter(store, budgetStore)
+
+	req := httptest.NewRequest(http.MethodGet, "/agents/agent-1/budgets", nil)
+	rec := httptest.NewRecorder()
+	router.ServeHTTP(rec, req)
+
+	if rec.Code != http.StatusOK {
+		t.Fatalf("expected 200, got %d: %s", rec.Code, rec.Body.String())
+	}
+
+	var resp map[string]interface{}
+	if err := json.NewDecoder(rec.Body).Decode(&resp); err != nil {
+		t.Fatalf("failed to decode response: %v", err)
+	}
+
+	budgets, ok := resp["budgets"].([]interface{})
+	if !ok {
+		t.Fatalf("expected budgets to be an array, got %T", resp["budgets"])
+	}
+	if len(budgets) != 2 {
+		t.Errorf("expected 2 budgets, got %d", len(budgets))
+	}
+}
+
+func TestListBudgets_Empty(t *testing.T) {
+	store := newFakeAgentStore()
+	budgetStore := newFakeBudgetStore()
+	router := setupAdminAgentsRouter(store, budgetStore)
+
+	req := httptest.NewRequest(http.MethodGet, "/agents/agent-1/budgets", nil)
+	rec := httptest.NewRecorder()
+	router.ServeHTTP(rec, req)
+
+	if rec.Code != http.StatusOK {
+		t.Fatalf("expected 200, got %d: %s", rec.Code, rec.Body.String())
+	}
+
+	var resp map[string]interface{}
+	if err := json.NewDecoder(rec.Body).Decode(&resp); err != nil {
+		t.Fatalf("failed to decode response: %v", err)
+	}
+
+	budgets, ok := resp["budgets"].([]interface{})
+	if !ok {
+		t.Fatalf("expected budgets to be an array, got %T", resp["budgets"])
+	}
+	if len(budgets) != 0 {
+		t.Errorf("expected 0 budgets, got %d", len(budgets))
+	}
+}

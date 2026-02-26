@@ -8,24 +8,42 @@ import (
 	"strings"
 	"time"
 
-	"github.com/alecgard/octroi/internal/agent"
 	"github.com/alecgard/octroi/internal/auth"
 	"github.com/alecgard/octroi/internal/metering"
 	"github.com/go-chi/chi/v5"
 )
 
-// usageHandler groups usage and transaction HTTP handlers.
-type usageHandler struct {
-	store      *metering.Store
-	agentStore *agent.Store
-	bodyStore  *metering.BodyStore
+// usageMeteringStore defines the metering store methods used by the usage handler.
+type usageMeteringStore interface {
+	GetSummary(ctx context.Context, q metering.UsageQuery) (*metering.UsageSummary, error)
+	ListTransactions(ctx context.Context, q metering.UsageQuery) ([]*metering.Transaction, string, error)
+	GetToolCallCounts(ctx context.Context) (map[string]int64, error)
+	GetSubToolCallCounts(ctx context.Context, toolID string) (map[string]int64, error)
+	GetByID(ctx context.Context, id string) (*metering.Transaction, error)
 }
 
-func newUsageHandler(store *metering.Store, agentStore *agent.Store) *usageHandler {
+// usageAgentStore defines the agent store methods used by the usage handler.
+type usageAgentStore interface {
+	ListIDsByTeam(ctx context.Context, team string) ([]string, error)
+}
+
+// usageBodyStore defines the body store methods used by the usage handler.
+type usageBodyStore interface {
+	GetByTransactionID(ctx context.Context, transactionID string) (*metering.RequestBody, error)
+}
+
+// usageHandler groups usage and transaction HTTP handlers.
+type usageHandler struct {
+	store      usageMeteringStore
+	agentStore usageAgentStore
+	bodyStore  usageBodyStore
+}
+
+func newUsageHandler(store usageMeteringStore, agentStore usageAgentStore) *usageHandler {
 	return &usageHandler{store: store, agentStore: agentStore}
 }
 
-func (h *usageHandler) setBodyStore(s *metering.BodyStore) {
+func (h *usageHandler) setBodyStore(s usageBodyStore) {
 	h.bodyStore = s
 }
 

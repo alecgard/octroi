@@ -1,6 +1,7 @@
 package api
 
 import (
+	"context"
 	"encoding/json"
 	"net/http"
 
@@ -8,12 +9,27 @@ import (
 	"github.com/go-chi/chi/v5"
 )
 
-type permissionsHandler struct {
-	store      *agent.PermissionStore
-	agentStore *agent.Store
+// permissionStoreIface defines the permission store methods used by the handler.
+type permissionStoreIface interface {
+	ListByAgent(ctx context.Context, agentID string) ([]agent.Permission, error)
+	SetWithSubTools(ctx context.Context, agentID, toolID string, allowed bool, subTools []string) error
+	SetBulk(ctx context.Context, agentID string, permissions map[string]bool) error
+	SetBulkWithSubTools(ctx context.Context, agentID string, permissions map[string]agent.BulkPermission) error
+	Delete(ctx context.Context, agentID, toolID string) error
 }
 
-func newPermissionsHandler(store *agent.PermissionStore, agentStore *agent.Store) *permissionsHandler {
+// permissionAgentStoreIface defines the agent store methods used by the permissions handler.
+type permissionAgentStoreIface interface {
+	GetByID(ctx context.Context, id string) (*agent.Agent, error)
+	Update(ctx context.Context, id string, in agent.UpdateAgentInput) (*agent.Agent, error)
+}
+
+type permissionsHandler struct {
+	store      permissionStoreIface
+	agentStore permissionAgentStoreIface
+}
+
+func newPermissionsHandler(store permissionStoreIface, agentStore permissionAgentStoreIface) *permissionsHandler {
 	return &permissionsHandler{store: store, agentStore: agentStore}
 }
 

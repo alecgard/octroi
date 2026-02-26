@@ -15,13 +15,30 @@ import (
 	"github.com/jackc/pgx/v5"
 )
 
-// memberHandler groups member (team-scoped) HTTP handlers.
-type memberHandler struct {
-	agentStore *agent.Store
-	meterStore *metering.Store
+// memberAgentStore defines the agent store methods used by member handlers.
+type memberAgentStore interface {
+	ListByTeams(ctx context.Context, teams []string, params agent.AgentListParams) ([]*agent.Agent, string, error)
+	GetByID(ctx context.Context, id string) (*agent.Agent, error)
+	Create(ctx context.Context, in agent.CreateAgentInput) (*agent.Agent, error)
+	Update(ctx context.Context, id string, in agent.UpdateAgentInput) (*agent.Agent, error)
+	Archive(ctx context.Context, id string) error
+	RegenerateKey(ctx context.Context, id, newHash, newPrefix string) (*agent.Agent, error)
+	ListIDsByTeams(ctx context.Context, teams []string) ([]string, error)
 }
 
-func newMemberHandler(agentStore *agent.Store, meterStore *metering.Store) *memberHandler {
+// memberMeterStore defines the metering store methods used by member handlers.
+type memberMeterStore interface {
+	GetSummary(ctx context.Context, q metering.UsageQuery) (*metering.UsageSummary, error)
+	ListTransactions(ctx context.Context, q metering.UsageQuery) ([]*metering.Transaction, string, error)
+}
+
+// memberHandler groups member (team-scoped) HTTP handlers.
+type memberHandler struct {
+	agentStore memberAgentStore
+	meterStore memberMeterStore
+}
+
+func newMemberHandler(agentStore memberAgentStore, meterStore memberMeterStore) *memberHandler {
 	return &memberHandler{
 		agentStore: agentStore,
 		meterStore: meterStore,
@@ -31,7 +48,7 @@ func newMemberHandler(agentStore *agent.Store, meterStore *metering.Store) *memb
 // resolveMemberTeamFilter resolves team scope for a member user.
 // It validates the optional ?team= param against the user's teams and returns
 // the agent IDs the member is allowed to see.
-func resolveMemberTeamFilter(ctx context.Context, r *http.Request, u *auth.User, agentStore *agent.Store) ([]string, error) {
+func resolveMemberTeamFilter(ctx context.Context, r *http.Request, u *auth.User, agentStore memberAgentStore) ([]string, error) {
 	teamNames := u.TeamNames()
 	teams := teamNames
 	if teamFilter := r.URL.Query().Get("team"); teamFilter != "" {

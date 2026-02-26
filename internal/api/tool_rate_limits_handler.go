@@ -1,6 +1,7 @@
 package api
 
 import (
+	"context"
 	"errors"
 	"net/http"
 
@@ -10,13 +11,25 @@ import (
 	"github.com/jackc/pgx/v5"
 )
 
-// toolRateLimitsHandler groups handlers for tool rate limit overrides.
-type toolRateLimitsHandler struct {
-	store     *ratelimit.ToolRateLimitStore
-	toolStore *registry.Store
+// rateLimitStore defines the rate limit store methods used by the handler.
+type rateLimitStore interface {
+	ListByTool(ctx context.Context, toolID string) ([]ratelimit.ToolRateOverride, error)
+	Set(ctx context.Context, toolID, scope, scopeID string, rate int) error
+	Delete(ctx context.Context, toolID, scope, scopeID string) error
 }
 
-func newToolRateLimitsHandler(store *ratelimit.ToolRateLimitStore, toolStore *registry.Store) *toolRateLimitsHandler {
+// rateLimitToolStore defines the tool store methods used by the handler.
+type rateLimitToolStore interface {
+	GetByID(ctx context.Context, id string) (*registry.Tool, error)
+}
+
+// toolRateLimitsHandler groups handlers for tool rate limit overrides.
+type toolRateLimitsHandler struct {
+	store     rateLimitStore
+	toolStore rateLimitToolStore
+}
+
+func newToolRateLimitsHandler(store rateLimitStore, toolStore rateLimitToolStore) *toolRateLimitsHandler {
 	return &toolRateLimitsHandler{store: store, toolStore: toolStore}
 }
 

@@ -1,6 +1,7 @@
 package api
 
 import (
+	"context"
 	"encoding/json"
 	"net/http"
 	"strconv"
@@ -9,11 +10,16 @@ import (
 	"github.com/alecgard/octroi/internal/audit"
 )
 
-type auditHandler struct {
-	store *audit.Store
+// auditLogStore defines the audit store methods used by the handler.
+type auditLogStore interface {
+	List(ctx context.Context, params audit.ListParams) ([]audit.Entry, string, error)
 }
 
-func newAuditHandler(store *audit.Store) *auditHandler {
+type auditHandler struct {
+	store auditLogStore
+}
+
+func newAuditHandler(store auditLogStore) *auditHandler {
 	return &auditHandler{store: store}
 }
 
