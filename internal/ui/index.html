@@ -1617,7 +1617,7 @@ function openToolModal(tool) {
   document.getElementById('tool-variables').value = tool && tool.variables && Object.keys(tool.variables).length ? JSON.stringify(tool.variables) : '';
   document.getElementById('tool-transport').value = tool ? tool.transport || 'streamable-http' : 'streamable-http';
   document.getElementById('tool-enabled').checked = tool ? (tool.enabled !== false) : true;
-  document.getElementById('tool-log-bodies').checked = tool ? !!tool.log_bodies : false;
+  document.getElementById('tool-log-bodies').checked = tool ? !!tool.log_bodies : true;
   document.getElementById('tool-log-bodies-section').style.display = tool ? '' : 'none';
   document.getElementById('tool-timeout-ms').value = tool ? (tool.timeout_ms || 30000) : 30000;
   document.getElementById('tool-max-retries').value = tool ? (tool.max_retries || 0) : 0;
