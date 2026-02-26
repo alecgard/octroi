@@ -692,7 +692,7 @@ body.shift-held .txn-filter-pending { background: var(--surface2); }
           <th>Tool</th>
           <th>Type</th>
           <th>Method</th>
-          <th>Path</th>
+          <th>Path / Sub-tool</th>
           <th>Latency</th>
           <th>Cost</th>
         </tr>
@@ -2031,7 +2031,7 @@ function renderTxnTable(prevTimestamp) {
     <td class="txn-filterable${toolExcl}">${esc(resolveToolName(t.tool_id))}${txnFilterBtn('tool', t.tool_id, t.tool_id)}</td>
     <td><span class="badge-mode badge-${(resolveToolMode(t.tool_id) || '').toLowerCase()}">${resolveToolMode(t.tool_id)}</span></td>
     <td>${esc(t.method)}</td>
-    <td class="mono" style="font-size:12px">${esc(t.path || '')}</td>
+    <td class="mono" style="font-size:12px">${esc(cleanPath(t.path, t.tool_id))}</td>
     <td>${t.latency_ms}ms</td>
     <td>$${(t.cost || 0).toFixed(4)}</td>
   </tr>`;
@@ -2431,6 +2431,11 @@ function resolveAgentName(id) { const a = agentsCache.find(a => a.id === id); re
 function resolveAgentTeam(id) { const a = agentsCache.find(a => a.id === id); return a ? (a.team || '') : ''; }
 function resolveToolName(id) { const t = toolsCache.find(t => t.id === id); return t ? t.name : id.slice(0,8); }
 function resolveToolMode(id) { const t = toolsCache.find(t => t.id === id); return t ? (t.mode || '').toUpperCase() : ''; }
+function cleanPath(path, toolId) {
+  if (!path) return '\u2014';
+  const prefix = '/proxy/' + toolId + '/';
+  return path.startsWith(prefix) ? path.slice(prefix.length) || '/' : path;
+}
 
 function filterFromTxn(type, value, event) {
   if (shiftHeld && value) {
