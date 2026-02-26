@@ -122,9 +122,9 @@ func (s *Service) Update(ctx context.Context, id string, input UpdateToolInput) 
 	return s.store.Update(ctx, id, input)
 }
 
-// Delete removes a tool by its ID.
+// Delete soft-deletes (archives) a tool by its ID.
 func (s *Service) Delete(ctx context.Context, id string) error {
-	return s.store.Delete(ctx, id)
+	return s.store.Archive(ctx, id)
 }
 
 // Search performs a text search across tools.

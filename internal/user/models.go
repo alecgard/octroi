@@ -17,6 +17,7 @@ type User struct {
 	Teams        []TeamMembership `json:"teams"`
 	Role         string           `json:"role"` // "org_admin" or "member"
 	CreatedAt    time.Time        `json:"created_at"`
+	ArchivedAt   *time.Time       `json:"archived_at,omitempty"`
 }
 
 // CreateUserInput holds the fields required to create a new user.

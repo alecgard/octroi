@@ -173,7 +173,7 @@ func (h *usersHandler) UpdateUser(w http.ResponseWriter, r *http.Request) {
 		return
 	}
 
-	auditLog(r, "update", "user", id)
+	auditLog(r, "update", "user", id, "email", u.Email)
 
 	writeJSON(w, http.StatusOK, u)
 }
@@ -305,13 +305,13 @@ func (h *usersHandler) DeleteUser(w http.ResponseWriter, r *http.Request) {
 		return
 	}
 
-	err = h.store.Delete(r.Context(), id)
+	err = h.store.Archive(r.Context(), id)
 	if err != nil {
 		writeError(w, http.StatusInternalServerError, "internal_error", "failed to delete user")
 		return
 	}
 
-	auditLog(r, "delete", "user", id)
+	auditLog(r, "delete", "user", id, "email", existing.Email)
 
 	w.WriteHeader(http.StatusNoContent)
 }

@@ -46,6 +46,7 @@ type ProxyConfig struct {
 type MeteringConfig struct {
 	BatchSize     int           `yaml:"batch_size"`
 	FlushInterval time.Duration `yaml:"flush_interval"`
+	BodyRetention time.Duration `yaml:"body_retention"`
 }
 
 type RateLimitConfig struct {
@@ -134,6 +135,7 @@ func defaults() *Config {
 		Metering: MeteringConfig{
 			BatchSize:     100,
 			FlushInterval: 5 * time.Second,
+			BodyRetention: 7 * 24 * time.Hour,
 		},
 		RateLimit: RateLimitConfig{
 			Default: 60,

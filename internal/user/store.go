@@ -84,12 +84,12 @@ func (s *Store) Create(ctx context.Context, in CreateUserInput) (*User, error) {
 	return u, nil
 }
 
-// GetByID retrieves a user by primary key.
+// GetByID retrieves an active (non-archived) user by primary key.
 func (s *Store) GetByID(ctx context.Context, id string) (*User, error) {
 	u, err := scanUser(func(dest ...any) error {
 		return s.pool.QueryRow(ctx,
 			`SELECT id, email, password_hash, name, teams, role, created_at
-			 FROM users WHERE id = $1`, id,
+			 FROM users WHERE id = $1 AND archived_at IS NULL`, id,
 		).Scan(dest...)
 	})
 	if err != nil {
@@ -103,7 +103,7 @@ func (s *Store) GetByEmail(ctx context.Context, email string) (*User, error) {
 	u, err := scanUser(func(dest ...any) error {
 		return s.pool.QueryRow(ctx,
 			`SELECT id, email, password_hash, name, teams, role, created_at
-			 FROM users WHERE email = $1`, email,
+			 FROM users WHERE email = $1 AND archived_at IS NULL`, email,
 		).Scan(dest...)
 	})
 	if err != nil {
@@ -116,7 +116,7 @@ func (s *Store) GetByEmail(ctx context.Context, email string) (*User, error) {
 func (s *Store) List(ctx context.Context) ([]*User, error) {
 	rows, err := s.pool.Query(ctx,
 		`SELECT id, email, password_hash, name, teams, role, created_at
-		 FROM users ORDER BY created_at DESC`)
+		 FROM users WHERE archived_at IS NULL ORDER BY created_at DESC`)
 	if err != nil {
 		return nil, fmt.Errorf("listing users: %w", err)
 	}
@@ -193,11 +193,19 @@ func (s *Store) Update(ctx context.Context, id string, in UpdateUserInput) (*Use
 	return u, nil
 }
 
-// Delete removes a user by id.
-func (s *Store) Delete(ctx context.Context, id string) error {
-	_, err := s.pool.Exec(ctx, `DELETE FROM users WHERE id = $1`, id)
+// Archive soft-deletes a user by setting archived_at and invalidating their sessions.
+func (s *Store) Archive(ctx context.Context, id string) error {
+	tag, err := s.pool.Exec(ctx, `UPDATE users SET archived_at = now() WHERE id = $1 AND archived_at IS NULL`, id)
 	if err != nil {
-		return fmt.Errorf("deleting user: %w", err)
+		return fmt.Errorf("archiving user: %w", err)
+	}
+	if tag.RowsAffected() == 0 {
+		return fmt.Errorf("user not found")
+	}
+	// Invalidate all active sessions for the archived user.
+	_, err = s.pool.Exec(ctx, `DELETE FROM sessions WHERE user_id = $1`, id)
+	if err != nil {
+		return fmt.Errorf("cleaning sessions for archived user: %w", err)
 	}
 	return nil
 }

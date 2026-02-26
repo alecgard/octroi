@@ -1,4 +1,10 @@
+DROP TABLE IF EXISTS audit_log;
+DROP TABLE IF EXISTS request_bodies;
+DROP TABLE IF EXISTS agent_tool_permissions;
+DROP TABLE IF EXISTS tool_rate_limits;
+DROP TABLE IF EXISTS sessions;
 DROP TABLE IF EXISTS transactions;
 DROP TABLE IF EXISTS agent_tool_budgets;
+DROP TABLE IF EXISTS users;
 DROP TABLE IF EXISTS agents;
 DROP TABLE IF EXISTS tools;

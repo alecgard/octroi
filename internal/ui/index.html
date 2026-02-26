@@ -165,9 +165,13 @@ tbody tr:hover { background: var(--surface); }
   width: 100%;
   max-width: 520px;
   max-height: calc(100vh - 120px);
-  overflow-y: auto;
-  padding: 16px;
+  overflow: hidden;
+  padding: 0;
+  display: flex;
+  flex-direction: column;
 }
+.modal > h3 { padding: 16px 16px 0; }
+.modal-body { flex: 1; overflow-y: auto; padding: 0 16px; }
 .modal h3 { font-size: 11px; font-weight: 700; text-transform: uppercase; letter-spacing: 1px; margin-bottom: 12px; }
 .form-group { margin-bottom: 10px; }
 .form-group label {
@@ -200,7 +204,7 @@ tbody tr:hover { background: var(--surface); }
   border-color: var(--text);
 }
 .form-row { display: grid; grid-template-columns: 1fr 1fr; gap: 10px; }
-.modal-actions { display: flex; justify-content: flex-end; gap: 6px; margin-top: 14px; }
+.modal-actions { display: flex; justify-content: flex-end; gap: 6px; padding: 12px 16px; border-top: 1px solid var(--border); flex-shrink: 0; }
 /* Confirm dialog */
 .confirm-modal .modal { max-width: 360px; }
 .confirm-modal .confirm-msg { font-size: 12px; line-height: 1.5; margin-bottom: 14px; }
@@ -549,6 +553,7 @@ body.shift-held .txn-filter-pending { background: var(--surface2); }
   <button class="tab-btn" data-tab="teams">Teams</button>
   <button class="tab-btn" data-tab="users">Users</button>
   <button class="tab-btn" data-tab="metrics" id="metrics-tab-btn">Metrics</button>
+  <button class="tab-btn" data-tab="audit">Audit Log</button>
 </div>
 
 <!-- Content -->
@@ -628,6 +633,7 @@ body.shift-held .txn-filter-pending { background: var(--surface2); }
       <div class="multi-select" id="usage-agent-select" data-placeholder="All agents"></div>
       <div class="multi-select" id="usage-tool-select" data-placeholder="All tools"></div>
       <div class="multi-select" id="usage-path-select" data-placeholder="All paths"></div>
+      <button class="btn-ghost" id="clear-all-filters" onclick="clearAllUsageFilters()" title="Clear all filters" style="padding:4px 6px;font-size:14px;line-height:1;display:none">&times;</button>
       <div style="flex:1"></div>
       <div id="usage-date-controls" style="display:none;gap:8px;align-items:center">
         <input type="date" id="usage-from">
@@ -683,7 +689,21 @@ body.shift-held .txn-filter-pending { background: var(--surface2); }
       </div>
     </div>
     <div id="usage-chart" style="width:100%;margin-bottom:16px;border:1px solid var(--border);background:var(--surface);overflow:hidden"></div>
-    <h3 style="font-size:14px; font-weight:600; margin-bottom:12px;">Transactions</h3>
+    <div style="display:flex;align-items:center;gap:12px;margin-bottom:12px;flex-wrap:wrap">
+      <h3 style="font-size:14px; font-weight:600; margin:0;">Transactions</h3>
+      <select id="txn-filter-status" onchange="reloadTransactions()" style="font-size:12px;padding:3px 6px">
+        <option value="">All Status</option>
+        <option value="200">200 OK</option>
+        <option value="400">400 Bad Request</option>
+        <option value="403">403 Forbidden</option>
+        <option value="429">429 Rate Limited</option>
+        <option value="500">500 Server Error</option>
+        <option value="502">502 Bad Gateway</option>
+        <option value="503">503 Unavailable</option>
+      </select>
+
+
+    </div>
     <table>
       <thead>
         <tr>
@@ -694,8 +714,10 @@ body.shift-held .txn-filter-pending { background: var(--surface2); }
           <th>Type</th>
           <th>Method</th>
           <th class="has-tooltip">Path / Sub-tool<span class="tip">API path for Service/API tools, sub-tool name for MCP tools</span></th>
+          <th>Status</th>
           <th>Latency</th>
           <th>Cost</th>
+          <th style="width:28px"></th>
         </tr>
       </thead>
       <tbody id="txn-body"></tbody>
@@ -742,23 +764,61 @@ body.shift-held .txn-filter-pending { background: var(--surface2); }
       <div class="empty">Loading metrics...</div>
     </div>
   </div>
+
+  <!-- Audit Log Tab -->
+  <div class="tab-panel" id="tab-audit">
+    <div style="display:flex;align-items:center;margin-bottom:8px;gap:8px">
+      <h2 class="toolbar-title">Audit Log</h2>
+      <select class="styled-select" id="audit-resource-type" onchange="loadAuditLog()" title="Filter by resource type">
+        <option value="">All types</option>
+        <option value="tool">tool</option>
+        <option value="agent">agent</option>
+        <option value="user">user</option>
+        <option value="team">team</option>
+        <option value="agent_budget">agent_budget</option>
+        <option value="agent_tool_permission">agent_tool_permission</option>
+      </select>
+      <input type="date" id="audit-from" onchange="loadAuditLog()" style="padding:4px 6px;border:1px solid var(--border);border-radius:4px;font-family:var(--font);font-size:11px" title="Start date (inclusive)">
+      <input type="date" id="audit-to" onchange="loadAuditLog()" style="padding:4px 6px;border:1px solid var(--border);border-radius:4px;font-family:var(--font);font-size:11px" title="End date (inclusive)">
+    </div>
+    <table>
+      <thead>
+        <tr>
+          <th>Timestamp</th>
+          <th style="width:80px" class="has-tooltip">Action<span class="tip">The mutation performed (create, update, delete, etc.)</span></th>
+          <th style="width:80px" class="has-tooltip">Resource<span class="tip">Type of entity affected (tool, agent, user, team, etc.)</span></th>
+          <th>Resource ID</th>
+          <th>User</th>
+          <th>IP</th>
+          <th class="has-tooltip">Details<span class="tip">Additional context like changed fields or values</span></th>
+        </tr>
+      </thead>
+      <tbody id="audit-table-body">
+        <tr><td colspan="7" class="empty">Select a tab to load data</td></tr>
+      </tbody>
+    </table>
+    <div style="text-align:center;margin-top:8px">
+      <button class="btn-ghost" id="audit-load-more" style="display:none" onclick="loadAuditLog(true)">Load More</button>
+    </div>
+  </div>
 </div>
 
 <!-- Tool Modal -->
 <div class="modal-overlay" id="tool-modal">
   <div class="modal">
     <h3 id="tool-modal-title">Create Tool</h3>
+    <div class="modal-body">
     <input type="hidden" id="tool-edit-id">
     <div class="form-group" id="tool-id-group" style="display:none">
       <label>Tool ID</label>
       <code id="tool-id-display" style="display:block;padding:6px 8px;background:var(--surface);border:1px solid var(--border);border-radius:4px;font-size:12px;color:var(--text2);user-select:all"></code>
     </div>
     <div class="form-group">
-      <label>Mode</label>
+      <label title="MCP: proxy to an upstream MCP server. Service: proxy to a static URL. API: proxy with URL template variables.">Mode</label>
       <select id="tool-mode" onchange="toggleToolMode()">
+        <option value="mcp">MCP</option>
         <option value="service">Service</option>
         <option value="api">API</option>
-        <option value="mcp">MCP</option>
       </select>
     </div>
     <div class="form-group">
@@ -779,7 +839,7 @@ body.shift-held .txn-filter-pending { background: var(--surface2); }
       <span style="font-size:10px;color:var(--text2)">Key-value pairs for {placeholder} substitution in the endpoint URL</span>
     </div>
     <div class="form-group" id="tool-transport-section" style="display:none">
-      <label>Transport *</label>
+      <label title="MCP transport protocol. streamable-http is preferred; sse is for older servers that only support Server-Sent Events.">Transport *</label>
       <select id="tool-transport">
         <option value="streamable-http">streamable-http</option>
         <option value="sse">sse</option>
@@ -789,6 +849,13 @@ body.shift-held .txn-filter-pending { background: var(--surface2); }
       <label style="display:inline-flex;align-items:center;gap:6px;text-transform:uppercase;font-size:10px;font-weight:600;letter-spacing:0.5px;color:var(--text2);cursor:pointer">
         <input type="checkbox" id="tool-enabled" checked> Enabled
       </label>
+      <div style="font-size:11px;color:var(--text2);margin-top:2px">Disabled tools are skipped during MCP tool discovery</div>
+    </div>
+    <div class="form-group" id="tool-log-bodies-section" style="display:none">
+      <label style="display:inline-flex;align-items:center;gap:6px;text-transform:uppercase;font-size:10px;font-weight:600;letter-spacing:0.5px;color:var(--text2);cursor:pointer" title="Store request and response payloads for each proxied call. Auth credentials are automatically redacted.">
+        <input type="checkbox" id="tool-log-bodies"> Log Request/Response Bodies
+      </label>
+      <div style="font-size:11px;color:var(--text2);margin-top:2px">Capture and store request/response bodies (sensitive data is redacted)</div>
     </div>
     <div class="form-row">
       <div class="form-group">
@@ -819,34 +886,85 @@ body.shift-held .txn-filter-pending { background: var(--surface2); }
     </div>
     <div class="form-row">
       <div class="form-group">
-        <label>Pricing Model</label>
+        <label title="How each request is priced. per_request charges a flat amount per call. Upstreams can override via the X-Octroi-Cost header.">Pricing Model</label>
         <select id="tool-pricing-model">
           <option value="">none</option>
           <option value="per_request">per_request</option>
         </select>
       </div>
       <div class="form-group">
-        <label>Pricing Amount</label>
+        <label title="Cost charged per request (in the selected currency). Used for budget enforcement and usage reporting.">Pricing Amount</label>
         <input type="number" step="any" id="tool-pricing-amount" placeholder="0.00">
       </div>
     </div>
     <div class="form-row">
       <div class="form-group">
-        <label>Pricing Currency</label>
+        <label title="Currency code for pricing and budget display (e.g. USD, EUR).">Pricing Currency</label>
         <input type="text" id="tool-pricing-currency" placeholder="USD">
       </div>
       <div class="form-group">
-        <label>Budget Limit</label>
+        <label title="Global spending cap for this tool across all agents. Requests are rejected with 403 when exceeded.">Budget Limit</label>
         <input type="number" step="any" id="tool-budget-limit" placeholder="0.00">
       </div>
     </div>
     <div class="form-group">
-      <label>Budget Window</label>
+      <label title="Time period for the budget limit. Daily resets at midnight UTC, monthly on the 1st.">Budget Window</label>
       <select id="tool-budget-window">
         <option value="">none</option>
         <option value="daily">daily</option>
         <option value="monthly">monthly</option>
       </select>
+    </div>
+    <div id="tool-resilience-section" style="display:none">
+      <label class="has-tooltip" style="display:block;text-transform:uppercase;font-size:10px;font-weight:600;letter-spacing:0.5px;color:var(--text2);margin:12px 0 6px">Resilience<span class="tip" style="white-space:normal;max-width:260px;text-align:left">Configure per-tool timeout and automatic retries. Failed requests (5xx/timeout) are retried with exponential backoff.</span></label>
+      <div class="form-row">
+        <div class="form-group">
+          <label title="Per-request timeout in milliseconds. Overrides the global proxy timeout.">Timeout (ms)</label>
+          <input type="number" id="tool-timeout-ms" placeholder="30000" min="100" max="300000">
+        </div>
+        <div class="form-group">
+          <label title="Max retry attempts on 5xx / timeout. 0 = no retries.">Max Retries</label>
+          <input type="number" id="tool-max-retries" placeholder="0" min="0" max="5">
+        </div>
+      </div>
+      <div class="form-group">
+        <label class="has-tooltip">Retry Backoff (ms)<span class="tip" style="white-space:normal;max-width:240px;text-align:left">Base delay between retries. Doubles on each attempt (e.g. 1000 → 2000 → 4000ms). Capped at 30s.</span></label>
+        <input type="number" id="tool-retry-backoff-ms" placeholder="1000" min="100" max="30000">
+      </div>
+    </div>
+    <div id="tool-cb-section" style="display:none">
+      <label class="has-tooltip" style="display:block;text-transform:uppercase;font-size:10px;font-weight:600;letter-spacing:0.5px;color:var(--text2);margin:12px 0 6px">Circuit Breaker<span class="tip" style="white-space:normal;max-width:280px;text-align:left">Automatically stops sending requests to a failing upstream. Opens when error rate exceeds the threshold (min 10 requests), then probes with a single request after cooldown.</span></label>
+      <div class="form-group">
+        <label style="display:inline-flex;align-items:center;gap:6px;text-transform:uppercase;font-size:10px;font-weight:600;letter-spacing:0.5px;color:var(--text2);cursor:pointer">
+          <input type="checkbox" id="tool-cb-enabled"> Enable Circuit Breaker
+        </label>
+      </div>
+      <div class="form-row">
+        <div class="form-group">
+          <label title="Open circuit when error % exceeds this threshold (needs >= 10 requests)">Error Threshold (%)</label>
+          <input type="number" id="tool-cb-error-threshold-pct" placeholder="90" min="1" max="100">
+        </div>
+        <div class="form-group">
+          <label title="Sliding window duration for error rate calculation">Window (seconds)</label>
+          <input type="number" id="tool-cb-window-seconds" placeholder="120" min="10" max="600">
+        </div>
+      </div>
+      <div class="form-group">
+        <label title="Wait this long before attempting a half-open probe">Cooldown (seconds)</label>
+        <input type="number" id="tool-cb-cooldown-seconds" placeholder="60" min="5" max="300">
+      </div>
+    </div>
+    <div id="tool-webhook-section" style="display:none">
+      <label style="display:block;text-transform:uppercase;font-size:10px;font-weight:600;letter-spacing:0.5px;color:var(--text2);margin:12px 0 6px">Webhooks</label>
+      <div class="form-group">
+        <label title="URL to POST a JSON payload when budget usage crosses the threshold">Webhook URL</label>
+        <input type="url" id="tool-webhook-url" placeholder="https://hooks.example.com/budget-alert">
+      </div>
+      <div class="form-group">
+        <label class="has-tooltip">Threshold (%)<span class="tip" style="white-space:normal;max-width:240px;text-align:left">Fire the webhook when budget usage reaches this percentage of the limit. Fires once per hour per threshold.</span></label>
+        <input type="number" id="tool-webhook-threshold-pct" placeholder="80" min="1" max="100">
+      </div>
+    </div>
     </div>
     <div class="modal-actions">
       <button class="btn-ghost" onclick="closeModal('tool-modal')">Cancel</button>
@@ -859,6 +977,7 @@ body.shift-held .txn-filter-pending { background: var(--surface2); }
 <div class="modal-overlay" id="agent-modal">
   <div class="modal">
     <h3 id="agent-modal-title">Create Agent</h3>
+    <div class="modal-body">
     <input type="hidden" id="agent-edit-id">
     <div class="form-group" id="agent-key-group" style="display:none">
       <label>Key</label>
@@ -874,9 +993,20 @@ body.shift-held .txn-filter-pending { background: var(--surface2); }
         <select id="agent-team"></select>
       </div>
       <div class="form-group">
-        <label>Rate Limit (req/min)</label>
+        <label title="Default rate limit for this agent across all tools. Per-tool overrides (set on the tool) take priority.">Rate Limit (req/min)</label>
         <input type="number" id="agent-rate-limit" placeholder="0">
       </div>
+    </div>
+    <div class="form-group" id="agent-allowlist-section" style="display:none">
+      <label style="display:inline-flex;align-items:center;gap:6px;text-transform:uppercase;font-size:10px;font-weight:600;letter-spacing:0.5px;color:var(--text2);cursor:pointer">
+        <input type="checkbox" id="agent-allowlist-mode"> Tool Allowlist Mode
+      </label>
+      <div style="font-size:11px;color:var(--text2);margin-top:2px">When enabled, agent can only access explicitly permitted tools</div>
+    </div>
+    <div id="agent-permissions-section" style="display:none;margin-bottom:12px">
+      <label style="text-transform:uppercase;font-size:10px;font-weight:600;letter-spacing:0.5px;color:var(--text2)" title="Check the tools this agent may use. For MCP tools, you can also restrict access to specific sub-tools.">Tool Permissions</label>
+      <div id="agent-permissions-list" style="max-height:200px;overflow-y:auto;margin-top:4px;border:1px solid var(--border);border-radius:6px;padding:6px"></div>
+    </div>
     </div>
     <div class="modal-actions">
       <button class="btn-warn" id="agent-regen-btn" onclick="regenKeyFromModal()" style="display:none;margin-right:auto">Regenerate Key</button>
@@ -890,7 +1020,12 @@ body.shift-held .txn-filter-pending { background: var(--surface2); }
 <div class="modal-overlay" id="user-modal">
   <div class="modal">
     <h3 id="user-modal-title">Create User</h3>
+    <div class="modal-body">
     <input type="hidden" id="user-edit-id">
+    <div class="form-group" id="user-id-group" style="display:none">
+      <label>User ID</label>
+      <code id="user-id-display" style="display:block;padding:6px 8px;background:var(--surface);border:1px solid var(--border);border-radius:4px;font-size:12px;color:var(--text2);user-select:all"></code>
+    </div>
     <div class="form-group">
       <label>Email *</label>
       <input type="email" id="user-email" placeholder="user@example.com">
@@ -920,6 +1055,7 @@ body.shift-held .txn-filter-pending { background: var(--surface2); }
         <option value="org_admin">org_admin</option>
       </select>
     </div>
+    </div>
     <div class="modal-actions">
       <button class="btn-ghost" onclick="closeModal('user-modal')">Cancel</button>
       <button class="btn-primary" id="user-submit-btn" onclick="submitUser()">Create</button>
@@ -931,6 +1067,7 @@ body.shift-held .txn-filter-pending { background: var(--surface2); }
 <div class="modal-overlay" id="add-member-modal">
   <div class="modal">
     <h3>Add Team Member</h3>
+    <div class="modal-body">
     <input type="hidden" id="add-member-team">
     <div class="form-group">
       <label>User</label>
@@ -943,6 +1080,7 @@ body.shift-held .txn-filter-pending { background: var(--surface2); }
         <option value="admin">admin</option>
       </select>
     </div>
+    </div>
     <div class="modal-actions">
       <button class="btn-ghost" onclick="closeModal('add-member-modal')">Cancel</button>
       <button class="btn-primary" onclick="submitAddMember()">Add</button>
@@ -954,6 +1092,7 @@ body.shift-held .txn-filter-pending { background: var(--surface2); }
 <div class="modal-overlay" id="create-team-modal">
   <div class="modal">
     <h3>Create Team</h3>
+    <div class="modal-body">
     <div class="form-group">
       <label>Team Name *</label>
       <input type="text" id="create-team-name" placeholder="e.g. backend">
@@ -961,6 +1100,7 @@ body.shift-held .txn-filter-pending { background: var(--surface2); }
     <div class="form-group">
       <label>First Admin *</label>
       <select id="create-team-admin"></select>
+    </div>
     </div>
     <div class="modal-actions">
       <button class="btn-ghost" onclick="closeModal('create-team-modal')">Cancel</button>
@@ -972,7 +1112,9 @@ body.shift-held .txn-filter-pending { background: var(--surface2); }
 <div class="modal-overlay confirm-modal" id="confirm-modal">
   <div class="modal">
     <h3 id="confirm-title">Confirm</h3>
+    <div class="modal-body">
     <div class="confirm-msg" id="confirm-msg"></div>
+    </div>
     <div class="modal-actions">
       <button class="btn-ghost" id="confirm-cancel">Cancel</button>
       <button class="btn-danger-fill" id="confirm-ok">Delete</button>
@@ -1000,6 +1142,25 @@ function appConfirm(msg, { title = 'Confirm', okLabel = 'Delete' } = {}) {
     };
     okBtn.onclick = () => cleanup(true);
     document.getElementById('confirm-cancel').onclick = () => cleanup(false);
+  });
+}
+
+function appAlert(html, { title = 'Info' } = {}) {
+  return new Promise(resolve => {
+    document.getElementById('confirm-title').textContent = title;
+    document.getElementById('confirm-msg').innerHTML = html;
+    const okBtn = document.getElementById('confirm-ok');
+    okBtn.textContent = 'Close';
+    okBtn.className = 'btn-primary';
+    document.getElementById('confirm-cancel').style.display = 'none';
+    document.getElementById('confirm-modal').classList.add('open');
+    okBtn.onclick = () => {
+      document.getElementById('confirm-modal').classList.remove('open');
+      document.getElementById('confirm-cancel').style.display = '';
+      document.getElementById('confirm-msg').textContent = '';
+      okBtn.onclick = null;
+      resolve();
+    };
   });
 }
 
@@ -1045,7 +1206,59 @@ let usersCache = [];
 let shiftHeld = false;
 let pendingFilters = { teams: new Set(), agents: new Set(), tools: new Set(), paths: new Set() };
 
+// --- Modal dirty-state tracking ---
+const formModalIds = ['tool-modal', 'agent-modal', 'user-modal', 'add-member-modal', 'create-team-modal'];
+let modalDirty = false;
+let modalSnapshot = '';
+
+function snapshotModal(modalId) {
+  const el = document.getElementById(modalId);
+  if (!el) return '';
+  const inputs = el.querySelectorAll('input, select, textarea');
+  return Array.from(inputs).map(i => i.type === 'checkbox' ? i.checked : i.value).join('\x00');
+}
+
+function markModalClean(modalId) {
+  modalSnapshot = snapshotModal(modalId);
+  modalDirty = false;
+}
+
+function isModalDirty(modalId) {
+  return snapshotModal(modalId) !== modalSnapshot;
+}
+
+document.addEventListener('input', e => {
+  const modal = e.target.closest('.modal-overlay');
+  if (modal && formModalIds.includes(modal.id)) modalDirty = true;
+});
+document.addEventListener('change', e => {
+  const modal = e.target.closest('.modal-overlay');
+  if (modal && formModalIds.includes(modal.id)) modalDirty = true;
+});
+
 document.addEventListener('keydown', e => {
+  if (e.key === 'Escape') {
+    const open = document.querySelector('.modal-overlay.open');
+    if (!open) return;
+    e.preventDefault();
+    if (formModalIds.includes(open.id) && isModalDirty(open.id)) {
+      appConfirm('You have unsaved changes. Discard them?', { title: 'Unsaved Changes', okLabel: 'Discard' })
+        .then(yes => { if (yes) { modalDirty = false; open.classList.remove('open'); } });
+    } else {
+      open.classList.remove('open');
+    }
+    return;
+  }
+  if (e.key === 'Enter' && !e.shiftKey) {
+    // Don't trigger save when typing in a textarea.
+    if (e.target.tagName === 'TEXTAREA') return;
+    const open = document.querySelector('.modal-overlay.open');
+    if (!open) return;
+    // Find and click the primary/confirm button in the open modal.
+    const btn = open.querySelector('.btn-primary, .btn-danger-fill');
+    if (btn && !btn.disabled) { e.preventDefault(); btn.click(); }
+    return;
+  }
   if (e.key === 'Shift' && !shiftHeld) {
     shiftHeld = true;
     document.body.classList.add('shift-held');
@@ -1180,8 +1393,38 @@ function msUpdateDisplay(id, selectedArr, resolveName) {
   });
 }
 
-// Render filter pills
-function renderFilterPills() {}
+// Render filter pills — show/hide clear-all button based on active filters.
+function renderFilterPills() {
+  const hasFilters = usageAgentIds.length || usageToolIds.length || usageTeamFilters.length || usagePathFilters.length;
+  const btn = document.getElementById('clear-all-filters');
+  if (btn) btn.style.display = hasFilters ? '' : 'none';
+}
+
+// Navigate to Usage tab with pre-set tool and path filters.
+function navigateToUsageFiltered(toolId, subToolName) {
+  usageAgentIds = [];
+  usageTeamFilters = [];
+  usageToolIds = [toolId];
+  usagePathFilters = subToolName ? [subToolName] : [];
+  syncDropdowns();
+  renderFilterPills();
+  navigateTo('usage');
+}
+
+// Clear all usage filters.
+function clearAllUsageFilters() {
+  usageAgentIds = [];
+  usageToolIds = [];
+  usageTeamFilters = [];
+  usagePathFilters = [];
+  syncDropdowns();
+  renderFilterPills();
+  chartLegendHover = false;
+  document.body.classList.remove('chart-paused');
+  renderTxnTable();
+  renderUsageChart(lastChartTxns);
+  loadUsage();
+}
 
 // Compute the effective (preview) filter sets: committed state with pending toggles applied.
 function effectiveFilters() {
@@ -1382,6 +1625,7 @@ function switchTab(tab) {
     loadMetrics();
     startMetricsPoll();
   }
+  else if (tab === 'audit') loadAuditLog();
 }
 
 function navigateTo(hash) {
@@ -1497,6 +1741,20 @@ function openToolModal(tool) {
   document.getElementById('tool-variables').value = tool && tool.variables && Object.keys(tool.variables).length ? JSON.stringify(tool.variables) : '';
   document.getElementById('tool-transport').value = tool ? tool.transport || 'streamable-http' : 'streamable-http';
   document.getElementById('tool-enabled').checked = tool ? (tool.enabled !== false) : true;
+  document.getElementById('tool-log-bodies').checked = tool ? !!tool.log_bodies : true;
+  document.getElementById('tool-log-bodies-section').style.display = tool ? '' : 'none';
+  document.getElementById('tool-timeout-ms').value = tool ? (tool.timeout_ms || 30000) : 30000;
+  document.getElementById('tool-max-retries').value = tool ? (tool.max_retries || 0) : 0;
+  document.getElementById('tool-retry-backoff-ms').value = tool ? (tool.retry_backoff_ms || 1000) : 1000;
+  document.getElementById('tool-resilience-section').style.display = tool ? '' : 'none';
+  document.getElementById('tool-webhook-url').value = tool ? (tool.webhook_url || '') : '';
+  document.getElementById('tool-webhook-threshold-pct').value = tool ? (tool.webhook_threshold_pct || 80) : 80;
+  document.getElementById('tool-webhook-section').style.display = tool ? '' : 'none';
+  document.getElementById('tool-cb-enabled').checked = tool ? !!tool.cb_enabled : false;
+  document.getElementById('tool-cb-error-threshold-pct').value = tool ? (tool.cb_error_threshold_pct || 90) : 90;
+  document.getElementById('tool-cb-window-seconds').value = tool ? (tool.cb_window_seconds || 120) : 120;
+  document.getElementById('tool-cb-cooldown-seconds').value = tool ? (tool.cb_cooldown_seconds || 60) : 60;
+  document.getElementById('tool-cb-section').style.display = tool ? '' : 'none';
   toggleToolMode();
   document.getElementById('tool-rate-limit').value = tool ? tool.rate_limit || '' : '';
   document.getElementById('tool-auth-config').value = tool && tool.auth_config ? JSON.stringify(tool.auth_config) : '';
@@ -1519,6 +1777,7 @@ function openToolModal(tool) {
   }
 
   document.getElementById('tool-modal').classList.add('open');
+  setTimeout(() => markModalClean('tool-modal'), 0);
 }
 
 async function loadToolRateOverrides(toolID) {
@@ -1587,6 +1846,16 @@ async function submitTool() {
     budget_window: document.getElementById('tool-budget-window').value.trim(),
     transport: mode === 'mcp' ? document.getElementById('tool-transport').value : '',
     enabled: mode === 'mcp' ? document.getElementById('tool-enabled').checked : true,
+    log_bodies: document.getElementById('tool-log-bodies').checked,
+    timeout_ms: parseInt(document.getElementById('tool-timeout-ms').value) || 30000,
+    max_retries: parseInt(document.getElementById('tool-max-retries').value) || 0,
+    retry_backoff_ms: parseInt(document.getElementById('tool-retry-backoff-ms').value) || 1000,
+    webhook_url: document.getElementById('tool-webhook-url').value.trim(),
+    webhook_threshold_pct: parseInt(document.getElementById('tool-webhook-threshold-pct').value) || 80,
+    cb_enabled: document.getElementById('tool-cb-enabled').checked,
+    cb_error_threshold_pct: parseInt(document.getElementById('tool-cb-error-threshold-pct').value) || 90,
+    cb_window_seconds: parseInt(document.getElementById('tool-cb-window-seconds').value) || 120,
+    cb_cooldown_seconds: parseInt(document.getElementById('tool-cb-cooldown-seconds').value) || 60,
   };
   try {
     if (id) {
@@ -1699,7 +1968,72 @@ function openAgentModal(ag) {
   } else {
     keyGroup.style.display = 'none';
   }
+  // Allowlist mode + permissions (edit mode only)
+  const allowlistSection = document.getElementById('agent-allowlist-section');
+  const permsSection = document.getElementById('agent-permissions-section');
+  const allowlistCb = document.getElementById('agent-allowlist-mode');
+  allowlistCb.checked = ag ? !!ag.allowlist_mode : false;
+  allowlistSection.style.display = ag ? '' : 'none';
+  permsSection.style.display = ag && ag.allowlist_mode ? '' : 'none';
+  allowlistCb.onchange = function() { permsSection.style.display = this.checked ? '' : 'none'; };
+  if (ag) loadAgentPermissions(ag.id);
+  else setTimeout(() => markModalClean('agent-modal'), 0);
   document.getElementById('agent-modal').classList.add('open');
+}
+
+async function loadAgentPermissions(agentId) {
+  const list = document.getElementById('agent-permissions-list');
+  list.innerHTML = '<div style="color:var(--text2);font-size:11px">Loading tools…</div>';
+  try {
+    const toolsResp = await api('GET', '/api/v1/tools');
+    const tools = toolsResp.tools || [];
+    const permRes = await api('GET', apiBase() + '/agents/' + agentId + '/permissions');
+    const perms = permRes.permissions || [];
+    const permMap = {};
+    perms.forEach(p => { permMap[p.tool_id] = { allowed: p.allowed, sub_tools: p.sub_tools || [] }; });
+    if (!tools.length) { list.innerHTML = '<div style="color:var(--text2);font-size:11px">No tools registered</div>'; return; }
+
+    // Fetch MCP sub-tools for MCP mode tools in parallel.
+    const mcpSubTools = {};
+    const mcpFetches = tools.filter(t => t.mode === 'mcp').map(async t => {
+      try {
+        const res = await api('GET', apiBase() + '/tools/' + t.id + '/mcp-tools');
+        mcpSubTools[t.id] = (res.tools || []).map(st => st.name);
+      } catch (e) { mcpSubTools[t.id] = []; }
+    });
+    await Promise.all(mcpFetches);
+
+    list.innerHTML = tools.map(t => {
+      const perm = permMap[t.id] || { allowed: false, sub_tools: [] };
+      const checked = perm.allowed ? 'checked' : '';
+      let html = `<label style="display:flex;align-items:center;gap:6px;padding:3px 2px;font-size:12px;cursor:pointer" title="${esc(t.description || '')}">
+        <input type="checkbox" data-tool-id="${t.id}" class="agent-perm-cb" ${checked}> ${esc(t.name)}
+      </label>`;
+      // Render sub-tool checkboxes for MCP tools.
+      const subs = mcpSubTools[t.id];
+      if (subs && subs.length > 0) {
+        const allAllowed = perm.sub_tools.length === 0;
+        html += `<div class="agent-sub-tools" data-tool-id="${t.id}" style="padding-left:24px;display:${perm.allowed ? '' : 'none'}" title="Uncheck specific sub-tools to restrict this agent. All checked = full access.">`;
+        subs.forEach(st => {
+          const stChecked = allAllowed || perm.sub_tools.includes(st) ? 'checked' : '';
+          html += `<label style="display:flex;align-items:center;gap:4px;padding:1px 2px;font-size:11px;color:var(--text2);cursor:pointer" title="Allow this agent to call the ${esc(st)} sub-tool">
+            <input type="checkbox" data-tool-id="${t.id}" data-sub-tool="${esc(st)}" class="agent-sub-perm-cb" ${stChecked}> ${esc(st)}
+          </label>`;
+        });
+        html += '</div>';
+      }
+      return html;
+    }).join('');
+
+    // Toggle sub-tool visibility when parent checkbox changes.
+    list.querySelectorAll('.agent-perm-cb').forEach(cb => {
+      cb.addEventListener('change', function() {
+        const subDiv = list.querySelector('.agent-sub-tools[data-tool-id="' + this.dataset.toolId + '"]');
+        if (subDiv) subDiv.style.display = this.checked ? '' : 'none';
+      });
+    });
+    markModalClean('agent-modal');
+  } catch (e) { list.innerHTML = '<div style="color:var(--warn);font-size:11px">Failed to load</div>'; }
 }
 
 function editAgent(id) {
@@ -1717,7 +2051,26 @@ async function submitAgent() {
   if (!body.team) { toast('Team is required'); return; }
   try {
     if (id) {
+      const allowlistMode = document.getElementById('agent-allowlist-mode').checked;
+      body.allowlist_mode = allowlistMode;
       await api('PUT', apiBase() + '/agents/' + id, body);
+      // Save permissions if allowlist mode is on
+      const permCbs = document.querySelectorAll('.agent-perm-cb');
+      if (permCbs.length > 0) {
+        const permissions = {};
+        permCbs.forEach(cb => {
+          const toolId = cb.dataset.toolId;
+          const subCbs = document.querySelectorAll('.agent-sub-perm-cb[data-tool-id="' + toolId + '"]');
+          if (subCbs.length > 0) {
+            const allChecked = Array.from(subCbs).every(s => s.checked);
+            const checkedSubs = Array.from(subCbs).filter(s => s.checked).map(s => s.dataset.subTool);
+            permissions[toolId] = { allowed: cb.checked, sub_tools: allChecked ? [] : checkedSubs };
+          } else {
+            permissions[toolId] = cb.checked;
+          }
+        });
+        await api('PUT', apiBase() + '/agents/' + id + '/permissions', { permissions, allowlist_mode: allowlistMode });
+      }
       closeModal('agent-modal');
     } else {
       const res = await api('POST', apiBase() + '/agents', body);
@@ -1818,6 +2171,7 @@ function openAddMemberModal(team) {
     sel.innerHTML = '<option value="">No users available</option>';
   }
   document.getElementById('add-member-modal').classList.add('open');
+  setTimeout(() => markModalClean('add-member-modal'), 0);
 }
 
 async function submitAddMember() {
@@ -1851,6 +2205,7 @@ function openCreateTeamModal() {
     sel.innerHTML = '<option value="">No eligible users</option>';
   }
   document.getElementById('create-team-modal').classList.add('open');
+  setTimeout(() => markModalClean('create-team-modal'), 0);
 }
 
 async function submitCreateTeam() {
@@ -1953,6 +2308,10 @@ async function loadUsageLive() {
     txnQs += pathParam;
   }
 
+  // Append transaction filter params.
+  const txnStatusFilter = document.getElementById('txn-filter-status') ? document.getElementById('txn-filter-status').value : '';
+  if (txnStatusFilter) txnQs += '&status_code=' + txnStatusFilter;
+
   txnBasePath = baseTxnPrefix + 'limit=' + txnPageSize + txnQs;
   const onPage1 = txnOffset === 0;
 
@@ -1972,7 +2331,7 @@ async function loadUsageLive() {
     if (onPage1) fetches.push(api('GET', txnBasePath));
     const results = await Promise.all(fetches);
     const summary = results[0];
-    const newChartTxns = results[1].transactions || results[1] || [];
+    const newChartTxns = Array.isArray(results[1].transactions) ? results[1].transactions : [];
     renderUsageSummary(summary);
     txnTotal = summary.total_requests || 0;
 
@@ -2046,16 +2405,18 @@ function renderTxnTable(prevTimestamp) {
     const agentExcl = hasAgentFilter && !eff.agents.includes(t.agent_id) ? ' txn-excluded' : '';
     const toolExcl = hasToolFilter && !eff.tools.includes(t.tool_id) ? ' txn-excluded' : '';
     const pathExcl = hasPathFilter && !eff.paths.includes(cleaned) ? ' txn-excluded' : '';
-    return `<tr${isNew ? ' class="txn-new"' : ''}>
+    return `<tr${isNew ? ' class="txn-new"' : ''} style="cursor:pointer" onclick="showTransactionDetail('${t.id}')">
     <td style="white-space:nowrap">${fmtTime(t.timestamp)}</td>
     <td class="txn-filterable${teamExcl}">${team}${txnFilterBtn('team', esc(teamRaw), teamRaw)}</td>
-    <td class="txn-filterable${agentExcl}">${esc(resolveAgentName(t.agent_id))}${txnFilterBtn('agent', t.agent_id, t.agent_id)}</td>
-    <td class="txn-filterable${toolExcl}">${esc(resolveToolName(t.tool_id))}${txnFilterBtn('tool', t.tool_id, t.tool_id)}</td>
+    <td class="txn-filterable${agentExcl}">${esc(resolveAgentName(t.agent_id, t))}${txnFilterBtn('agent', t.agent_id, t.agent_id)}</td>
+    <td class="txn-filterable${toolExcl}">${esc(resolveToolName(t.tool_id, t))}${txnFilterBtn('tool', t.tool_id, t.tool_id)}</td>
     <td><span class="badge-mode badge-${(resolveToolMode(t.tool_id) || '').toLowerCase()}">${resolveToolMode(t.tool_id)}</span></td>
     <td>${esc(t.method)}</td>
     <td class="txn-filterable${pathExcl} mono" style="font-size:12px">${esc(cleaned)}${txnFilterBtn('path', esc(cleaned), cleaned)}</td>
+    <td><span class="badge-mode badge-${t.status_code >= 200 && t.status_code < 300 ? 'service' : t.status_code >= 400 ? 'api' : 'mcp'}" style="font-size:11px">${t.status_code}</span></td>
     <td>${t.latency_ms}ms</td>
     <td>$${(t.cost || 0).toFixed(4)}</td>
+    <td style="text-align:center;vertical-align:middle;padding:0 4px" title="View detail"><svg width="14" height="14" style="display:block;margin:auto" viewBox="0 0 24 24" fill="none" stroke="var(--text2)" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><path d="M1 12s4-8 11-8 11 8 11 8-4 8-11 8-11-8-11-8z"/><circle cx="12" cy="12" r="3"/></svg></td>
   </tr>`;
   }).join('');
   const rangeEnd = txnOffset + txnAll.length;
@@ -2270,6 +2631,37 @@ async function txnNextPage() {
   } catch (e) { console.error('Failed to load next page', e); }
 }
 
+function reloadTransactions() { txnOffset = 0; txnCursorStack = []; txnNextCursor = null; loadUsage(); }
+
+
+
+async function showTransactionDetail(txnId) {
+  try {
+    const data = await api('GET', '/api/v1/admin/usage/transactions/' + txnId);
+    const tx = data.transaction;
+    const body = data.body;
+    let html = '<div style="font-size:12px;line-height:1.6">';
+    html += '<div><b>ID:</b> ' + tx.id + '</div>';
+    html += '<div><b>Agent:</b> ' + tx.agent_id + '</div>';
+    html += '<div><b>Tool:</b> ' + tx.tool_id + '</div>';
+    html += '<div><b>Status:</b> ' + tx.status_code + '</div>';
+    html += '<div><b>Latency:</b> ' + tx.latency_ms + 'ms</div>';
+    html += '<div><b>Cost:</b> ' + tx.cost + ' (' + tx.cost_source + ')</div>';
+    if (body) {
+      const reqRaw = body.request_body;
+      const resRaw = body.response_body;
+      const preStyle = 'background:var(--bg);padding:8px;border-radius:4px;overflow:auto;max-height:200px;font-size:11px';
+      const emptyStyle = 'color:var(--text2);font-style:italic';
+      html += '<div style="margin-top:8px"><b>Request Body:</b>' + (reqRaw ? '<pre style="' + preStyle + '">' + esc(typeof reqRaw === 'string' ? reqRaw : JSON.stringify(reqRaw, null, 2)) + '</pre>' : '<div style="' + emptyStyle + '">No request body recorded</div>') + '</div>';
+      html += '<div style="margin-top:8px"><b>Response Body:</b>' + (resRaw ? '<pre style="' + preStyle + '">' + esc(typeof resRaw === 'string' ? resRaw : JSON.stringify(resRaw, null, 2)) + '</pre>' : '<div style="' + emptyStyle + '">No response body recorded</div>') + '</div>';
+    } else {
+      html += '<div style="margin-top:8px;color:var(--text2);font-style:italic">Body logging not enabled for this tool</div>';
+    }
+    html += '</div>';
+    await appAlert(html, { title: 'Transaction Detail' });
+  } catch (e) { toast('Failed to load detail: ' + e.message); }
+}
+
 // --- Users ---
 async function loadUsers() {
   if (!currentUser) return;
@@ -2293,7 +2685,7 @@ function renderUsers() {
   const tbody = document.getElementById('users-body');
   const empty = document.getElementById('users-empty');
   const q = (document.getElementById('users-search').value || '').toLowerCase();
-  const filtered = usersCache.filter(u => !q || u.email.toLowerCase().includes(q) || (u.name || '').toLowerCase().includes(q) || (u.role || '').toLowerCase().includes(q));
+  const filtered = usersCache.filter(u => !q || u.id.toLowerCase().includes(q) || u.email.toLowerCase().includes(q) || (u.name || '').toLowerCase().includes(q) || (u.role || '').toLowerCase().includes(q));
   if (!filtered.length) { tbody.innerHTML = ''; empty.style.display = 'block'; return; }
   empty.style.display = 'none';
   tbody.innerHTML = filtered.map(u => {
@@ -2323,6 +2715,8 @@ function renderUsers() {
 function openUserModal(u) {
   const isSelfEdit = u && currentUser && u.id === currentUser.id && !isAdmin;
   document.getElementById('user-edit-id').value = u ? u.id : '';
+  document.getElementById('user-id-group').style.display = u ? '' : 'none';
+  document.getElementById('user-id-display').textContent = u ? u.id : '';
   document.getElementById('user-modal-title').textContent = u ? 'Edit User' : 'Create User';
   document.getElementById('user-submit-btn').textContent = u ? 'Save' : 'Create';
   document.getElementById('user-email').value = u ? u.email : '';
@@ -2345,6 +2739,7 @@ function openUserModal(u) {
     pwGroup.querySelector('label').textContent = u ? 'Password (leave blank to keep)' : 'Password *';
   }
   document.getElementById('user-modal').classList.add('open');
+  setTimeout(() => markModalClean('user-modal'), 0);
 }
 
 function editUser(id) {
@@ -2452,7 +2847,10 @@ async function toggleMcpSubTools(toolId) {
       const callCount = counts[st.name] != null ? Number(counts[st.name]).toLocaleString() : '\u2014';
       const subRow = document.createElement('tr');
       subRow.className = 'mcp-subrow mcp-subrow-' + toolId;
-      subRow.innerHTML = `<td style="padding-left:26px"><span style="font-size:12px;font-weight:600">${esc(st.name)}</span><br><span style="color:var(--text2);font-size:11px">${esc(st.description || '')}</span></td><td colspan="3"></td><td>${callCount}</td><td></td>`;
+      subRow.style.cursor = 'pointer';
+      subRow.title = 'View usage for this sub-tool';
+      subRow.onclick = () => navigateToUsageFiltered(toolId, st.name);
+      subRow.innerHTML = `<td style="padding-left:26px"><span style="font-size:12px;font-weight:600;text-decoration:underline;color:var(--accent)">${esc(st.name)}</span><br><span style="color:var(--text2);font-size:11px">${esc(st.description || '')}</span></td><td colspan="3"></td><td>${callCount}</td><td></td>`;
       parentRow.after(subRow);
     }
   } catch (e) {
@@ -2480,9 +2878,9 @@ function closeModal(id) { document.getElementById(id).classList.remove('open'); 
 function esc(s) { const d = document.createElement('div'); d.textContent = s; return d.innerHTML; }
 function fmtDate(s) { if (!s) return '\u2014'; return new Date(s).toLocaleDateString(); }
 function fmtTime(s) { if (!s) return '\u2014'; const d = new Date(s); return d.toLocaleDateString() + ' ' + d.toLocaleTimeString(); }
-function resolveAgentName(id) { const a = agentsCache.find(a => a.id === id); return a ? a.name : id.slice(0,8); }
-function resolveAgentTeam(id) { const a = agentsCache.find(a => a.id === id); return a ? (a.team || '') : ''; }
-function resolveToolName(id) { const t = toolsCache.find(t => t.id === id); return t ? t.name : id.slice(0,8); }
+function resolveAgentName(id, txn) { if (txn && txn.agent_name) return txn.agent_name; if (!id) return '(deleted)'; const a = agentsCache.find(a => a.id === id); return a ? a.name : id.slice(0,8); }
+function resolveAgentTeam(id) { if (!id) return ''; const a = agentsCache.find(a => a.id === id); return a ? (a.team || '') : ''; }
+function resolveToolName(id, txn) { if (txn && txn.tool_name) return txn.tool_name; if (!id) return '(deleted)'; const t = toolsCache.find(t => t.id === id); return t ? t.name : id.slice(0,8); }
 function resolveToolMode(id) { const t = toolsCache.find(t => t.id === id); return t ? (t.mode || '').toUpperCase() : ''; }
 function cleanPath(path, toolId) {
   if (!path) return '\u2014';
@@ -2491,6 +2889,7 @@ function cleanPath(path, toolId) {
 }
 
 function filterFromTxn(type, value, event) {
+  if (event) event.stopPropagation();
   if (shiftHeld && value) {
     // Shift held: toggle in pending set, don't reload yet.
     const setKey = type === 'team' ? 'teams' : type === 'agent' ? 'agents' : type === 'path' ? 'paths' : 'tools';
@@ -2541,6 +2940,7 @@ function filterFromTxn(type, value, event) {
 
 // Remove a single item from the active filter (used by the × icon on active rows).
 function removeFilterItem(type, value, event) {
+  if (event) event.stopPropagation();
   if (shiftHeld) {
     // During shift, treat as a pending toggle (same as filterFromTxn shift path).
     filterFromTxn(type, value, event);
@@ -2727,7 +3127,7 @@ function renderUsageChart(txns) {
     ? t => t.agent_id
     : t => t.tool_id + '|' + cleanPath(t.path, t.tool_id);
   const resolveName = chartGroup === 'agent'
-    ? resolveAgentName
+    ? (id) => resolveAgentName(id)
     : gid => { const [tid, path] = gid.split('|', 2); return resolveToolName(tid) + ' \u203A ' + (path || '/'); };
 
   // Bucket transactions
@@ -2944,6 +3344,44 @@ function startMetricsPoll() {
 
 function stopMetricsPoll() {
   if (metricsPollTimer) { clearTimeout(metricsPollTimer); metricsPollTimer = null; }
+}
+
+// --- Audit Log ---
+let auditCursor = '';
+async function loadAuditLog(more) {
+  if (!currentUser || !isAdmin) return;
+  if (!more) auditCursor = '';
+  const params = new URLSearchParams();
+  const rt = document.getElementById('audit-resource-type').value;
+  if (rt) params.set('resource_type', rt);
+  const from = document.getElementById('audit-from').value;
+  if (from) params.set('from', from + 'T00:00:00Z');
+  const to = document.getElementById('audit-to').value;
+  if (to) params.set('to', to + 'T23:59:59Z');
+  if (auditCursor) params.set('cursor', auditCursor);
+  params.set('limit', '50');
+  try {
+    const data = await api('GET', '/api/v1/admin/audit-log?' + params.toString());
+    const entries = data.entries || [];
+    auditCursor = data.next_cursor || '';
+    const tbody = document.getElementById('audit-table-body');
+    if (!more) tbody.innerHTML = '';
+    if (entries.length === 0 && !more) {
+      tbody.innerHTML = '<tr><td colspan="7" class="empty">No audit log entries</td></tr>';
+    } else {
+      entries.forEach(e => {
+        const tr = document.createElement('tr');
+        const ts = new Date(e.timestamp).toLocaleString();
+        const detailStr = e.details && Object.keys(e.details).length ? JSON.stringify(e.details) : '';
+        const prettyDetail = detailStr ? JSON.stringify(e.details, null, 2) : '';
+        tr.innerHTML = '<td>' + ts + '</td><td>' + esc(e.action) + '</td><td>' + esc(e.resource_type) + '</td><td style="font-size:10px">' + esc(e.resource_id) + '</td><td style="font-size:10px">' + esc(e.user_id || '-') + '</td><td>' + esc(e.ip) + '</td><td style="font-size:10px;max-width:300px;word-break:break-all;white-space:pre-wrap;font-family:var(--font)">' + esc(detailStr) + '</td>';
+        tbody.appendChild(tr);
+      });
+    }
+    document.getElementById('audit-load-more').style.display = auditCursor ? '' : 'none';
+  } catch (err) {
+    toast('Failed to load audit log: ' + err.message);
+  }
 }
 
 function loadMetrics() {

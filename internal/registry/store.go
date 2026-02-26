@@ -29,7 +29,8 @@ func NewStore(pool *pgxpool.Pool, cipher *crypto.Cipher) *Store {
 // toolColumns is the full list of columns used in SELECT statements.
 const toolColumns = `id, name, description, mode, endpoint, auth_type, auth_config, variables,
 	pricing_model, pricing_amount, pricing_currency, rate_limit,
-	budget_limit, budget_window, transport, enabled, created_at, updated_at`
+	budget_limit, budget_window, transport, log_bodies, timeout_ms, max_retries, retry_backoff_ms, webhook_url, webhook_threshold_pct,
+	cb_enabled, cb_error_threshold_pct, cb_window_seconds, cb_cooldown_seconds, enabled, created_at, updated_at`
 
 // scanTool scans a single tool row into a Tool struct, decrypting auth_config if a cipher is set.
 func (s *Store) scanTool(row pgx.Row) (*Tool, error) {
@@ -53,6 +54,16 @@ func (s *Store) scanTool(row pgx.Row) (*Tool, error) {
 		&t.BudgetLimit,
 		&budgetWindow,
 		&transport,
+		&t.LogBodies,
+		&t.TimeoutMs,
+		&t.MaxRetries,
+		&t.RetryBackoffMs,
+		&t.WebhookURL,
+		&t.WebhookThresholdPct,
+		&t.CBEnabled,
+		&t.CBErrorThresholdPct,
+		&t.CBWindowSeconds,
+		&t.CBCooldownSeconds,
 		&t.Enabled,
 		&t.CreatedAt,
 		&t.UpdatedAt,
@@ -125,11 +136,51 @@ func (s *Store) Create(ctx context.Context, input CreateToolInput) (*Tool, error
 		transportVal = input.Transport
 	}
 
+	logBodies := false
+	if input.LogBodies != nil {
+		logBodies = *input.LogBodies
+	}
+
+	timeoutMs := 30000
+	if input.TimeoutMs != nil {
+		timeoutMs = *input.TimeoutMs
+	}
+	maxRetries := 0
+	if input.MaxRetries != nil {
+		maxRetries = *input.MaxRetries
+	}
+	retryBackoffMs := 1000
+	if input.RetryBackoffMs != nil {
+		retryBackoffMs = *input.RetryBackoffMs
+	}
+	webhookThresholdPct := 80
+	if input.WebhookThresholdPct != nil {
+		webhookThresholdPct = *input.WebhookThresholdPct
+	}
+	cbEnabled := false
+	if input.CBEnabled != nil {
+		cbEnabled = *input.CBEnabled
+	}
+	cbErrorThresholdPct := 90
+	if input.CBErrorThresholdPct != nil {
+		cbErrorThresholdPct = *input.CBErrorThresholdPct
+	}
+	cbWindowSeconds := 120
+	if input.CBWindowSeconds != nil {
+		cbWindowSeconds = *input.CBWindowSeconds
+	}
+	cbCooldownSeconds := 60
+	if input.CBCooldownSeconds != nil {
+		cbCooldownSeconds = *input.CBCooldownSeconds
+	}
+
 	query := fmt.Sprintf(`INSERT INTO tools
 		(name, description, mode, endpoint, auth_type, auth_config, variables,
 		 pricing_model, pricing_amount, pricing_currency, rate_limit,
-		 budget_limit, budget_window, transport, enabled)
-		VALUES ($1, $2, $3, $4, $5, $6, $7, $8, $9, $10, $11, $12, $13, $14, $15)
+		 budget_limit, budget_window, transport, log_bodies, timeout_ms, max_retries, retry_backoff_ms,
+		 webhook_url, webhook_threshold_pct,
+		 cb_enabled, cb_error_threshold_pct, cb_window_seconds, cb_cooldown_seconds, enabled)
+		VALUES ($1, $2, $3, $4, $5, $6, $7, $8, $9, $10, $11, $12, $13, $14, $15, $16, $17, $18, $19, $20, $21, $22, $23, $24, $25)
 		RETURNING %s`, toolColumns)
 
 	row := s.pool.QueryRow(ctx, query,
@@ -147,13 +198,31 @@ func (s *Store) Create(ctx context.Context, input CreateToolInput) (*Tool, error
 		input.BudgetLimit,
 		input.BudgetWindow,
 		transportVal,
+		logBodies,
+		timeoutMs,
+		maxRetries,
+		retryBackoffMs,
+		input.WebhookURL,
+		webhookThresholdPct,
+		cbEnabled,
+		cbErrorThresholdPct,
+		cbWindowSeconds,
+		cbCooldownSeconds,
 		enabled,
 	)
 	return s.scanTool(row)
 }
 
-// GetByID retrieves a tool by its ID, including endpoint and auth_config.
+// GetByID retrieves an active (non-archived) tool by its ID.
 func (s *Store) GetByID(ctx context.Context, id string) (*Tool, error) {
+	query := fmt.Sprintf(`SELECT %s FROM tools WHERE id = $1 AND archived_at IS NULL`, toolColumns)
+	row := s.pool.QueryRow(ctx, query, id)
+	return s.scanTool(row)
+}
+
+// GetByIDIncludeArchived retrieves a tool by its ID regardless of archived status.
+// Used for resolving names in historical transaction data.
+func (s *Store) GetByIDIncludeArchived(ctx context.Context, id string) (*Tool, error) {
 	query := fmt.Sprintf(`SELECT %s FROM tools WHERE id = $1`, toolColumns)
 	row := s.pool.QueryRow(ctx, query, id)
 	return s.scanTool(row)
@@ -212,10 +281,9 @@ func (s *Store) List(ctx context.Context, params ToolListParams) ([]*Tool, strin
 		argIdx++
 	}
 
-	where := ""
-	if len(whereClauses) > 0 {
-		where = "WHERE " + strings.Join(whereClauses, " AND ")
-	}
+	whereClauses = append(whereClauses, "archived_at IS NULL")
+
+	where := "WHERE " + strings.Join(whereClauses, " AND ")
 
 	query := fmt.Sprintf(`SELECT %s FROM tools %s ORDER BY created_at DESC, id DESC LIMIT $%d`,
 		toolColumns, where, argIdx)
@@ -342,6 +410,56 @@ func (s *Store) Update(ctx context.Context, id string, input UpdateToolInput) (*
 		args = append(args, transportVal)
 		argIdx++
 	}
+	if input.LogBodies != nil {
+		setClauses = append(setClauses, fmt.Sprintf("log_bodies = $%d", argIdx))
+		args = append(args, *input.LogBodies)
+		argIdx++
+	}
+	if input.TimeoutMs != nil {
+		setClauses = append(setClauses, fmt.Sprintf("timeout_ms = $%d", argIdx))
+		args = append(args, *input.TimeoutMs)
+		argIdx++
+	}
+	if input.MaxRetries != nil {
+		setClauses = append(setClauses, fmt.Sprintf("max_retries = $%d", argIdx))
+		args = append(args, *input.MaxRetries)
+		argIdx++
+	}
+	if input.RetryBackoffMs != nil {
+		setClauses = append(setClauses, fmt.Sprintf("retry_backoff_ms = $%d", argIdx))
+		args = append(args, *input.RetryBackoffMs)
+		argIdx++
+	}
+	if input.WebhookURL != nil {
+		setClauses = append(setClauses, fmt.Sprintf("webhook_url = $%d", argIdx))
+		args = append(args, *input.WebhookURL)
+		argIdx++
+	}
+	if input.WebhookThresholdPct != nil {
+		setClauses = append(setClauses, fmt.Sprintf("webhook_threshold_pct = $%d", argIdx))
+		args = append(args, *input.WebhookThresholdPct)
+		argIdx++
+	}
+	if input.CBEnabled != nil {
+		setClauses = append(setClauses, fmt.Sprintf("cb_enabled = $%d", argIdx))
+		args = append(args, *input.CBEnabled)
+		argIdx++
+	}
+	if input.CBErrorThresholdPct != nil {
+		setClauses = append(setClauses, fmt.Sprintf("cb_error_threshold_pct = $%d", argIdx))
+		args = append(args, *input.CBErrorThresholdPct)
+		argIdx++
+	}
+	if input.CBWindowSeconds != nil {
+		setClauses = append(setClauses, fmt.Sprintf("cb_window_seconds = $%d", argIdx))
+		args = append(args, *input.CBWindowSeconds)
+		argIdx++
+	}
+	if input.CBCooldownSeconds != nil {
+		setClauses = append(setClauses, fmt.Sprintf("cb_cooldown_seconds = $%d", argIdx))
+		args = append(args, *input.CBCooldownSeconds)
+		argIdx++
+	}
 	if input.Enabled != nil {
 		setClauses = append(setClauses, fmt.Sprintf("enabled = $%d", argIdx))
 		args = append(args, *input.Enabled)
@@ -365,11 +483,11 @@ func (s *Store) Update(ctx context.Context, id string, input UpdateToolInput) (*
 	return s.scanTool(row)
 }
 
-// Delete removes a tool by its ID.
-func (s *Store) Delete(ctx context.Context, id string) error {
-	tag, err := s.pool.Exec(ctx, `DELETE FROM tools WHERE id = $1`, id)
+// Archive soft-deletes a tool by setting archived_at.
+func (s *Store) Archive(ctx context.Context, id string) error {
+	tag, err := s.pool.Exec(ctx, `UPDATE tools SET archived_at = now() WHERE id = $1 AND archived_at IS NULL`, id)
 	if err != nil {
-		return fmt.Errorf("deleting tool: %w", err)
+		return fmt.Errorf("archiving tool: %w", err)
 	}
 	if tag.RowsAffected() == 0 {
 		return pgx.ErrNoRows
@@ -379,7 +497,7 @@ func (s *Store) Delete(ctx context.Context, id string) error {
 
 // ListEnabled returns all tools with enabled=true, useful for the MCP aggregator.
 func (s *Store) ListEnabled(ctx context.Context) ([]*Tool, error) {
-	query := fmt.Sprintf(`SELECT %s FROM tools WHERE enabled = true ORDER BY created_at DESC, id DESC`, toolColumns)
+	query := fmt.Sprintf(`SELECT %s FROM tools WHERE enabled = true AND archived_at IS NULL ORDER BY created_at DESC, id DESC`, toolColumns)
 	rows, err := s.pool.Query(ctx, query)
 	if err != nil {
 		return nil, fmt.Errorf("listing enabled tools: %w", err)
@@ -432,10 +550,9 @@ func (s *Store) Search(ctx context.Context, query string, limit int, cursor stri
 		argIdx++
 	}
 
-	where := ""
-	if len(whereClauses) > 0 {
-		where = "WHERE " + strings.Join(whereClauses, " AND ")
-	}
+	whereClauses = append(whereClauses, "archived_at IS NULL")
+
+	where := "WHERE " + strings.Join(whereClauses, " AND ")
 
 	sqlQuery := fmt.Sprintf(`SELECT %s FROM tools %s ORDER BY created_at DESC, id DESC LIMIT $%d`,
 		toolColumns, where, argIdx)

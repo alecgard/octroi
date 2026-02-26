@@ -15,15 +15,39 @@ import (
 	"github.com/alecgard/octroi/internal/metering"
 	"github.com/alecgard/octroi/internal/registry"
 	"github.com/go-chi/chi/v5"
+	mcpgo "github.com/mark3labs/mcp-go/mcp"
 )
 
 // --- Fakes ---
+
+type fakePermissionChecker struct {
+	allowed        bool
+	subToolAllowed bool
+	subToolChecked bool
+}
+
+func (f *fakePermissionChecker) IsAllowed(_ context.Context, _, _ string) (bool, error) {
+	return f.allowed, nil
+}
+
+func (f *fakePermissionChecker) IsSubToolAllowed(_ context.Context, _, _, _ string) (bool, error) {
+	f.subToolChecked = true
+	return f.subToolAllowed, nil
+}
 
 type fakeToolStore struct {
 	tools map[string]*registry.Tool
 }
 
 func (f *fakeToolStore) GetByID(_ context.Context, id string) (*registry.Tool, error) {
+	tool, ok := f.tools[id]
+	if !ok {
+		return nil, fmt.Errorf("not found")
+	}
+	return tool, nil
+}
+
+func (f *fakeToolStore) GetByIDIncludeArchived(_ context.Context, id string) (*registry.Tool, error) {
 	tool, ok := f.tools[id]
 	if !ok {
 		return nil, fmt.Errorf("not found")
@@ -553,4 +577,358 @@ func TestQueryAuth(t *testing.T) {
 			t.Errorf("expected query to contain both foo=bar and api_key=secret123, got %s", receivedQuery)
 		}
 	})
+}
+
+func TestPermissionDenied(t *testing.T) {
+	upstream := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
+		w.WriteHeader(http.StatusOK)
+	}))
+	defer upstream.Close()
+
+	tool := newTestTool(upstream.URL)
+	store := &fakeToolStore{tools: map[string]*registry.Tool{"tool-1": tool}}
+	budgets := &fakeBudgetChecker{agentAllowed: true, globalAllowed: true}
+	collector := &fakeCollector{}
+	handler := NewHandler(store, budgets, collector, 5*time.Second, 1<<20)
+	handler.SetPermissionChecker(&fakePermissionChecker{allowed: false})
+
+	router := setupRouter(handler)
+
+	req := httptest.NewRequest("GET", "/proxy/tool-1/test", nil)
+	req = withAgent(req, newTestAgent())
+	rr := httptest.NewRecorder()
+	router.ServeHTTP(rr, req)
+
+	if rr.Code != http.StatusForbidden {
+		t.Fatalf("expected 403, got %d", rr.Code)
+	}
+
+	var errResp proxyError
+	_ = json.NewDecoder(rr.Body).Decode(&errResp)
+	if errResp.Error.Code != "permission_denied" {
+		t.Errorf("expected error code permission_denied, got %s", errResp.Error.Code)
+	}
+}
+
+func TestRetryOn5xx(t *testing.T) {
+	attempts := 0
+	upstream := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
+		attempts++
+		if attempts <= 2 {
+			w.WriteHeader(http.StatusServiceUnavailable)
+			return
+		}
+		w.WriteHeader(http.StatusOK)
+		w.Write([]byte(`{"ok":true}`))
+	}))
+	defer upstream.Close()
+
+	tool := newTestTool(upstream.URL)
+	tool.MaxRetries = 2
+	tool.RetryBackoffMs = 10 // fast for tests
+	tool.TimeoutMs = 5000
+	store := &fakeToolStore{tools: map[string]*registry.Tool{"tool-1": tool}}
+	budgets := &fakeBudgetChecker{agentAllowed: true, globalAllowed: true}
+	collector := &fakeCollector{}
+	handler := NewHandler(store, budgets, collector, 5*time.Second, 1<<20)
+	router := setupRouter(handler)
+
+	req := httptest.NewRequest("GET", "/proxy/tool-1/test", nil)
+	req = withAgent(req, newTestAgent())
+	rr := httptest.NewRecorder()
+	router.ServeHTTP(rr, req)
+
+	if rr.Code != http.StatusOK {
+		t.Fatalf("expected 200, got %d", rr.Code)
+	}
+	if attempts != 3 {
+		t.Errorf("expected 3 upstream attempts, got %d", attempts)
+	}
+	// Should have 3 transactions: 2 failed + 1 success.
+	if len(collector.transactions) != 3 {
+		t.Fatalf("expected 3 transactions, got %d", len(collector.transactions))
+	}
+	if collector.transactions[0].StatusCode != 503 || collector.transactions[1].StatusCode != 503 {
+		t.Errorf("expected first two transactions to be 503")
+	}
+	if collector.transactions[2].StatusCode != 200 {
+		t.Errorf("expected last transaction to be 200, got %d", collector.transactions[2].StatusCode)
+	}
+}
+
+func TestRetryExhausted(t *testing.T) {
+	upstream := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
+		w.WriteHeader(http.StatusBadGateway)
+	}))
+	defer upstream.Close()
+
+	tool := newTestTool(upstream.URL)
+	tool.MaxRetries = 2
+	tool.RetryBackoffMs = 10
+	tool.TimeoutMs = 5000
+	store := &fakeToolStore{tools: map[string]*registry.Tool{"tool-1": tool}}
+	budgets := &fakeBudgetChecker{agentAllowed: true, globalAllowed: true}
+	collector := &fakeCollector{}
+	handler := NewHandler(store, budgets, collector, 5*time.Second, 1<<20)
+	router := setupRouter(handler)
+
+	req := httptest.NewRequest("GET", "/proxy/tool-1/test", nil)
+	req = withAgent(req, newTestAgent())
+	rr := httptest.NewRecorder()
+	router.ServeHTTP(rr, req)
+
+	if rr.Code != http.StatusBadGateway {
+		t.Fatalf("expected 502, got %d", rr.Code)
+	}
+	// 3 attempts total (1 + 2 retries), all recorded as transactions.
+	if len(collector.transactions) != 3 {
+		t.Fatalf("expected 3 transactions, got %d", len(collector.transactions))
+	}
+}
+
+func TestNoRetryOn4xx(t *testing.T) {
+	attempts := 0
+	upstream := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
+		attempts++
+		w.WriteHeader(http.StatusBadRequest)
+	}))
+	defer upstream.Close()
+
+	tool := newTestTool(upstream.URL)
+	tool.MaxRetries = 2
+	tool.RetryBackoffMs = 10
+	tool.TimeoutMs = 5000
+	store := &fakeToolStore{tools: map[string]*registry.Tool{"tool-1": tool}}
+	budgets := &fakeBudgetChecker{agentAllowed: true, globalAllowed: true}
+	collector := &fakeCollector{}
+	handler := NewHandler(store, budgets, collector, 5*time.Second, 1<<20)
+	router := setupRouter(handler)
+
+	req := httptest.NewRequest("GET", "/proxy/tool-1/test", nil)
+	req = withAgent(req, newTestAgent())
+	rr := httptest.NewRecorder()
+	router.ServeHTTP(rr, req)
+
+	if rr.Code != http.StatusBadRequest {
+		t.Fatalf("expected 400, got %d", rr.Code)
+	}
+	// 4xx should not be retried.
+	if attempts != 1 {
+		t.Errorf("expected 1 attempt for 4xx, got %d", attempts)
+	}
+	if len(collector.transactions) != 1 {
+		t.Fatalf("expected 1 transaction, got %d", len(collector.transactions))
+	}
+}
+
+func TestPerToolTimeout(t *testing.T) {
+	upstream := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
+		time.Sleep(500 * time.Millisecond)
+		w.WriteHeader(http.StatusOK)
+	}))
+	defer upstream.Close()
+
+	tool := newTestTool(upstream.URL)
+	tool.TimeoutMs = 50 // 50ms timeout, upstream takes 500ms
+	store := &fakeToolStore{tools: map[string]*registry.Tool{"tool-1": tool}}
+	budgets := &fakeBudgetChecker{agentAllowed: true, globalAllowed: true}
+	collector := &fakeCollector{}
+	handler := NewHandler(store, budgets, collector, 30*time.Second, 1<<20)
+	router := setupRouter(handler)
+
+	req := httptest.NewRequest("GET", "/proxy/tool-1/test", nil)
+	req = withAgent(req, newTestAgent())
+	rr := httptest.NewRecorder()
+	router.ServeHTTP(rr, req)
+
+	if rr.Code != http.StatusBadGateway {
+		t.Fatalf("expected 502 (timeout), got %d", rr.Code)
+	}
+	if len(collector.transactions) != 1 {
+		t.Fatalf("expected 1 transaction, got %d", len(collector.transactions))
+	}
+}
+
+func TestPermissionAllowed(t *testing.T) {
+	upstream := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
+		w.WriteHeader(http.StatusOK)
+	}))
+	defer upstream.Close()
+
+	tool := newTestTool(upstream.URL)
+	store := &fakeToolStore{tools: map[string]*registry.Tool{"tool-1": tool}}
+	budgets := &fakeBudgetChecker{agentAllowed: true, globalAllowed: true}
+	collector := &fakeCollector{}
+	handler := NewHandler(store, budgets, collector, 5*time.Second, 1<<20)
+	handler.SetPermissionChecker(&fakePermissionChecker{allowed: true})
+
+	router := setupRouter(handler)
+
+	req := httptest.NewRequest("GET", "/proxy/tool-1/test", nil)
+	req = withAgent(req, newTestAgent())
+	rr := httptest.NewRecorder()
+	router.ServeHTTP(rr, req)
+
+	if rr.Code != http.StatusOK {
+		t.Fatalf("expected 200, got %d", rr.Code)
+	}
+}
+
+// --- Circuit Breaker Fakes ---
+
+type fakeCircuitBreaker struct {
+	allowResult bool
+	results     []int
+}
+
+func (f *fakeCircuitBreaker) Allow(_ string, _ CircuitBreakerConfig) bool {
+	return f.allowResult
+}
+
+func (f *fakeCircuitBreaker) RecordResult(_ string, _ CircuitBreakerConfig, statusCode int) {
+	f.results = append(f.results, statusCode)
+}
+
+func TestCircuitBreakerOpen(t *testing.T) {
+	upstream := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
+		w.WriteHeader(http.StatusOK)
+	}))
+	defer upstream.Close()
+
+	tool := newTestTool(upstream.URL)
+	tool.CBEnabled = true
+	tool.CBErrorThresholdPct = 90
+	tool.CBWindowSeconds = 120
+	tool.CBCooldownSeconds = 60
+	store := &fakeToolStore{tools: map[string]*registry.Tool{"tool-1": tool}}
+	budgets := &fakeBudgetChecker{agentAllowed: true, globalAllowed: true}
+	collector := &fakeCollector{}
+	handler := NewHandler(store, budgets, collector, 5*time.Second, 1<<20)
+	handler.SetCircuitBreaker(&fakeCircuitBreaker{allowResult: false})
+
+	router := setupRouter(handler)
+
+	req := httptest.NewRequest("GET", "/proxy/tool-1/test", nil)
+	req = withAgent(req, newTestAgent())
+	rr := httptest.NewRecorder()
+	router.ServeHTTP(rr, req)
+
+	if rr.Code != http.StatusServiceUnavailable {
+		t.Fatalf("expected 503, got %d", rr.Code)
+	}
+
+	var errResp proxyError
+	_ = json.NewDecoder(rr.Body).Decode(&errResp)
+	if errResp.Error.Code != "circuit_open" {
+		t.Errorf("expected error code circuit_open, got %s", errResp.Error.Code)
+	}
+}
+
+func TestCircuitBreakerRecordsResult(t *testing.T) {
+	upstream := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
+		w.WriteHeader(http.StatusOK)
+	}))
+	defer upstream.Close()
+
+	tool := newTestTool(upstream.URL)
+	tool.CBEnabled = true
+	tool.CBErrorThresholdPct = 90
+	tool.CBWindowSeconds = 120
+	tool.CBCooldownSeconds = 60
+	store := &fakeToolStore{tools: map[string]*registry.Tool{"tool-1": tool}}
+	budgets := &fakeBudgetChecker{agentAllowed: true, globalAllowed: true}
+	collector := &fakeCollector{}
+	cb := &fakeCircuitBreaker{allowResult: true}
+	handler := NewHandler(store, budgets, collector, 5*time.Second, 1<<20)
+	handler.SetCircuitBreaker(cb)
+
+	router := setupRouter(handler)
+
+	req := httptest.NewRequest("GET", "/proxy/tool-1/test", nil)
+	req = withAgent(req, newTestAgent())
+	rr := httptest.NewRecorder()
+	router.ServeHTTP(rr, req)
+
+	if rr.Code != http.StatusOK {
+		t.Fatalf("expected 200, got %d", rr.Code)
+	}
+	if len(cb.results) != 1 || cb.results[0] != 200 {
+		t.Errorf("expected CB result [200], got %v", cb.results)
+	}
+}
+
+// --- MCP sub-tool permission tests ---
+
+type fakeMCPCaller struct {
+	called bool
+}
+
+func (f *fakeMCPCaller) Call(_ context.Context, _ string, _ string, _ map[string]any) (*mcpgo.CallToolResult, error) {
+	f.called = true
+	return mcpgo.NewToolResultText("ok"), nil
+}
+
+func TestMCPSubToolPermissionDenied(t *testing.T) {
+	tool := newTestTool("http://localhost")
+	tool.Mode = "mcp"
+	store := &fakeToolStore{tools: map[string]*registry.Tool{"tool-1": tool}}
+	budgets := &fakeBudgetChecker{agentAllowed: true, globalAllowed: true}
+	collector := &fakeCollector{}
+	handler := NewHandler(store, budgets, collector, 5*time.Second, 1<<20)
+	handler.SetMCPCaller(&fakeMCPCaller{})
+	perm := &fakePermissionChecker{allowed: true, subToolAllowed: false}
+	handler.SetPermissionChecker(perm)
+
+	router := setupRouter(handler)
+
+	req := httptest.NewRequest("POST", "/proxy/tool-1/search_code", bytes.NewReader([]byte(`{}`)))
+	req = withAgent(req, newTestAgent())
+	rr := httptest.NewRecorder()
+	router.ServeHTTP(rr, req)
+
+	if rr.Code != http.StatusForbidden {
+		t.Fatalf("expected 403, got %d: %s", rr.Code, rr.Body.String())
+	}
+
+	var errResp proxyError
+	_ = json.NewDecoder(rr.Body).Decode(&errResp)
+	if errResp.Error.Code != "permission_denied" {
+		t.Errorf("expected error code permission_denied, got %s", errResp.Error.Code)
+	}
+	if !perm.subToolChecked {
+		t.Error("expected sub-tool permission check to be called")
+	}
+}
+
+func TestMCPSubToolPermissionAllowed(t *testing.T) {
+	tool := newTestTool("http://localhost")
+	tool.Mode = "mcp"
+	store := &fakeToolStore{tools: map[string]*registry.Tool{"tool-1": tool}}
+	budgets := &fakeBudgetChecker{agentAllowed: true, globalAllowed: true}
+	collector := &fakeCollector{}
+	mcpUp := &fakeMCPCaller{}
+	handler := NewHandler(store, budgets, collector, 5*time.Second, 1<<20)
+	handler.SetMCPCaller(mcpUp)
+	perm := &fakePermissionChecker{allowed: true, subToolAllowed: true}
+	handler.SetPermissionChecker(perm)
+
+	router := setupRouter(handler)
+
+	req := httptest.NewRequest("POST", "/proxy/tool-1/search_code", bytes.NewReader([]byte(`{}`)))
+	req = withAgent(req, newTestAgent())
+	rr := httptest.NewRecorder()
+	router.ServeHTTP(rr, req)
+
+	if rr.Code == http.StatusForbidden {
+		t.Fatal("expected to pass permission check, but got 403")
+	}
+	if rr.Code != http.StatusOK {
+		t.Fatalf("expected 200, got %d: %s", rr.Code, rr.Body.String())
+	}
+	if !perm.subToolChecked {
+		t.Error("expected sub-tool permission check to be called")
+	}
+	if !mcpUp.called {
+		t.Error("expected MCP caller to be invoked")
+	}
 }

@@ -98,9 +98,22 @@ configs/             # Example config files
 
 ## Tool Modes
 
-Tools can be registered in one of two modes:
+Tools can be registered in one of three modes:
 
-### Service mode (default)
+### MCP mode (default)
+
+The endpoint is an MCP server URL. Octroi connects as an MCP client, discovers the upstream's tools, and exposes them to agents. Sub-tools are listed under the parent in the UI and can be individually restricted via agent permissions.
+
+```json
+{
+  "mode": "mcp",
+  "endpoint": "https://mcp.example.com/mcp",
+  "auth_type": "bearer",
+  "auth_config": {"key": "sk-..."}
+}
+```
+
+### Service mode
 
 The endpoint is a static URL pointing to a running service. The gateway proxies requests directly.
 
@@ -159,6 +172,34 @@ Each transaction records a `cost_source` field for observability:
 
 The header is passed through to the agent in the proxy response (it's informational, not secret).
 
+## Agent Tool Permissions
+
+Agents can be placed in **allowlist mode**, which restricts them to explicitly permitted tools. When allowlist mode is disabled (the default), agents can use any tool.
+
+For MCP tools, permissions can be further refined to specific **sub-tools**. For example, an agent might be allowed to use a GitHub MCP server but only the `search_code` and `read_file` sub-tools — not `push_commits`. An empty sub-tools list means all sub-tools are allowed.
+
+Sub-tool permissions are enforced in both the HTTP proxy path (`/proxy/{toolID}/{subTool}`) and the MCP protocol path (`tools/call`).
+
+## Resilience
+
+Each tool can be independently configured with:
+
+- **Timeout** — Per-request timeout in milliseconds (overrides the global proxy timeout).
+- **Retries** — Automatic retries on 5xx and timeout errors with exponential backoff (configurable base delay, capped at 30s). 4xx errors are never retried.
+- **Circuit breaker** — Automatically stops sending requests when the error rate exceeds a configurable threshold (minimum 10 requests in the sliding window). After a cooldown period, a single probe request is sent to test recovery.
+
+## Webhook Alerts
+
+Tools with a `webhook_url` and `budget_limit` can fire HTTP POST notifications when budget usage crosses a configurable threshold percentage. Webhooks fire at most once per hour per tool.
+
+## Audit Log
+
+All admin mutations (create, update, delete operations on tools, agents, users, teams, permissions, and budgets) are recorded in a persistent audit log with timestamp, user, IP address, and changed values. Query via `GET /api/v1/admin/audit-log` with optional `resource_type`, `from`, and `to` filters.
+
+## Body Logging
+
+Tools can opt into request/response body logging. When enabled, payloads are stored per transaction with auth credentials automatically redacted. Bodies are viewable in the transaction detail view and are automatically purged after the configured retention period.
+
 ## Testing
 
 ```bash
@@ -200,6 +241,7 @@ See `configs/octroi.dev.yaml` for a complete example.
 | Method | Path | Description |
 |--------|------|-------------|
 | GET | `/health` | Health check |
+| GET | `/metrics` | Prometheus metrics endpoint |
 | GET | `/.well-known/octroi.json` | Self-describing manifest |
 | GET | `/api/v1/tools/search?q=` | Search tools by name/description |
 | GET | `/api/v1/tools` | List all tools |
@@ -214,6 +256,7 @@ See `configs/octroi.dev.yaml` for a complete example.
 | GET | `/api/v1/usage` | Get own usage summary |
 | GET | `/api/v1/usage/transactions` | List own transactions |
 | ANY | `/proxy/{toolID}/*` | Proxy request to a registered tool |
+| POST | `/mcp` | MCP protocol endpoint (Streamable HTTP transport) |
 
 ### Authenticated user (requires session token)
 
@@ -260,17 +303,29 @@ See `configs/octroi.dev.yaml` for a complete example.
 | PUT | `/api/v1/admin/agents/{agentID}/budgets/{toolID}` | Set agent budget for a tool |
 | GET | `/api/v1/admin/agents/{agentID}/budgets/{toolID}` | Get agent budget for a tool |
 | GET | `/api/v1/admin/agents/{agentID}/budgets` | List agent budgets |
+| GET | `/api/v1/admin/agents/{agentID}/permissions` | List agent tool permissions |
+| PUT | `/api/v1/admin/agents/{agentID}/permissions` | Bulk set permissions (with optional sub-tools) |
+| PUT | `/api/v1/admin/agents/{agentID}/permissions/{toolID}` | Set single tool permission |
+| DELETE | `/api/v1/admin/agents/{agentID}/permissions/{toolID}` | Delete tool permission |
 | POST | `/api/v1/admin/users` | Create a user |
 | GET | `/api/v1/admin/users` | List users |
 | PUT | `/api/v1/admin/users/{id}` | Update a user |
 | DELETE | `/api/v1/admin/users/{id}` | Delete a user |
 | GET | `/api/v1/admin/teams` | List all teams |
+| GET | `/api/v1/admin/tools/{id}/mcp-tools` | List discovered sub-tools for an MCP upstream |
+| POST | `/api/v1/admin/tools/{id}/refresh-mcp` | Re-discover sub-tools from an MCP upstream |
+| GET | `/api/v1/admin/tools/{id}/circuit-breaker` | Get circuit breaker state for a tool |
+| GET | `/api/v1/admin/audit-log` | List audit log entries (filterable by type/date) |
+| GET | `/api/v1/admin/metrics` | Metrics summary (JSON) |
 | GET | `/api/v1/admin/usage` | Global usage summary |
 | GET | `/api/v1/admin/usage/agents/{agentID}` | Usage by agent |
-| GET | `/api/v1/admin/usage/tools/calls` | Tool call counts |
+| GET | `/api/v1/admin/usage/tools/calls` | Tool call counts (all tools) |
+| GET | `/api/v1/admin/usage/tools/{id}/calls` | Sub-tool call counts (MCP children) |
 | GET | `/api/v1/admin/usage/tools/{toolID}` | Usage by tool |
 | GET | `/api/v1/admin/usage/agents/{agentID}/tools/{toolID}` | Usage by agent+tool |
 | GET | `/api/v1/admin/usage/transactions` | List all transactions |
+| GET | `/api/v1/admin/usage/transactions/{id}` | Get transaction detail (with body if logged) |
+| GET | `/api/v1/admin/usage/transactions/export` | Export transactions as CSV |
 
 ## Admin UI
 
@@ -278,13 +333,15 @@ Octroi includes a built-in dashboard at `/ui` — a single embedded HTML page wi
 
 Navigate to `http://localhost:8080/ui` and log in with your email and password.
 
-The dashboard has five tabs:
+The dashboard has seven tabs:
 
-- **Agents** — Create, edit, delete agents. Regenerate API keys. Set team assignments.
-- **Tools** — Create, edit, delete tools. Configure mode (Service/API), endpoint, auth, pricing, budgets, and per-tool rate limit overrides (by team or agent).
-- **Usage** — Live and historical views. SVG stacked bar chart with hover tooltips. Filter by agent, tool, or team. Transaction table with cursor-based pagination.
+- **Agents** — Create, edit, delete agents. Regenerate API keys. Set team assignments. Enable allowlist mode and configure per-tool permissions including MCP sub-tool restrictions.
+- **Tools** — Create, edit, delete tools. Configure mode (MCP/Service/API), endpoint, auth, pricing, budgets, per-tool rate limit overrides, retry/timeout settings, circuit breaker, webhook alerts, and body logging.
+- **Usage** — Live and historical views. SVG stacked bar chart with hover tooltips. Filter by agent, tool, or team. Transaction table with cursor-based pagination. CSV export and per-transaction detail (including logged request/response bodies).
 - **Teams** — View team membership. Add/remove members. Create new teams.
 - **Users** — Admin: full user CRUD. Members: edit own profile.
+- **Metrics** — Live Prometheus metric summaries: request throughput, latency, error rates, rate limit/budget rejections, DB pool stats, and MCP tool call counts.
+- **Audit Log** — Searchable history of all admin mutations (tool/agent/user/team CRUD, permission changes, budget updates). Filter by resource type and date range.
 
 ## Docker Production Deployment
 

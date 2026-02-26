@@ -30,13 +30,26 @@ DB_URL="${OCTROI_DB_URL:-postgres://octroi:octroi@localhost:5433/octroi?sslmode=
 
 # --- helpers ---------------------------------------------------------------
 
+retry() {
+  # Retry a command every 1s until it succeeds (exit code 0).
+  local result
+  while true; do
+    if result=$("$@" 2>/dev/null); then
+      break
+    fi
+    echo "    (server unavailable, retrying in 1s...)" >&2
+    sleep 1
+  done
+  echo "$result"
+}
+
 api() {
   local method="$1" path="$2" body="${3:-}"
   local args=(-s -H "Authorization: Bearer $TOKEN" -H "Content-Type: application/json")
   if [[ -n "$body" ]]; then
     args+=(-d "$body")
   fi
-  curl "${args[@]}" -X "$method" "${BASE}${path}"
+  retry curl "${args[@]}" -X "$method" "${BASE}${path}"
 }
 
 check_error() {
@@ -50,17 +63,27 @@ check_error() {
 
 # --- login -----------------------------------------------------------------
 
-echo "==> Logging in as $ADMIN_EMAIL"
-LOGIN_RESP=$(curl -s -X POST "${BASE}/api/v1/auth/login" \
-  -H "Content-Type: application/json" \
-  -d "{\"email\":\"$ADMIN_EMAIL\",\"password\":\"$ADMIN_PASS\"}")
+echo "==> Logging in as $ADMIN_EMAIL (will retry for up to 30s if server isn't ready)"
+DEADLINE=$((SECONDS + 30))
+while true; do
+  LOGIN_RESP=$(curl -s -X POST "${BASE}/api/v1/auth/login" \
+    -H "Content-Type: application/json" \
+    -d "{\"email\":\"$ADMIN_EMAIL\",\"password\":\"$ADMIN_PASS\"}" 2>/dev/null || true)
 
-TOKEN=$(echo "$LOGIN_RESP" | jq -r '.token // empty')
-if [[ -z "$TOKEN" ]]; then
-  echo "Login failed. Make sure the admin user exists (run 'octroi ensure-admin' or 'make dev' first)."
-  echo "Response: $LOGIN_RESP"
-  exit 1
-fi
+  TOKEN=$(echo "$LOGIN_RESP" | jq -r '.token // empty' 2>/dev/null || true)
+  if [[ -n "$TOKEN" ]]; then
+    break
+  fi
+
+  if (( SECONDS >= DEADLINE )); then
+    echo "Login failed after 30s. Make sure the admin user exists (run 'octroi ensure-admin' or 'make dev' first)."
+    echo "Response: $LOGIN_RESP"
+    exit 1
+  fi
+
+  echo "    Server not ready, retrying in 1s..."
+  sleep 1
+done
 echo "    Logged in (token: ${TOKEN:0:12}...)"
 
 # ===========================================================================
@@ -287,7 +310,7 @@ for i in "${!TOOL_NAMES[@]}"; do
     '{name:$name, description:$description, mode:$mode, endpoint:$endpoint,
       auth_type:$auth_type, auth_config:$auth_config, variables:$variables,
       pricing_model:$pricing_model, pricing_amount:$pricing_amount, pricing_currency:"USD",
-      rate_limit:$rate_limit, budget_limit:100000, budget_window:"monthly"}
+      rate_limit:$rate_limit, budget_limit:100000, budget_window:"monthly", log_bodies:true}
       + (if $transport != "" then {transport:$transport, enabled:true} else {} end)')
 
   resp=$(api POST "/api/v1/admin/tools" "$body")
@@ -659,6 +682,8 @@ class H(BaseHTTPRequestHandler):
             self.end_headers()
             return
 
+
+
         length = int(self.headers.get('Content-Length', 0))
         body = json.loads(self.rfile.read(length)) if length else {}
         method = body.get('method', '')
@@ -764,7 +789,7 @@ while true; do
       -H "Content-Type: application/json" \
       -d '{"query":"test","repoName":"octroi"}' \
       -X POST \
-      "${BASE}/proxy/${tool_id}/${sub_tool}")
+      "${BASE}/proxy/${tool_id}/${sub_tool}" 2>/dev/null) || http_code="000"
     method="POST"
     path="/${sub_tool}"
   else
@@ -772,15 +797,20 @@ while true; do
     rng; path_idx=$(( (RNG & 0x7FFFFFFF) % NUM_PATHS ))
     method="${METHODS[$method_idx]}"
     path="${PATHS[$path_idx]}"
-    # REST tools: standard proxy request.
-    http_code=$(curl -s -o /dev/null -w "%{http_code}" \
-      -H "Authorization: Bearer $agent_key" \
-      -X "$method" \
-      "${BASE}/proxy/${tool_id}${path}")
+    # REST tools: standard proxy request (include body for POST/PUT).
+    rest_args=(-s -o /dev/null -w "%{http_code}" -H "Authorization: Bearer $agent_key" -X "$method")
+    if [[ "$method" == "POST" || "$method" == "PUT" ]]; then
+      rest_args+=(-H "Content-Type: application/json" -d '{"query":"test","limit":10}')
+    fi
+    http_code=$(curl "${rest_args[@]}" "${BASE}/proxy/${tool_id}${path}" 2>/dev/null) || http_code="000"
   fi
 
   count=$(( count + 1 ))
-  if (( http_code >= 400 )); then
+  if [[ "$http_code" == "000" ]]; then
+    echo "  [$count] ${agent_name} -> ${tool_name}  ${method} ${path}  --- DOWN (retrying in 1s...)"
+    sleep 1
+    continue
+  elif (( http_code >= 400 )); then
     echo "  [$count] ${agent_name} -> ${tool_name}  ${method} ${path}  ${http_code} ERR"
   else
     echo "  [$count] ${agent_name} -> ${tool_name}  ${method} ${path}  ${http_code} OK"

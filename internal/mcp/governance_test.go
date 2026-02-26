@@ -34,6 +34,14 @@ func (f *fakeToolStore) GetByID(_ context.Context, id string) (*registry.Tool, e
 	return t, nil
 }
 
+func (f *fakeToolStore) GetByIDIncludeArchived(_ context.Context, id string) (*registry.Tool, error) {
+	t, ok := f.tools[id]
+	if !ok {
+		return nil, fmt.Errorf("tool not found: %s", id)
+	}
+	return t, nil
+}
+
 type fakeBudgetChecker struct {
 	agentAllowed  bool
 	globalAllowed bool
@@ -84,6 +92,19 @@ type fakeCollector struct {
 
 func (f *fakeCollector) Record(tx metering.Transaction) {
 	f.transactions = append(f.transactions, tx)
+}
+
+type fakePermissionChecker struct {
+	allowed        bool
+	subToolAllowed bool
+}
+
+func (f *fakePermissionChecker) IsAllowed(_ context.Context, _, _ string) (bool, error) {
+	return f.allowed, nil
+}
+
+func (f *fakePermissionChecker) IsSubToolAllowed(_ context.Context, _, _, _ string) (bool, error) {
+	return f.subToolAllowed, nil
 }
 
 // --- Helpers ---
@@ -424,5 +445,83 @@ func TestGovernedCaller_MeteringRecorded(t *testing.T) {
 	}
 	if tx.Timestamp.IsZero() {
 		t.Error("tx.Timestamp should not be zero")
+	}
+}
+
+func TestGovernedCaller_MCPSubToolDenied(t *testing.T) {
+	mcpToolID := "mcp-tool-1"
+	mcpTool := &registry.Tool{
+		ID:   mcpToolID,
+		Name: "upstream",
+		Mode: "mcp",
+	}
+	router := &fakeRouter{routes: map[string]ToolRoute{
+		"upstream__search": {Source: "mcp", ToolID: mcpToolID, UpstreamID: mcpToolID, UpstreamToolName: "search"},
+	}}
+	store := &fakeToolStore{tools: map[string]*registry.Tool{mcpToolID: mcpTool}}
+	budgets := &fakeBudgetChecker{agentAllowed: true, globalAllowed: true}
+	rl := &fakeRateLimiter{allowed: true}
+	collector := &fakeCollector{}
+	rest := &fakeRESTCaller{}
+	mcpUp := &fakeMCPCaller{result: mcp.NewToolResultText("should not reach")}
+
+	gc := newGovernedCaller(router, store, budgets, rl, collector, rest, mcpUp)
+	gc.SetPermissionChecker(&fakePermissionChecker{allowed: true, subToolAllowed: false})
+
+	result, err := gc.CallTool(context.Background(), defaultAgent(), "upstream__search", nil)
+	if err != nil {
+		t.Fatalf("unexpected error: %v", err)
+	}
+	if !result.IsError {
+		t.Fatal("expected error result for sub-tool denial")
+	}
+	tc := result.Content[0].(mcp.TextContent)
+	if tc.Text != "sub-tool search not permitted for tool upstream" {
+		t.Errorf("error text = %q", tc.Text)
+	}
+	if mcpUp.called {
+		t.Error("MCP upstream should not have been called")
+	}
+	if len(collector.transactions) != 1 {
+		t.Fatalf("expected 1 transaction, got %d", len(collector.transactions))
+	}
+	if collector.transactions[0].StatusCode != 403 {
+		t.Errorf("tx.StatusCode = %d, want 403", collector.transactions[0].StatusCode)
+	}
+}
+
+func TestGovernedCaller_MCPSubToolAllowed(t *testing.T) {
+	mcpToolID := "mcp-tool-1"
+	mcpTool := &registry.Tool{
+		ID:   mcpToolID,
+		Name: "upstream",
+		Mode: "mcp",
+	}
+	router := &fakeRouter{routes: map[string]ToolRoute{
+		"upstream__search": {Source: "mcp", ToolID: mcpToolID, UpstreamID: mcpToolID, UpstreamToolName: "search"},
+	}}
+	store := &fakeToolStore{tools: map[string]*registry.Tool{mcpToolID: mcpTool}}
+	budgets := &fakeBudgetChecker{agentAllowed: true, globalAllowed: true}
+	rl := &fakeRateLimiter{allowed: true}
+	collector := &fakeCollector{}
+	rest := &fakeRESTCaller{}
+	mcpUp := &fakeMCPCaller{result: mcp.NewToolResultText("allowed result")}
+
+	gc := newGovernedCaller(router, store, budgets, rl, collector, rest, mcpUp)
+	gc.SetPermissionChecker(&fakePermissionChecker{allowed: true, subToolAllowed: true})
+
+	result, err := gc.CallTool(context.Background(), defaultAgent(), "upstream__search", nil)
+	if err != nil {
+		t.Fatalf("unexpected error: %v", err)
+	}
+	if result.IsError {
+		t.Fatal("expected success result")
+	}
+	if !mcpUp.called {
+		t.Error("MCP upstream should have been called")
+	}
+	tc := result.Content[0].(mcp.TextContent)
+	if tc.Text != "allowed result" {
+		t.Errorf("result text = %q, want %q", tc.Text, "allowed result")
 	}
 }

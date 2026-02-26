@@ -28,42 +28,84 @@ func (s *Store) BatchInsert(ctx context.Context, txns []Transaction) error {
 		return nil
 	}
 
-	const cols = 13 // number of columns per row (excluding server-generated id)
-	args := make([]any, 0, len(txns)*cols)
+	// Determine if we need to insert with explicit IDs.
+	hasExplicitIDs := txns[0].ID != ""
+
+	var colsPerRow int
+	var insertCols string
+	if hasExplicitIDs {
+		colsPerRow = 16
+		insertCols = `(id, agent_id, tool_id, timestamp, method, path, status_code, latency_ms,
+		 request_size, response_size, success, cost, error, cost_source, agent_name, tool_name)`
+	} else {
+		colsPerRow = 15
+		insertCols = `(agent_id, tool_id, timestamp, method, path, status_code, latency_ms,
+		 request_size, response_size, success, cost, error, cost_source, agent_name, tool_name)`
+	}
+
+	args := make([]any, 0, len(txns)*colsPerRow)
 	rows := make([]string, 0, len(txns))
 
 	for i, tx := range txns {
-		base := i * cols
-		rows = append(rows, fmt.Sprintf(
-			"($%d, $%d, $%d, $%d, $%d, $%d, $%d, $%d, $%d, $%d, $%d, $%d, $%d)",
-			base+1, base+2, base+3, base+4, base+5, base+6,
-			base+7, base+8, base+9, base+10, base+11, base+12, base+13,
-		))
+		base := i * colsPerRow
 		costSource := tx.CostSource
 		if costSource == "" {
 			costSource = "flat"
 		}
-		args = append(args,
-			tx.AgentID,
-			tx.ToolID,
-			tx.Timestamp,
-			tx.Method,
-			tx.Path,
-			tx.StatusCode,
-			tx.LatencyMs,
-			tx.RequestSize,
-			tx.ResponseSize,
-			tx.Success,
-			tx.Cost,
-			tx.Error,
-			costSource,
-		)
+
+		if hasExplicitIDs {
+			rows = append(rows, fmt.Sprintf(
+				"($%d, $%d, $%d, $%d, $%d, $%d, $%d, $%d, $%d, $%d, $%d, $%d, $%d, $%d, $%d, $%d)",
+				base+1, base+2, base+3, base+4, base+5, base+6, base+7,
+				base+8, base+9, base+10, base+11, base+12, base+13, base+14,
+				base+15, base+16,
+			))
+			args = append(args,
+				tx.ID,
+				tx.AgentID,
+				tx.ToolID,
+				tx.Timestamp,
+				tx.Method,
+				tx.Path,
+				tx.StatusCode,
+				tx.LatencyMs,
+				tx.RequestSize,
+				tx.ResponseSize,
+				tx.Success,
+				tx.Cost,
+				tx.Error,
+				costSource,
+				tx.AgentName,
+				tx.ToolName,
+			)
+		} else {
+			rows = append(rows, fmt.Sprintf(
+				"($%d, $%d, $%d, $%d, $%d, $%d, $%d, $%d, $%d, $%d, $%d, $%d, $%d, $%d, $%d)",
+				base+1, base+2, base+3, base+4, base+5, base+6, base+7,
+				base+8, base+9, base+10, base+11, base+12, base+13, base+14, base+15,
+			))
+			args = append(args,
+				tx.AgentID,
+				tx.ToolID,
+				tx.Timestamp,
+				tx.Method,
+				tx.Path,
+				tx.StatusCode,
+				tx.LatencyMs,
+				tx.RequestSize,
+				tx.ResponseSize,
+				tx.Success,
+				tx.Cost,
+				tx.Error,
+				costSource,
+				tx.AgentName,
+				tx.ToolName,
+			)
+		}
 	}
 
-	query := `INSERT INTO transactions
-		(agent_id, tool_id, timestamp, method, path, status_code, latency_ms,
-		 request_size, response_size, success, cost, error, cost_source)
-		VALUES ` + strings.Join(rows, ", ")
+	query := `INSERT INTO transactions ` + insertCols +
+		` VALUES ` + strings.Join(rows, ", ")
 
 	_, err := s.pool.Exec(ctx, query, args...)
 	if err != nil {
@@ -71,6 +113,27 @@ func (s *Store) BatchInsert(ctx context.Context, txns []Transaction) error {
 	}
 
 	return nil
+}
+
+// GetByID retrieves a single transaction by its ID.
+func (s *Store) GetByID(ctx context.Context, id string) (*Transaction, error) {
+	var tx Transaction
+	err := s.pool.QueryRow(ctx,
+		`SELECT id, agent_id, tool_id,
+			timestamp, method, path,
+			status_code, latency_ms, request_size, response_size, success, cost, cost_source, error,
+			agent_name, tool_name
+		 FROM transactions WHERE id = $1`, id,
+	).Scan(
+		&tx.ID, &tx.AgentID, &tx.ToolID, &tx.Timestamp,
+		&tx.Method, &tx.Path, &tx.StatusCode, &tx.LatencyMs,
+		&tx.RequestSize, &tx.ResponseSize, &tx.Success, &tx.Cost, &tx.CostSource, &tx.Error,
+		&tx.AgentName, &tx.ToolName,
+	)
+	if err != nil {
+		return nil, fmt.Errorf("getting transaction by id: %w", err)
+	}
+	return &tx, nil
 }
 
 // GetSummary returns aggregate usage metrics matching the given query filters.
@@ -175,8 +238,10 @@ func (s *Store) ListTransactions(ctx context.Context, q UsageQuery) ([]*Transact
 		args = append(args, ts, id)
 	}
 
-	query := `SELECT id, agent_id, tool_id, timestamp, method, path,
-		status_code, latency_ms, request_size, response_size, success, cost, cost_source, error
+	query := `SELECT id, agent_id, tool_id,
+		timestamp, method, path,
+		status_code, latency_ms, request_size, response_size, success, cost, cost_source, error,
+		agent_name, tool_name
 	FROM transactions` + where +
 		` ORDER BY timestamp DESC, id DESC LIMIT $` + strconv.Itoa(len(args)+1)
 	args = append(args, limit+1) // fetch one extra to determine if there's a next page
@@ -194,6 +259,7 @@ func (s *Store) ListTransactions(ctx context.Context, q UsageQuery) ([]*Transact
 			&tx.ID, &tx.AgentID, &tx.ToolID, &tx.Timestamp,
 			&tx.Method, &tx.Path, &tx.StatusCode, &tx.LatencyMs,
 			&tx.RequestSize, &tx.ResponseSize, &tx.Success, &tx.Cost, &tx.CostSource, &tx.Error,
+			&tx.AgentName, &tx.ToolName,
 		); err != nil {
 			return nil, "", fmt.Errorf("scanning transaction row: %w", err)
 		}
@@ -256,6 +322,14 @@ func buildWhereClause(q UsageQuery) (string, []any) {
 	if !q.To.IsZero() {
 		args = append(args, q.To)
 		conditions = append(conditions, fmt.Sprintf("timestamp <= $%d", len(args)))
+	}
+	if q.StatusCode != nil {
+		args = append(args, *q.StatusCode)
+		conditions = append(conditions, fmt.Sprintf("status_code = $%d", len(args)))
+	}
+	if q.MinLatencyMs != nil {
+		args = append(args, *q.MinLatencyMs)
+		conditions = append(conditions, fmt.Sprintf("latency_ms >= $%d", len(args)))
 	}
 
 	if len(conditions) == 0 {

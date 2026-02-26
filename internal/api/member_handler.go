@@ -17,17 +17,20 @@ import (
 // memberHandler groups member (team-scoped) HTTP handlers.
 type memberHandler struct {
 	agentStore  *agent.Store
+	toolStore   *registry.Store
 	toolService *registry.Service
 	meterStore  *metering.Store
 }
 
-func newMemberHandler(agentStore *agent.Store, toolService *registry.Service, meterStore *metering.Store) *memberHandler {
+func newMemberHandler(agentStore *agent.Store, toolStore *registry.Store, toolService *registry.Service, meterStore *metering.Store) *memberHandler {
 	return &memberHandler{
 		agentStore:  agentStore,
+		toolStore:   toolStore,
 		toolService: toolService,
 		meterStore:  meterStore,
 	}
 }
+
 
 // ListAgents handles GET /api/v1/member/agents — agents in user's teams.
 func (h *memberHandler) ListAgents(w http.ResponseWriter, r *http.Request) {
@@ -185,7 +188,7 @@ func (h *memberHandler) UpdateAgent(w http.ResponseWriter, r *http.Request) {
 		return
 	}
 
-	auditLog(r, "update", "agent", id)
+	auditLog(r, "update", "agent", id, "name", ag.Name)
 
 	writeJSON(w, http.StatusOK, ag)
 }
@@ -219,12 +222,12 @@ func (h *memberHandler) DeleteAgent(w http.ResponseWriter, r *http.Request) {
 		return
 	}
 
-	if err := h.agentStore.Delete(r.Context(), id); err != nil {
+	if err := h.agentStore.Archive(r.Context(), id); err != nil {
 		writeError(w, http.StatusInternalServerError, "internal_error", "failed to delete agent")
 		return
 	}
 
-	auditLog(r, "delete", "agent", id)
+	auditLog(r, "delete", "agent", id, "name", existing.Name)
 
 	w.WriteHeader(http.StatusNoContent)
 }
@@ -270,7 +273,7 @@ func (h *memberHandler) RegenerateKey(w http.ResponseWriter, r *http.Request) {
 		return
 	}
 
-	auditLog(r, "regenerate_key", "agent", id)
+	auditLog(r, "regenerate_key", "agent", id, "name", ag.Name)
 
 	writeJSON(w, http.StatusOK, map[string]interface{}{
 		"id":             ag.ID,

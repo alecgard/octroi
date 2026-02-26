@@ -2,6 +2,7 @@ package api
 
 import (
 	"context"
+	"encoding/json"
 	"fmt"
 	"log/slog"
 	"math"
@@ -10,7 +11,9 @@ import (
 	"time"
 
 	"github.com/alecgard/octroi/internal/agent"
+	"github.com/alecgard/octroi/internal/audit"
 	"github.com/alecgard/octroi/internal/auth"
+	"github.com/alecgard/octroi/internal/circuitbreaker"
 	"github.com/alecgard/octroi/internal/mcp"
 	"github.com/alecgard/octroi/internal/metering"
 	"github.com/alecgard/octroi/internal/metrics"
@@ -112,7 +115,9 @@ type RouterDeps struct {
 	ToolStore          *registry.Store
 	AgentStore         *agent.Store
 	BudgetStore        *agent.BudgetStore
+	PermissionStore    *agent.PermissionStore
 	MeterStore         *metering.Store
+	BodyStore          *metering.BodyStore
 	Collector          *metering.Collector
 	Auth               *auth.Service
 	Limiter            *ratelimit.Limiter
@@ -123,6 +128,8 @@ type RouterDeps struct {
 	Metrics            *metrics.Metrics
 	MCPServer          *mcp.Server
 	MCPAggregator      *mcp.Aggregator
+	AuditStore         *audit.Store
+	CBRegistry         *circuitbreaker.Registry
 }
 
 // NewRouter builds the chi router with all routes and middleware.
@@ -139,11 +146,19 @@ func NewRouter(deps RouterDeps) http.Handler {
 	}
 	r.Use(slogRequestLogger)
 
+	// Wire audit DB store for dual-write.
+	if deps.AuditStore != nil {
+		SetAuditStore(deps.AuditStore)
+	}
+
 	// Handlers.
 	tools := newToolsHandler(deps.ToolService)
 	agents := newAgentsHandler(deps.AgentStore, deps.BudgetStore)
 	search := newSearchHandler(deps.ToolService)
 	usage := newUsageHandler(deps.MeterStore, deps.AgentStore)
+	if deps.BodyStore != nil {
+		usage.setBodyStore(deps.BodyStore)
+	}
 
 	// Login rate limiter: 5 attempts per IP per minute.
 	loginRL := newLoginRateLimiter(5, time.Minute)
@@ -259,6 +274,15 @@ func NewRouter(deps RouterDeps) http.Handler {
 		ar.Get("/agents/{agentID}/budgets/{toolID}", agents.GetBudget)
 		ar.Get("/agents/{agentID}/budgets", agents.ListBudgets)
 
+		// Agent tool permissions.
+		if deps.PermissionStore != nil {
+			perms := newPermissionsHandler(deps.PermissionStore, deps.AgentStore)
+			ar.Get("/agents/{agentID}/permissions", perms.ListPermissions)
+			ar.Put("/agents/{agentID}/permissions/{toolID}", perms.SetPermission)
+			ar.Put("/agents/{agentID}/permissions", perms.BulkSetPermissions)
+			ar.Delete("/agents/{agentID}/permissions/{toolID}", perms.DeletePermission)
+		}
+
 		// Admin usage queries.
 		ar.Get("/usage", usage.GetUsageAdmin)
 		ar.Get("/usage/agents/{agentID}", usage.GetUsageByAgent)
@@ -269,6 +293,8 @@ func NewRouter(deps RouterDeps) http.Handler {
 		ar.Get("/usage/transactions", func(w http.ResponseWriter, r *http.Request) {
 			usage.ListTransactions(w, r, true)
 		})
+		ar.Get("/usage/transactions/export", usage.ExportTransactions)
+		ar.Get("/usage/transactions/{id}", usage.GetTransactionDetail)
 
 		// User management (admin only).
 		if deps.UserStore != nil {
@@ -298,11 +324,30 @@ func NewRouter(deps RouterDeps) http.Handler {
 			teams := newTeamsHandler(deps.AgentStore, deps.UserStore)
 			ar.Get("/teams", teams.AdminListTeams)
 		}
+
+		// Circuit breaker status (admin).
+		if deps.CBRegistry != nil {
+			ar.Get("/tools/{id}/circuit-breaker", func(w http.ResponseWriter, r *http.Request) {
+				id := chi.URLParam(r, "id")
+				stats := deps.CBRegistry.GetStats(id)
+				if stats == nil {
+					stats = &circuitbreaker.Stats{State: "closed"}
+				}
+				w.Header().Set("Content-Type", "application/json")
+				json.NewEncoder(w).Encode(stats)
+			})
+		}
+
+		// Audit log (admin).
+		if deps.AuditStore != nil {
+			auditH := newAuditHandler(deps.AuditStore)
+			ar.Get("/audit-log", auditH.ListAuditLog)
+		}
 	})
 
 	// Member routes (require any valid session).
 	if deps.UserStore != nil && sessionLookup != nil {
-		member := newMemberHandler(deps.AgentStore, deps.ToolService, deps.MeterStore)
+		member := newMemberHandler(deps.AgentStore, deps.ToolStore, deps.ToolService, deps.MeterStore)
 		teams := newTeamsHandler(deps.AgentStore, deps.UserStore)
 		users := newUsersHandler(deps.UserStore)
 		r.Route("/api/v1/member", func(mr chi.Router) {

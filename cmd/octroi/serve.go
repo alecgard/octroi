@@ -12,7 +12,9 @@ import (
 
 	"github.com/alecgard/octroi/internal/agent"
 	"github.com/alecgard/octroi/internal/api"
+	"github.com/alecgard/octroi/internal/audit"
 	"github.com/alecgard/octroi/internal/auth"
+	"github.com/alecgard/octroi/internal/circuitbreaker"
 	"github.com/alecgard/octroi/internal/config"
 	"github.com/alecgard/octroi/internal/crypto"
 	"github.com/alecgard/octroi/internal/mcp"
@@ -22,9 +24,23 @@ import (
 	"github.com/alecgard/octroi/internal/ratelimit"
 	"github.com/alecgard/octroi/internal/registry"
 	"github.com/alecgard/octroi/internal/user"
+	"github.com/alecgard/octroi/internal/webhook"
 	"github.com/jackc/pgx/v5/pgxpool"
 	"github.com/spf13/cobra"
 )
+
+// bodyRecorderAdapter adapts metering.BodyStore for the proxy.BodyRecorder interface.
+type bodyRecorderAdapter struct {
+	store *metering.BodyStore
+}
+
+func (a *bodyRecorderAdapter) RecordBody(ctx context.Context, transactionID string, reqBody, respBody []byte) {
+	insertCtx, cancel := context.WithTimeout(ctx, 5*time.Second)
+	defer cancel()
+	if err := a.store.Insert(insertCtx, transactionID, reqBody, respBody); err != nil {
+		slog.Warn("failed to record request body", "transaction_id", transactionID, "error", err)
+	}
+}
 
 // toolRegistryAdapter adapts registry.Store to the mcp.ToolRegistryLister
 // interface by fetching all enabled tools without pagination.
@@ -34,6 +50,31 @@ type toolRegistryAdapter struct {
 
 func (a *toolRegistryAdapter) List(ctx context.Context) ([]*registry.Tool, error) {
 	return a.store.ListEnabled(ctx)
+}
+
+// circuitBreakerAdapter adapts circuitbreaker.Registry to the proxy.CircuitBreakerChecker interface.
+type circuitBreakerAdapter struct {
+	reg *circuitbreaker.Registry
+}
+
+func (a *circuitBreakerAdapter) Allow(toolID string, cfg proxy.CircuitBreakerConfig) bool {
+	cb := a.reg.Get(toolID, circuitbreaker.Config{
+		Enabled:           cfg.Enabled,
+		ErrorThresholdPct: cfg.ErrorThresholdPct,
+		WindowSeconds:     cfg.WindowSeconds,
+		CooldownSeconds:   cfg.CooldownSeconds,
+	})
+	return cb.Allow()
+}
+
+func (a *circuitBreakerAdapter) RecordResult(toolID string, cfg proxy.CircuitBreakerConfig, statusCode int) {
+	cb := a.reg.Get(toolID, circuitbreaker.Config{
+		Enabled:           cfg.Enabled,
+		ErrorThresholdPct: cfg.ErrorThresholdPct,
+		WindowSeconds:     cfg.WindowSeconds,
+		CooldownSeconds:   cfg.CooldownSeconds,
+	})
+	cb.RecordResult(statusCode)
 }
 
 var serveCmd = &cobra.Command{
@@ -131,8 +172,36 @@ func runServe(cmd *cobra.Command, args []string) error {
 	toolRateLimitStore := ratelimit.NewToolRateLimitStore(pool)
 	toolRateLimiter := ratelimit.NewToolRateLimiter(toolRateLimitStore, limiter)
 
+	bodyStore := metering.NewBodyStore(pool)
+
+	// Periodic body purge every hour.
+	go func() {
+		ticker := time.NewTicker(1 * time.Hour)
+		defer ticker.Stop()
+		for {
+			select {
+			case <-ctx.Done():
+				return
+			case <-ticker.C:
+				n, err := bodyStore.PurgeOlderThan(ctx, cfg.Metering.BodyRetention)
+				if err != nil {
+					slog.Warn("body purge failed", "error", err)
+				} else if n > 0 {
+					slog.Info("purged old request bodies", "count", n)
+				}
+			}
+		}
+	}()
+
+	permissionStore := agent.NewPermissionStore(pool, agentStore)
+
 	proxyHandler := proxy.NewHandler(toolStore, budgetStore, collector, cfg.Proxy.Timeout, cfg.Proxy.MaxRequestSize)
 	proxyHandler.SetToolRateLimitChecker(toolRateLimiter)
+	proxyHandler.SetPermissionChecker(permissionStore)
+	proxyHandler.SetBodyRecorder(&bodyRecorderAdapter{store: bodyStore})
+	proxyHandler.SetWebhookDispatcher(webhook.NewDispatcher(1 * time.Hour))
+	cbRegistry := circuitbreaker.NewRegistry()
+	proxyHandler.SetCircuitBreaker(&circuitBreakerAdapter{reg: cbRegistry})
 	proxyHandler.SetMetrics(m)
 
 	// MCP components.
@@ -166,6 +235,7 @@ func runServe(cmd *cobra.Command, args []string) error {
 	}
 
 	governedCaller := mcp.NewGovernedCaller(aggregator, toolStore, budgetStore, toolRateLimiter, collector, restCaller, aggregator)
+	governedCaller.SetPermissionChecker(permissionStore)
 	mcpServer := mcp.NewServer(aggregator, governedCaller)
 
 	// Wire MCP caller into the proxy for HTTP-based MCP tool access.
@@ -177,7 +247,9 @@ func runServe(cmd *cobra.Command, args []string) error {
 		ToolStore:          toolStore,
 		AgentStore:         agentStore,
 		BudgetStore:        budgetStore,
+		PermissionStore:    permissionStore,
 		MeterStore:         meterStore,
+		BodyStore:          bodyStore,
 		Collector:          collector,
 		Auth:               authService,
 		Limiter:            limiter,
@@ -188,6 +260,8 @@ func runServe(cmd *cobra.Command, args []string) error {
 		Metrics:            m,
 		MCPServer:          mcpServer,
 		MCPAggregator:      aggregator,
+		AuditStore:         audit.NewStore(pool),
+		CBRegistry:         cbRegistry,
 	})
 
 	srv := &http.Server{

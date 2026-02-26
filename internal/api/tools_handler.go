@@ -74,7 +74,7 @@ func (h *toolsHandler) UpdateTool(w http.ResponseWriter, r *http.Request) {
 		return
 	}
 
-	auditLog(r, "update", "tool", id)
+	auditLog(r, "update", "tool", id, "name", tool.Name)
 
 	writeJSON(w, http.StatusOK, adminToolView(tool))
 }
@@ -87,6 +87,12 @@ func (h *toolsHandler) DeleteTool(w http.ResponseWriter, r *http.Request) {
 		return
 	}
 
+	// Fetch tool name before deleting for audit trail.
+	var toolName string
+	if tool, err := h.service.GetByID(r.Context(), id); err == nil {
+		toolName = tool.Name
+	}
+
 	err := h.service.Delete(r.Context(), id)
 	if err != nil {
 		if errors.Is(err, pgx.ErrNoRows) {
@@ -97,7 +103,7 @@ func (h *toolsHandler) DeleteTool(w http.ResponseWriter, r *http.Request) {
 		return
 	}
 
-	auditLog(r, "delete", "tool", id)
+	auditLog(r, "delete", "tool", id, "name", toolName)
 
 	w.WriteHeader(http.StatusNoContent)
 }
@@ -234,6 +240,7 @@ func (h *toolsHandler) RefreshMCPTools(agg *mcp.Aggregator) http.HandlerFunc {
 			agg.AddUpstream(id, fresh.Name, c)
 		}
 
+
 		if err := agg.RefreshUpstream(r.Context(), id); err != nil {
 			writeError(w, http.StatusBadGateway, "refresh_failed", "failed to refresh MCP tools: "+err.Error())
 			return
@@ -304,10 +311,20 @@ func adminToolView(t *registry.Tool) map[string]interface{} {
 		"rate_limit":       t.RateLimit,
 		"budget_limit":     t.BudgetLimit,
 		"budget_window":    t.BudgetWindow,
-		"transport":        t.Transport,
-		"enabled":          t.Enabled,
-		"created_at":       t.CreatedAt,
-		"updated_at":       t.UpdatedAt,
+		"transport":              t.Transport,
+		"enabled":                t.Enabled,
+		"created_at":             t.CreatedAt,
+		"updated_at":             t.UpdatedAt,
+		"log_bodies":             t.LogBodies,
+		"timeout_ms":             t.TimeoutMs,
+		"max_retries":            t.MaxRetries,
+		"retry_backoff_ms":       t.RetryBackoffMs,
+		"webhook_url":            t.WebhookURL,
+		"webhook_threshold_pct":  t.WebhookThresholdPct,
+		"cb_enabled":             t.CBEnabled,
+		"cb_error_threshold_pct": t.CBErrorThresholdPct,
+		"cb_window_seconds":      t.CBWindowSeconds,
+		"cb_cooldown_seconds":    t.CBCooldownSeconds,
 	}
 }
 

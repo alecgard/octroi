@@ -4,13 +4,15 @@ import "time"
 
 // Agent represents a registered API agent.
 type Agent struct {
-	ID           string    `json:"id"`
-	Name         string    `json:"name"`
-	APIKeyHash   string    `json:"-"`
-	APIKeyPrefix string    `json:"api_key_prefix"`
-	Team         string    `json:"team"`
-	RateLimit    int       `json:"rate_limit"`
-	CreatedAt    time.Time `json:"created_at"`
+	ID            string    `json:"id"`
+	Name          string    `json:"name"`
+	APIKeyHash    string    `json:"-"`
+	APIKeyPrefix  string    `json:"api_key_prefix"`
+	Team          string    `json:"team"`
+	RateLimit     int       `json:"rate_limit"`
+	AllowlistMode bool       `json:"allowlist_mode"`
+	CreatedAt     time.Time  `json:"created_at"`
+	ArchivedAt    *time.Time `json:"archived_at,omitempty"`
 }
 
 // CreateAgentInput holds the fields required to create a new agent.
@@ -24,9 +26,10 @@ type CreateAgentInput struct {
 
 // UpdateAgentInput holds optional fields for a partial agent update.
 type UpdateAgentInput struct {
-	Name      *string `json:"name,omitempty"`
-	Team      *string `json:"team,omitempty"`
-	RateLimit *int    `json:"rate_limit,omitempty"`
+	Name          *string `json:"name,omitempty"`
+	Team          *string `json:"team,omitempty"`
+	RateLimit     *int    `json:"rate_limit,omitempty"`
+	AllowlistMode *bool   `json:"allowlist_mode,omitempty"`
 }
 
 // AgentListParams controls cursor-based pagination for listing agents.
