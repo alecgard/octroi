@@ -11,6 +11,7 @@ import (
 
 	"github.com/alecgard/octroi/internal/agent"
 	"github.com/alecgard/octroi/internal/auth"
+	"github.com/alecgard/octroi/internal/mcp"
 	"github.com/alecgard/octroi/internal/metering"
 	"github.com/alecgard/octroi/internal/metrics"
 	"github.com/alecgard/octroi/internal/proxy"
@@ -120,6 +121,8 @@ type RouterDeps struct {
 	ToolRateLimitStore *ratelimit.ToolRateLimitStore
 	AllowedOrigins     []string
 	Metrics            *metrics.Metrics
+	MCPServer          *mcp.Server
+	MCPAggregator      *mcp.Aggregator
 }
 
 // NewRouter builds the chi router with all routes and middleware.
@@ -283,6 +286,12 @@ func NewRouter(deps RouterDeps) http.Handler {
 			ar.Delete("/tools/{toolID}/rate-limits/{scope}/{scopeID}", trl.DeleteToolRateLimit)
 		}
 
+		// MCP tool management (admin).
+		if deps.MCPAggregator != nil {
+			ar.Post("/tools/{id}/refresh-mcp", tools.RefreshMCPTools(deps.MCPAggregator))
+			ar.Get("/tools/{id}/mcp-tools", tools.ListMCPTools(deps.MCPAggregator))
+		}
+
 		// Teams (admin).
 		if deps.UserStore != nil {
 			teams := newTeamsHandler(deps.AgentStore, deps.UserStore)
@@ -334,6 +343,15 @@ func NewRouter(deps RouterDeps) http.Handler {
 
 		pr.Handle("/{toolID}/*", deps.Proxy)
 	})
+
+	// MCP endpoint (agent-authed + rate limited).
+	if deps.MCPServer != nil {
+		r.Route("/mcp", func(mr chi.Router) {
+			mr.Use(auth.AgentAuthMiddleware(deps.Auth, agentAuthFail, agentAuthSuccess))
+			mr.Use(ratelimit.Middleware(deps.Limiter, rateLimitReject))
+			mr.Handle("/*", deps.MCPServer.Handler())
+		})
+	}
 
 	return r
 }

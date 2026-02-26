@@ -13,8 +13,11 @@ var (
 	ErrDescriptionRequired = errors.New("description is required")
 	ErrEndpointInvalid     = errors.New("endpoint must be a valid URL")
 	ErrAuthTypeInvalid     = errors.New("auth_type must be one of: none, bearer, header, query")
-	ErrModeInvalid         = errors.New("mode must be one of: service, api")
+	ErrModeInvalid         = errors.New("mode must be one of: service, api, mcp")
 	ErrVariablesMissing    = errors.New("variables do not satisfy all template placeholders")
+	ErrTransportInvalid    = errors.New("transport must be one of: streamable-http, sse")
+	ErrTransportRequired   = errors.New("transport is required for mcp mode")
+	ErrTransportForbidden  = errors.New("transport must be empty for non-mcp modes")
 )
 
 // validAuthTypes is the set of accepted auth_type values.
@@ -29,6 +32,12 @@ var validAuthTypes = map[string]bool{
 var validModes = map[string]bool{
 	"service": true,
 	"api":     true,
+	"mcp":     true,
+}
+
+var validTransports = map[string]bool{
+	"streamable-http": true,
+	"sse":             true,
 }
 
 // Service provides validated business logic over the registry Store.
@@ -76,9 +85,9 @@ func (s *Service) Update(ctx context.Context, id string, input UpdateToolInput) 
 	if err := validateUpdate(input); err != nil {
 		return nil, err
 	}
-	// Cross-field validation for API mode: when endpoint or variables change,
-	// we need to validate the template against the full set of variables.
-	if input.Mode != nil || input.Endpoint != nil || input.Variables != nil {
+	// Cross-field validation: when mode, endpoint, variables, or transport change,
+	// we need to validate the template / transport against the full set of fields.
+	if input.Mode != nil || input.Endpoint != nil || input.Variables != nil || input.Transport != nil {
 		existing, err := s.store.GetByID(ctx, id)
 		if err != nil {
 			return nil, err
@@ -97,6 +106,15 @@ func (s *Service) Update(ctx context.Context, id string, input UpdateToolInput) 
 				variables = *input.Variables
 			}
 			if err := validateAPIEndpoint(endpoint, variables); err != nil {
+				return nil, err
+			}
+		}
+		if mode == "mcp" {
+			transport := existing.Transport
+			if input.Transport != nil {
+				transport = *input.Transport
+			}
+			if err := validateTransport(transport, true); err != nil {
 				return nil, err
 			}
 		}
@@ -125,13 +143,26 @@ func validateCreate(input CreateToolInput) error {
 	if input.Mode != "" && !validModes[input.Mode] {
 		return ErrModeInvalid
 	}
-	if input.Mode == "api" {
+	if input.Mode == "mcp" {
+		if err := validateEndpoint(input.Endpoint); err != nil {
+			return err
+		}
+		if err := validateTransport(input.Transport, true); err != nil {
+			return err
+		}
+	} else if input.Mode == "api" {
 		if err := validateAPIEndpoint(input.Endpoint, input.Variables); err != nil {
 			return err
+		}
+		if input.Transport != "" {
+			return ErrTransportForbidden
 		}
 	} else {
 		if err := validateEndpoint(input.Endpoint); err != nil {
 			return err
+		}
+		if input.Transport != "" {
+			return ErrTransportForbidden
 		}
 	}
 	if input.AuthType != "" {
@@ -163,6 +194,26 @@ func validateUpdate(input UpdateToolInput) error {
 		if !validAuthTypes[*input.AuthType] {
 			return ErrAuthTypeInvalid
 		}
+	}
+	// Validate transport if provided.
+	if input.Transport != nil && *input.Transport != "" {
+		if !validTransports[*input.Transport] {
+			return ErrTransportInvalid
+		}
+	}
+	return nil
+}
+
+// validateTransport checks that the transport is valid. If required is true, empty is rejected.
+func validateTransport(transport string, required bool) error {
+	if transport == "" {
+		if required {
+			return ErrTransportRequired
+		}
+		return nil
+	}
+	if !validTransports[transport] {
+		return ErrTransportInvalid
 	}
 	return nil
 }

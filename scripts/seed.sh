@@ -138,6 +138,8 @@ TOOL_NAMES=(
   "Argo CD"
   "Docker Registry"
   "RPC Gateway"
+  "Brave Search"
+  "Filesystem"
 )
 TOOL_ENDPOINTS=(
   "https://bigquery.googleapis.com"
@@ -158,18 +160,28 @@ TOOL_ENDPOINTS=(
   "https://argocd.internal.example.com"
   "https://registry.internal.example.com"
   "https://rpc.internal.example.com"
+  "https://brave-search.internal.example.com/mcp"
+  "https://filesystem.internal.example.com/mcp"
 )
 TOOL_MODES=(
   service service service service service service service service service
   service service api service api service service service service
+  mcp mcp
+)
+TOOL_TRANSPORTS=(
+  '' '' '' '' '' '' '' '' ''
+  '' '' '' '' '' '' '' '' ''
+  'streamable-http' 'sse'
 )
 TOOL_VARIABLES=(
   '{}' '{}' '{}' '{}' '{}' '{}' '{}' '{}' '{}'
   '{}' '{}' '{"instance":"mycompany"}' '{}' '{"org":"mycompany"}' '{}' '{}' '{}' '{}'
+  '{}' '{}'
 )
 TOOL_AUTH_TYPES=(
   bearer header bearer bearer bearer bearer bearer bearer bearer
   bearer bearer bearer bearer bearer bearer bearer bearer bearer
+  bearer none
 )
 TOOL_AUTH_CONFIGS=(
   '{"key":"mock-gcp-token"}'
@@ -190,10 +202,13 @@ TOOL_AUTH_CONFIGS=(
   '{"key":"mock-argo-token"}'
   '{"key":"mock-registry-token"}'
   '{"key":"mock-rpc-token"}'
+  '{"key":"mock-brave-token"}'
+  '{}'
 )
 TOOL_PRICING=(
   per_request per_request free free per_request free per_request per_request
   free per_request free per_request free per_request per_request free free per_request
+  per_request free
 )
 TOOL_PRICING_AMOUNTS=(
   0.05    # BigQuery — data warehouse queries
@@ -214,10 +229,13 @@ TOOL_PRICING_AMOUNTS=(
   0       # Argo CD — free
   0       # Docker Registry — free
   0.002   # RPC Gateway — blockchain node
+  0.003   # Brave Search — web search queries
+  0       # Filesystem — free
 )
 TOOL_RATE_LIMITS=(
   100 500 200 200 150 300 80 200
   100 60 120 120 200 100 150 60 100 500
+  60 200
 )
 TOOL_DESCRIPTIONS=(
   "Google BigQuery data warehouse for analytics and SQL queries"
@@ -238,6 +256,8 @@ TOOL_DESCRIPTIONS=(
   "GitOps continuous delivery for Kubernetes deployments"
   "Private container image registry"
   "JSON-RPC gateway for blockchain node access"
+  "Web search via Brave Search MCP server"
+  "Local filesystem access via MCP server"
 )
 
 TOOL_IDS=()
@@ -251,6 +271,7 @@ for i in "${!TOOL_NAMES[@]}"; do
     continue
   fi
 
+  transport="${TOOL_TRANSPORTS[$i]}"
   body=$(jq -n \
     --arg name "$name" \
     --arg endpoint "${TOOL_ENDPOINTS[$i]}" \
@@ -262,10 +283,12 @@ for i in "${!TOOL_NAMES[@]}"; do
     --argjson pricing_amount "${TOOL_PRICING_AMOUNTS[$i]}" \
     --argjson rate_limit "${TOOL_RATE_LIMITS[$i]}" \
     --arg description "${TOOL_DESCRIPTIONS[$i]}" \
+    --arg transport "$transport" \
     '{name:$name, description:$description, mode:$mode, endpoint:$endpoint,
       auth_type:$auth_type, auth_config:$auth_config, variables:$variables,
       pricing_model:$pricing_model, pricing_amount:$pricing_amount, pricing_currency:"USD",
-      rate_limit:$rate_limit, budget_limit:100000, budget_window:"monthly"}')
+      rate_limit:$rate_limit, budget_limit:100000, budget_window:"monthly"}
+      + (if $transport != "" then {transport:$transport, enabled:true} else {} end)')
 
   resp=$(api POST "/api/v1/admin/tools" "$body")
   if check_error "$resp" "create tool $name"; then
@@ -410,7 +433,7 @@ T_BIGQUERY=0  T_KAFKA=1     T_PROMETHEUS=2  T_LOKI=3
 T_ELASTIC=4   T_REDIS=5     T_PGANALYTICS=6 T_S3=7
 T_VAULT=8     T_PAGERDUTY=9 T_GITHUB=10     T_JIRA=11
 T_SLACK=12    T_SENTRY=13   T_DATADOG=14    T_ARGOCD=15
-T_REGISTRY=16 T_RPC=17
+T_REGISTRY=16 T_RPC=17      T_BRAVE=18    T_FILESYSTEM=19
 
 # Build a weighted (agent, tool) pair table. Each entry is "agent_idx tool_idx".
 # The number of times a pair appears determines its probability.
@@ -428,7 +451,7 @@ add_pairs() {
 }
 
 # Agent 0: backend-dev — writes code, reviews PRs, files bugs (medium volume)
-add_pairs 0   $T_GITHUB 5  $T_JIRA 3  $T_SENTRY 4  $T_ELASTIC 3  $T_REDIS 2  $T_SLACK 1
+add_pairs 0   $T_GITHUB 5  $T_JIRA 3  $T_SENTRY 4  $T_ELASTIC 3  $T_REDIS 2  $T_SLACK 1  $T_BRAVE 2  $T_FILESYSTEM 1
 # Agent 1: backend-ops — runs services, watches metrics (high volume)
 add_pairs 1   $T_KAFKA 8  $T_PROMETHEUS 6  $T_LOKI 5  $T_REDIS 5  $T_ELASTIC 4  $T_DATADOG 4  $T_PAGERDUTY 2  $T_SLACK 1
 # Agent 2: backend-incidents — firefighting, alerts (high volume, bursty)
@@ -449,7 +472,7 @@ add_pairs 7   $T_PROMETHEUS 8  $T_LOKI 6  $T_DATADOG 6  $T_ELASTIC 4  $T_REDIS 2
 add_pairs 8   $T_PAGERDUTY 6  $T_SLACK 5  $T_PROMETHEUS 5  $T_LOKI 4  $T_DATADOG 4  $T_VAULT 2
 
 # Agent 9: security-audit — compliance checks (low volume)
-add_pairs 9   $T_VAULT 5  $T_GITHUB 4  $T_ELASTIC 3  $T_BIGQUERY 2
+add_pairs 9   $T_VAULT 5  $T_GITHUB 4  $T_ELASTIC 3  $T_BIGQUERY 2  $T_BRAVE 2
 # Agent 10: security-scan — vulnerability scanning (medium volume)
 add_pairs 10  $T_ELASTIC 5  $T_GITHUB 4  $T_REGISTRY 4  $T_VAULT 3  $T_SENTRY 2  $T_DATADOG 2
 # Agent 11: security-incidents — security response (medium volume)
@@ -458,12 +481,12 @@ add_pairs 11  $T_PAGERDUTY 5  $T_SLACK 5  $T_VAULT 4  $T_ELASTIC 3  $T_LOKI 3
 # Agent 12: data-pipeline — ETL and streaming (very high volume)
 add_pairs 12  $T_KAFKA 10  $T_BIGQUERY 6  $T_S3 5  $T_PGANALYTICS 5  $T_REDIS 3  $T_RPC 3
 # Agent 13: data-analytics — queries and reports (medium volume)
-add_pairs 13  $T_BIGQUERY 7  $T_PGANALYTICS 5  $T_ELASTIC 4  $T_S3 2  $T_REDIS 2
+add_pairs 13  $T_BIGQUERY 7  $T_PGANALYTICS 5  $T_ELASTIC 4  $T_S3 2  $T_REDIS 2  $T_BRAVE 3
 # Agent 14: data-etl — batch transforms (high volume)
 add_pairs 14  $T_KAFKA 7  $T_BIGQUERY 5  $T_S3 5  $T_PGANALYTICS 5  $T_REDIS 3
 
 # Agent 15: platform-deploy — ships platform services (medium volume)
-add_pairs 15  $T_ARGOCD 6  $T_REGISTRY 5  $T_GITHUB 4  $T_S3 3  $T_SLACK 1
+add_pairs 15  $T_ARGOCD 6  $T_REGISTRY 5  $T_GITHUB 4  $T_S3 3  $T_SLACK 1  $T_FILESYSTEM 2
 # Agent 16: platform-ops — keeps platform running (high volume)
 add_pairs 16  $T_KAFKA 6  $T_PROMETHEUS 6  $T_LOKI 5  $T_REDIS 4  $T_REGISTRY 3  $T_DATADOG 3  $T_RPC 5
 # Agent 17: platform-ci — build pipelines (medium volume)
@@ -608,6 +631,11 @@ echo "==> Updating tool endpoints to mock upstream (and raising budget limits)"
 for i in "${!TOOL_IDS[@]}"; do
   tid="${TOOL_IDS[$i]}"
   if [[ -z "$tid" ]]; then continue; fi
+  # Skip MCP tools — they use the MCP protocol, not REST.
+  if [[ "${TOOL_MODES[$i]}" == "mcp" ]]; then
+    echo "    ${TOOL_NAMES[$i]} (mcp, keeping original endpoint)"
+    continue
+  fi
   api PUT "/api/v1/admin/tools/${tid}" \
     "{\"endpoint\":\"http://localhost:${MOCK_PORT}\",\"budget_limit\":100000}" >/dev/null
   echo "    ${TOOL_NAMES[$i]} -> http://localhost:${MOCK_PORT}"
@@ -634,6 +662,9 @@ while true; do
   tool_name="${TOOL_NAMES[$tool_idx]}"
   method="${METHODS[$method_idx]}"
   path="${PATHS[$path_idx]}"
+
+  # Skip MCP tools in live traffic — mock upstream only speaks REST.
+  if [[ "${TOOL_MODES[$tool_idx]}" == "mcp" ]]; then continue; fi
 
   # Send request through the proxy pipeline (auth -> rate limit -> budget -> metering).
   http_code=$(curl -s -o /dev/null -w "%{http_code}" \

@@ -748,6 +748,7 @@ body.shift-held .txn-filter-pending { background: var(--surface2); }
       <select id="tool-mode" onchange="toggleToolMode()">
         <option value="service">Service</option>
         <option value="api">API</option>
+        <option value="mcp">MCP</option>
       </select>
     </div>
     <div class="form-group">
@@ -766,6 +767,18 @@ body.shift-held .txn-filter-pending { background: var(--surface2); }
       <label>Variables (JSON)</label>
       <textarea id="tool-variables" placeholder='{"instance": "mycompany"}'></textarea>
       <span style="font-size:10px;color:var(--text2)">Key-value pairs for {placeholder} substitution in the endpoint URL</span>
+    </div>
+    <div class="form-group" id="tool-transport-section" style="display:none">
+      <label>Transport *</label>
+      <select id="tool-transport">
+        <option value="streamable-http">streamable-http</option>
+        <option value="sse">sse</option>
+      </select>
+    </div>
+    <div class="form-group" id="tool-enabled-section" style="display:none">
+      <label style="display:inline-flex;align-items:center;gap:6px;text-transform:uppercase;font-size:10px;font-weight:600;letter-spacing:0.5px;color:var(--text2);cursor:pointer">
+        <input type="checkbox" id="tool-enabled" checked> Enabled
+      </label>
     </div>
     <div class="form-row">
       <div class="form-group">
@@ -1394,17 +1407,22 @@ function renderTools() {
   empty.style.display = 'none';
 
   const disAttr = isAdmin ? '' : ' disabled title="Org admin only"';
-  tbody.innerHTML = filtered.map(t => `<tr>
-    <td><a href="#" onclick="viewToolUsage('${t.id}','${esc(t.name)}');return false" style="text-decoration:none;font-weight:700;border-bottom:1px solid var(--border)">${esc(t.name)}</a><br><span style="color:var(--text2);font-size:11px">${esc(t.description || '')}</span></td>
-    <td>${isAdmin ? (t.mode === 'api' ? 'API' : 'Service') : (t.mode === 'api' ? 'API' : 'Service')}</td>
+  const modeLabel = m => m === 'api' ? 'API' : m === 'mcp' ? 'MCP' : 'Service';
+  tbody.innerHTML = filtered.map(t => {
+    const mcpBtns = (isAdmin && t.mode === 'mcp') ? `<button class="btn-ghost btn-sm" onclick="toggleMcpSubTools('${t.id}')">Sub-tools</button> <button class="btn-ghost btn-sm" onclick="refreshMcpTools('${t.id}')">Refresh</button> ` : '';
+    const enabledBadge = t.mode === 'mcp' ? (t.enabled !== false ? '' : ' <span style="color:var(--text2);font-size:10px">(disabled)</span>') : '';
+    return `<tr>
+    <td><a href="#" onclick="viewToolUsage('${t.id}','${esc(t.name)}');return false" style="text-decoration:none;font-weight:700;border-bottom:1px solid var(--border)">${esc(t.name)}</a>${enabledBadge}<br><span style="color:var(--text2);font-size:11px">${esc(t.description || '')}</span></td>
+    <td>${modeLabel(t.mode)}</td>
     <td class="mono" style="word-break:break-all;max-width:220px">${isAdmin ? esc(t.endpoint || '\u2014') : esc(t.pricing_model || 'free')}</td>
     <td>${esc(t.auth_type || 'none')}</td>
     <td>${toolCallCounts[t.id] != null ? Number(toolCallCounts[t.id]).toLocaleString() : '\u2014'}</td>
     <td style="white-space:nowrap">
-      <button class="btn-ghost btn-sm" onclick="editTool('${t.id}')"${disAttr}>Edit</button>
+      ${mcpBtns}<button class="btn-ghost btn-sm" onclick="editTool('${t.id}')"${disAttr}>Edit</button>
       <button class="btn-danger btn-sm" onclick="deleteTool('${t.id}','${esc(t.name)}')"${disAttr}>Delete</button>
     </td>
-  </tr>`).join('');
+  </tr><tr class="mcp-sub-tools" id="mcp-sub-${t.id}" style="display:none"><td colspan="6" style="padding:0 0 0 24px"><div id="mcp-sub-content-${t.id}"></div></td></tr>`;
+  }).join('');
 
   if (!isAdmin) {
     document.getElementById('tools-endpoint-th').textContent = 'Pricing';
@@ -1417,13 +1435,25 @@ let toolRateOverridesOriginal = []; // track original overrides for diff on save
 function toggleToolMode() {
   const mode = document.getElementById('tool-mode').value;
   const varsSection = document.getElementById('tool-variables-section');
+  const transportSection = document.getElementById('tool-transport-section');
+  const enabledSection = document.getElementById('tool-enabled-section');
   const endpointInput = document.getElementById('tool-endpoint');
   if (mode === 'api') {
     varsSection.style.display = '';
+    transportSection.style.display = 'none';
+    enabledSection.style.display = 'none';
     endpointInput.type = 'text';
     endpointInput.placeholder = 'https://{instance}.example.com/api/{version}';
+  } else if (mode === 'mcp') {
+    varsSection.style.display = 'none';
+    transportSection.style.display = '';
+    enabledSection.style.display = '';
+    endpointInput.type = 'url';
+    endpointInput.placeholder = 'https://mcp.example.com/mcp';
   } else {
     varsSection.style.display = 'none';
+    transportSection.style.display = 'none';
+    enabledSection.style.display = 'none';
     endpointInput.type = 'url';
     endpointInput.placeholder = 'https://api.example.com/v1';
   }
@@ -1441,6 +1471,8 @@ function openToolModal(tool) {
   document.getElementById('tool-endpoint').value = tool ? tool.endpoint || '' : '';
   document.getElementById('tool-auth-type').value = tool ? tool.auth_type || 'none' : 'none';
   document.getElementById('tool-variables').value = tool && tool.variables && Object.keys(tool.variables).length ? JSON.stringify(tool.variables) : '';
+  document.getElementById('tool-transport').value = tool ? tool.transport || 'streamable-http' : 'streamable-http';
+  document.getElementById('tool-enabled').checked = tool ? (tool.enabled !== false) : true;
   toggleToolMode();
   document.getElementById('tool-rate-limit').value = tool ? tool.rate_limit || '' : '';
   document.getElementById('tool-auth-config').value = tool && tool.auth_config ? JSON.stringify(tool.auth_config) : '';
@@ -1529,6 +1561,8 @@ async function submitTool() {
     rate_limit: parseInt(document.getElementById('tool-rate-limit').value) || 0,
     budget_limit: parseFloat(document.getElementById('tool-budget-limit').value) || 0,
     budget_window: document.getElementById('tool-budget-window').value.trim(),
+    transport: mode === 'mcp' ? document.getElementById('tool-transport').value : '',
+    enabled: mode === 'mcp' ? document.getElementById('tool-enabled').checked : true,
   };
   try {
     if (id) {
@@ -2311,6 +2345,45 @@ async function deleteUser(id, email) {
   try {
     await api('DELETE', '/api/v1/admin/users/' + id);
     loadUsers();
+  } catch (e) { toast('Error: ' + e.message); }
+}
+
+// --- MCP Sub-tools ---
+async function toggleMcpSubTools(toolId) {
+  const row = document.getElementById('mcp-sub-' + toolId);
+  if (!row) return;
+  if (row.style.display !== 'none') {
+    row.style.display = 'none';
+    return;
+  }
+  row.style.display = '';
+  const content = document.getElementById('mcp-sub-content-' + toolId);
+  content.innerHTML = '<span style="color:var(--text2);font-size:11px">Loading...</span>';
+  try {
+    const data = await api('GET', '/api/v1/admin/tools/' + toolId + '/mcp-tools');
+    const tools = data.tools || [];
+    if (!tools.length) {
+      content.innerHTML = '<span style="color:var(--text2);font-size:11px">No sub-tools discovered. Try refreshing.</span>';
+      return;
+    }
+    content.innerHTML = '<table style="margin:4px 0"><thead><tr><th style="font-size:11px">Sub-tool</th><th style="font-size:11px">Description</th></tr></thead><tbody>' +
+      tools.map(st => '<tr><td style="font-size:12px;font-weight:600">' + esc(st.name) + '</td><td style="font-size:11px;color:var(--text2)">' + esc(st.description || '') + '</td></tr>').join('') +
+      '</tbody></table>';
+  } catch (e) {
+    content.innerHTML = '<span style="color:var(--danger);font-size:11px">Failed to load sub-tools</span>';
+  }
+}
+
+async function refreshMcpTools(toolId) {
+  try {
+    await api('POST', '/api/v1/admin/tools/' + toolId + '/refresh-mcp');
+    toast('MCP tools refreshed');
+    // Reload sub-tools if visible.
+    const row = document.getElementById('mcp-sub-' + toolId);
+    if (row && row.style.display !== 'none') {
+      row.style.display = 'none';
+      toggleMcpSubTools(toolId);
+    }
   } catch (e) { toast('Error: ' + e.message); }
 }
 

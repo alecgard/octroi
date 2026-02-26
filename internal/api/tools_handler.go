@@ -5,6 +5,7 @@ import (
 	"net/http"
 	"strconv"
 
+	"github.com/alecgard/octroi/internal/mcp"
 	"github.com/alecgard/octroi/internal/registry"
 	"github.com/go-chi/chi/v5"
 	"github.com/jackc/pgx/v5"
@@ -186,6 +187,82 @@ func (h *toolsHandler) AdminListTools(w http.ResponseWriter, r *http.Request) {
 	writeJSON(w, http.StatusOK, resp)
 }
 
+// RefreshMCPTools returns a handler that triggers re-discovery of sub-tools from an MCP upstream.
+func (h *toolsHandler) RefreshMCPTools(agg *mcp.Aggregator) http.HandlerFunc {
+	return func(w http.ResponseWriter, r *http.Request) {
+		id := chi.URLParam(r, "id")
+		if id == "" {
+			writeError(w, http.StatusBadRequest, "invalid_id", "tool id is required")
+			return
+		}
+
+		tool, err := h.service.GetByID(r.Context(), id)
+		if err != nil {
+			if errors.Is(err, pgx.ErrNoRows) {
+				writeError(w, http.StatusNotFound, "not_found", "tool not found")
+				return
+			}
+			writeError(w, http.StatusInternalServerError, "internal_error", "failed to get tool")
+			return
+		}
+		if tool.Mode != "mcp" {
+			writeError(w, http.StatusBadRequest, "invalid_mode", "tool is not an MCP tool")
+			return
+		}
+
+		if err := agg.RefreshUpstream(r.Context(), id); err != nil {
+			writeError(w, http.StatusBadGateway, "refresh_failed", "failed to refresh MCP tools: "+err.Error())
+			return
+		}
+
+		auditLog(r, "refresh_mcp", "tool", id, "name", tool.Name)
+
+		writeJSON(w, http.StatusOK, map[string]string{"status": "ok"})
+	}
+}
+
+// ListMCPTools returns a handler that lists discovered sub-tools from an MCP upstream.
+func (h *toolsHandler) ListMCPTools(agg *mcp.Aggregator) http.HandlerFunc {
+	return func(w http.ResponseWriter, r *http.Request) {
+		id := chi.URLParam(r, "id")
+		if id == "" {
+			writeError(w, http.StatusBadRequest, "invalid_id", "tool id is required")
+			return
+		}
+
+		tool, err := h.service.GetByID(r.Context(), id)
+		if err != nil {
+			if errors.Is(err, pgx.ErrNoRows) {
+				writeError(w, http.StatusNotFound, "not_found", "tool not found")
+				return
+			}
+			writeError(w, http.StatusInternalServerError, "internal_error", "failed to get tool")
+			return
+		}
+		if tool.Mode != "mcp" {
+			writeError(w, http.StatusBadRequest, "invalid_mode", "tool is not an MCP tool")
+			return
+		}
+
+		mcpTools, ok := agg.GetUpstreamTools(id)
+		if !ok {
+			writeJSON(w, http.StatusOK, map[string]interface{}{"tools": []interface{}{}})
+			return
+		}
+
+		// Convert mcp.Tool objects to simple maps for JSON response.
+		toolList := make([]map[string]interface{}, len(mcpTools))
+		for i, t := range mcpTools {
+			toolList[i] = map[string]interface{}{
+				"name":        t.Name,
+				"description": t.Description,
+			}
+		}
+
+		writeJSON(w, http.StatusOK, map[string]interface{}{"tools": toolList})
+	}
+}
+
 // adminToolView returns a map that includes endpoint and auth_config for admin responses.
 func adminToolView(t *registry.Tool) map[string]interface{} {
 	return map[string]interface{}{
@@ -203,6 +280,8 @@ func adminToolView(t *registry.Tool) map[string]interface{} {
 		"rate_limit":       t.RateLimit,
 		"budget_limit":     t.BudgetLimit,
 		"budget_window":    t.BudgetWindow,
+		"transport":        t.Transport,
+		"enabled":          t.Enabled,
 		"created_at":       t.CreatedAt,
 		"updated_at":       t.UpdatedAt,
 	}
@@ -215,5 +294,8 @@ func isValidationError(err error) bool {
 		errors.Is(err, registry.ErrEndpointInvalid) ||
 		errors.Is(err, registry.ErrAuthTypeInvalid) ||
 		errors.Is(err, registry.ErrModeInvalid) ||
-		errors.Is(err, registry.ErrVariablesMissing)
+		errors.Is(err, registry.ErrVariablesMissing) ||
+		errors.Is(err, registry.ErrTransportInvalid) ||
+		errors.Is(err, registry.ErrTransportRequired) ||
+		errors.Is(err, registry.ErrTransportForbidden)
 }

@@ -5,6 +5,7 @@ import (
 	"encoding/base64"
 	"encoding/json"
 	"fmt"
+	"log/slog"
 	"strings"
 	"time"
 
@@ -28,13 +29,14 @@ func NewStore(pool *pgxpool.Pool, cipher *crypto.Cipher) *Store {
 // toolColumns is the full list of columns used in SELECT statements.
 const toolColumns = `id, name, description, mode, endpoint, auth_type, auth_config, variables,
 	pricing_model, pricing_amount, pricing_currency, rate_limit,
-	budget_limit, budget_window, created_at, updated_at`
+	budget_limit, budget_window, transport, enabled, created_at, updated_at`
 
 // scanTool scans a single tool row into a Tool struct, decrypting auth_config if a cipher is set.
 func (s *Store) scanTool(row pgx.Row) (*Tool, error) {
 	var t Tool
 	var authConfigRaw []byte
 	var variablesJSON []byte
+	var transport, pricingModel, pricingCurrency, budgetWindow *string
 	err := row.Scan(
 		&t.ID,
 		&t.Name,
@@ -44,17 +46,32 @@ func (s *Store) scanTool(row pgx.Row) (*Tool, error) {
 		&t.AuthType,
 		&authConfigRaw,
 		&variablesJSON,
-		&t.PricingModel,
+		&pricingModel,
 		&t.PricingAmount,
-		&t.PricingCurrency,
+		&pricingCurrency,
 		&t.RateLimit,
 		&t.BudgetLimit,
-		&t.BudgetWindow,
+		&budgetWindow,
+		&transport,
+		&t.Enabled,
 		&t.CreatedAt,
 		&t.UpdatedAt,
 	)
 	if err != nil {
 		return nil, err
+	}
+
+	if transport != nil {
+		t.Transport = *transport
+	}
+	if pricingModel != nil {
+		t.PricingModel = *pricingModel
+	}
+	if pricingCurrency != nil {
+		t.PricingCurrency = *pricingCurrency
+	}
+	if budgetWindow != nil {
+		t.BudgetWindow = *budgetWindow
 	}
 
 	t.AuthConfig = make(map[string]string)
@@ -97,11 +114,22 @@ func (s *Store) Create(ctx context.Context, input CreateToolInput) (*Tool, error
 		return nil, fmt.Errorf("marshalling variables: %w", err)
 	}
 
+	enabled := true
+	if input.Enabled != nil {
+		enabled = *input.Enabled
+	}
+
+	// Store transport as NULL for non-mcp modes.
+	var transportVal interface{}
+	if input.Transport != "" {
+		transportVal = input.Transport
+	}
+
 	query := fmt.Sprintf(`INSERT INTO tools
 		(name, description, mode, endpoint, auth_type, auth_config, variables,
 		 pricing_model, pricing_amount, pricing_currency, rate_limit,
-		 budget_limit, budget_window)
-		VALUES ($1, $2, $3, $4, $5, $6, $7, $8, $9, $10, $11, $12, $13)
+		 budget_limit, budget_window, transport, enabled)
+		VALUES ($1, $2, $3, $4, $5, $6, $7, $8, $9, $10, $11, $12, $13, $14, $15)
 		RETURNING %s`, toolColumns)
 
 	row := s.pool.QueryRow(ctx, query,
@@ -118,6 +146,8 @@ func (s *Store) Create(ctx context.Context, input CreateToolInput) (*Tool, error
 		input.RateLimit,
 		input.BudgetLimit,
 		input.BudgetWindow,
+		transportVal,
+		enabled,
 	)
 	return s.scanTool(row)
 }
@@ -201,7 +231,8 @@ func (s *Store) List(ctx context.Context, params ToolListParams) ([]*Tool, strin
 	for rows.Next() {
 		t, err := s.scanTool(rows)
 		if err != nil {
-			return nil, "", fmt.Errorf("scanning tool: %w", err)
+			slog.Warn("skipping tool with scan error", "error", err)
+			continue
 		}
 		tools = append(tools, t)
 	}
@@ -302,6 +333,20 @@ func (s *Store) Update(ctx context.Context, id string, input UpdateToolInput) (*
 		args = append(args, *input.BudgetWindow)
 		argIdx++
 	}
+	if input.Transport != nil {
+		var transportVal interface{}
+		if *input.Transport != "" {
+			transportVal = *input.Transport
+		}
+		setClauses = append(setClauses, fmt.Sprintf("transport = $%d", argIdx))
+		args = append(args, transportVal)
+		argIdx++
+	}
+	if input.Enabled != nil {
+		setClauses = append(setClauses, fmt.Sprintf("enabled = $%d", argIdx))
+		args = append(args, *input.Enabled)
+		argIdx++
+	}
 
 	if len(setClauses) == 0 {
 		return s.GetByID(ctx, id)
@@ -330,6 +375,30 @@ func (s *Store) Delete(ctx context.Context, id string) error {
 		return pgx.ErrNoRows
 	}
 	return nil
+}
+
+// ListEnabled returns all tools with enabled=true, useful for the MCP aggregator.
+func (s *Store) ListEnabled(ctx context.Context) ([]*Tool, error) {
+	query := fmt.Sprintf(`SELECT %s FROM tools WHERE enabled = true ORDER BY created_at DESC, id DESC`, toolColumns)
+	rows, err := s.pool.Query(ctx, query)
+	if err != nil {
+		return nil, fmt.Errorf("listing enabled tools: %w", err)
+	}
+	defer rows.Close()
+
+	var tools []*Tool
+	for rows.Next() {
+		t, err := s.scanTool(rows)
+		if err != nil {
+			slog.Warn("skipping tool with scan error", "error", err)
+			continue
+		}
+		tools = append(tools, t)
+	}
+	if err := rows.Err(); err != nil {
+		return nil, fmt.Errorf("iterating tools: %w", err)
+	}
+	return tools, nil
 }
 
 // Search performs a text search on name and description using ILIKE.
@@ -382,7 +451,8 @@ func (s *Store) Search(ctx context.Context, query string, limit int, cursor stri
 	for rows.Next() {
 		t, err := s.scanTool(rows)
 		if err != nil {
-			return nil, "", fmt.Errorf("scanning tool: %w", err)
+			slog.Warn("skipping tool with scan error", "error", err)
+			continue
 		}
 		tools = append(tools, t)
 	}

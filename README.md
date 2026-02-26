@@ -4,17 +4,25 @@
 
 > _octroi (ok-TWAH) — where duties are collected on goods entering a town_
 
-A self-hosted gateway between your AI agents and the APIs they use. Octroi handles credential injection, rate limiting, budget enforcement, and usage metering — so your agents don't need direct access to API keys.
+Governance proxy for AI agent tools. Add spend limits, rate controls, and audit logging to any agent-tool interaction. Supports MCP and REST. Drop-in proxy, zero changes to your agent or tools.
 
 <p>
   <img src="assets/octroi.gif" alt="Octroi UI demo"/>
 </p>
 
 ```
-Agent --> Octroi Gateway --> Tool Provider API
-            |
-            +-- Auth, Rate Limiting, Budgets, Metering
+MCP Client --[MCP]----> Octroi --[MCP]--> MCP Servers
+HTTP Agent --[HTTP]---> Octroi --[HTTP]--> REST APIs
+                          |
+                     Governance layer
+                     Budget enforcement
+                     Rate limiting
+                     Credential injection
+                     Audit logging
+                     Prometheus metrics
 ```
+
+Octroi meets agents and tools wherever they are — MCP clients talk to Octroi's `/mcp` endpoint, HTTP agents use the `/proxy` endpoint. Both paths share the same policy engine, audit log, and metrics pipeline. REST tools and MCP-native tools appear in a single unified tool list.
 
 ## Deploy
 
@@ -52,6 +60,35 @@ docker run --env-file configs/.env.prod \
 ```
 
 Octroi runs migrations automatically on startup. **Change the default admin password immediately** (`admin@octroi.dev` / `octroi`).
+
+## Connect via MCP
+
+Octroi exposes an MCP (Model Context Protocol) server at `/mcp` using Streamable HTTP transport. Any MCP client — including Claude Desktop, Cursor, and other AI tools — can connect and discover all registered tools.
+
+### Claude Desktop
+
+Add to your `claude_desktop_config.json`:
+
+```json
+{
+  "mcpServers": {
+    "octroi": {
+      "url": "http://localhost:9090/mcp",
+      "headers": {
+        "Authorization": "Bearer octroi_YOUR_AGENT_KEY"
+      }
+    }
+  }
+}
+```
+
+The MCP client sees a unified tool list: REST API tools (from the Tools tab) and upstream MCP server tools (from the MCP Upstreams tab) all appear together. Rate limits, budgets, and audit logging apply uniformly to both.
+
+### MCP Upstreams
+
+Octroi can also proxy to upstream MCP servers. In the UI, go to the **MCP Upstreams** tab and add an upstream — Octroi will discover its tools and expose them to all connected MCP clients, with governance applied.
+
+This means Octroi can sit between your agents and any MCP server, adding spend limits and audit logging that the upstream server doesn't provide.
 
 ## Set Up Agents
 
@@ -109,7 +146,7 @@ scrape_configs:
       - targets: ['localhost:8080']
 ```
 
-Key metrics include `octroi_http_requests_total`, `octroi_proxy_requests_total`, `octroi_ratelimit_rejections_total`, and `octroi_proxy_upstream_duration_seconds`. The built-in UI also shows live metrics at **Metrics** tab.
+Key metrics include `octroi_http_requests_total`, `octroi_proxy_requests_total`, `octroi_ratelimit_rejections_total`, `octroi_proxy_upstream_duration_seconds`, `octroi_mcp_tool_calls_total`, and `octroi_mcp_upstream_duration_seconds`. The built-in UI also shows live metrics at **Metrics** tab.
 
 ## Configuration
 
