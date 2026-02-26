@@ -264,7 +264,7 @@ TOOL_IDS=()
 
 for i in "${!TOOL_NAMES[@]}"; do
   name="${TOOL_NAMES[$i]}"
-  existing_id=$(echo "$EXISTING_TOOLS_JSON" | jq -r --arg n "$name" '(.tools // [])[] | select(.name == $n) | .id // empty')
+  existing_id=$(echo "$EXISTING_TOOLS_JSON" | jq -r --arg n "$name" '[(.tools // [])[] | select(.name == $n) | .id] | first // empty')
   if [[ -n "$existing_id" ]]; then
     TOOL_IDS+=("$existing_id")
     echo "    $name (exists: ${existing_id:0:8}...)"
