@@ -1,2 +1,0 @@
-ALTER TABLE tools ADD COLUMN webhook_url TEXT DEFAULT '';
-ALTER TABLE tools ADD COLUMN webhook_threshold_pct INT NOT NULL DEFAULT 80;

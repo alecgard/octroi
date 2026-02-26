@@ -347,7 +347,7 @@ func NewRouter(deps RouterDeps) http.Handler {
 
 	// Member routes (require any valid session).
 	if deps.UserStore != nil && sessionLookup != nil {
-		member := newMemberHandler(deps.AgentStore, deps.ToolService, deps.MeterStore)
+		member := newMemberHandler(deps.AgentStore, deps.ToolStore, deps.ToolService, deps.MeterStore)
 		teams := newTeamsHandler(deps.AgentStore, deps.UserStore)
 		users := newUsersHandler(deps.UserStore)
 		r.Route("/api/v1/member", func(mr chi.Router) {

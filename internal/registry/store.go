@@ -213,8 +213,16 @@ func (s *Store) Create(ctx context.Context, input CreateToolInput) (*Tool, error
 	return s.scanTool(row)
 }
 
-// GetByID retrieves a tool by its ID, including endpoint and auth_config.
+// GetByID retrieves an active (non-archived) tool by its ID.
 func (s *Store) GetByID(ctx context.Context, id string) (*Tool, error) {
+	query := fmt.Sprintf(`SELECT %s FROM tools WHERE id = $1 AND archived_at IS NULL`, toolColumns)
+	row := s.pool.QueryRow(ctx, query, id)
+	return s.scanTool(row)
+}
+
+// GetByIDIncludeArchived retrieves a tool by its ID regardless of archived status.
+// Used for resolving names in historical transaction data.
+func (s *Store) GetByIDIncludeArchived(ctx context.Context, id string) (*Tool, error) {
 	query := fmt.Sprintf(`SELECT %s FROM tools WHERE id = $1`, toolColumns)
 	row := s.pool.QueryRow(ctx, query, id)
 	return s.scanTool(row)
@@ -273,10 +281,9 @@ func (s *Store) List(ctx context.Context, params ToolListParams) ([]*Tool, strin
 		argIdx++
 	}
 
-	where := ""
-	if len(whereClauses) > 0 {
-		where = "WHERE " + strings.Join(whereClauses, " AND ")
-	}
+	whereClauses = append(whereClauses, "archived_at IS NULL")
+
+	where := "WHERE " + strings.Join(whereClauses, " AND ")
 
 	query := fmt.Sprintf(`SELECT %s FROM tools %s ORDER BY created_at DESC, id DESC LIMIT $%d`,
 		toolColumns, where, argIdx)
@@ -476,11 +483,11 @@ func (s *Store) Update(ctx context.Context, id string, input UpdateToolInput) (*
 	return s.scanTool(row)
 }
 
-// Delete removes a tool by its ID.
-func (s *Store) Delete(ctx context.Context, id string) error {
-	tag, err := s.pool.Exec(ctx, `DELETE FROM tools WHERE id = $1`, id)
+// Archive soft-deletes a tool by setting archived_at.
+func (s *Store) Archive(ctx context.Context, id string) error {
+	tag, err := s.pool.Exec(ctx, `UPDATE tools SET archived_at = now() WHERE id = $1 AND archived_at IS NULL`, id)
 	if err != nil {
-		return fmt.Errorf("deleting tool: %w", err)
+		return fmt.Errorf("archiving tool: %w", err)
 	}
 	if tag.RowsAffected() == 0 {
 		return pgx.ErrNoRows
@@ -490,7 +497,7 @@ func (s *Store) Delete(ctx context.Context, id string) error {
 
 // ListEnabled returns all tools with enabled=true, useful for the MCP aggregator.
 func (s *Store) ListEnabled(ctx context.Context) ([]*Tool, error) {
-	query := fmt.Sprintf(`SELECT %s FROM tools WHERE enabled = true ORDER BY created_at DESC, id DESC`, toolColumns)
+	query := fmt.Sprintf(`SELECT %s FROM tools WHERE enabled = true AND archived_at IS NULL ORDER BY created_at DESC, id DESC`, toolColumns)
 	rows, err := s.pool.Query(ctx, query)
 	if err != nil {
 		return nil, fmt.Errorf("listing enabled tools: %w", err)
@@ -543,10 +550,9 @@ func (s *Store) Search(ctx context.Context, query string, limit int, cursor stri
 		argIdx++
 	}
 
-	where := ""
-	if len(whereClauses) > 0 {
-		where = "WHERE " + strings.Join(whereClauses, " AND ")
-	}
+	whereClauses = append(whereClauses, "archived_at IS NULL")
+
+	where := "WHERE " + strings.Join(whereClauses, " AND ")
 
 	sqlQuery := fmt.Sprintf(`SELECT %s FROM tools %s ORDER BY created_at DESC, id DESC LIMIT $%d`,
 		toolColumns, where, argIdx)

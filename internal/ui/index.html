@@ -714,6 +714,7 @@ body.shift-held .txn-filter-pending { background: var(--surface2); }
           <th>Type</th>
           <th>Method</th>
           <th class="has-tooltip">Path / Sub-tool<span class="tip">API path for Service/API tools, sub-tool name for MCP tools</span></th>
+          <th>Status</th>
           <th>Latency</th>
           <th>Cost</th>
           <th style="width:28px"></th>
@@ -1246,6 +1247,16 @@ document.addEventListener('keydown', e => {
     } else {
       open.classList.remove('open');
     }
+    return;
+  }
+  if (e.key === 'Enter' && !e.shiftKey) {
+    // Don't trigger save when typing in a textarea.
+    if (e.target.tagName === 'TEXTAREA') return;
+    const open = document.querySelector('.modal-overlay.open');
+    if (!open) return;
+    // Find and click the primary/confirm button in the open modal.
+    const btn = open.querySelector('.btn-primary, .btn-danger-fill');
+    if (btn && !btn.disabled) { e.preventDefault(); btn.click(); }
     return;
   }
   if (e.key === 'Shift' && !shiftHeld) {
@@ -2397,11 +2408,12 @@ function renderTxnTable(prevTimestamp) {
     return `<tr${isNew ? ' class="txn-new"' : ''} style="cursor:pointer" onclick="showTransactionDetail('${t.id}')">
     <td style="white-space:nowrap">${fmtTime(t.timestamp)}</td>
     <td class="txn-filterable${teamExcl}">${team}${txnFilterBtn('team', esc(teamRaw), teamRaw)}</td>
-    <td class="txn-filterable${agentExcl}">${esc(resolveAgentName(t.agent_id))}${txnFilterBtn('agent', t.agent_id, t.agent_id)}</td>
-    <td class="txn-filterable${toolExcl}">${esc(resolveToolName(t.tool_id))}${txnFilterBtn('tool', t.tool_id, t.tool_id)}</td>
+    <td class="txn-filterable${agentExcl}">${esc(resolveAgentName(t.agent_id, t))}${txnFilterBtn('agent', t.agent_id, t.agent_id)}</td>
+    <td class="txn-filterable${toolExcl}">${esc(resolveToolName(t.tool_id, t))}${txnFilterBtn('tool', t.tool_id, t.tool_id)}</td>
     <td><span class="badge-mode badge-${(resolveToolMode(t.tool_id) || '').toLowerCase()}">${resolveToolMode(t.tool_id)}</span></td>
     <td>${esc(t.method)}</td>
     <td class="txn-filterable${pathExcl} mono" style="font-size:12px">${esc(cleaned)}${txnFilterBtn('path', esc(cleaned), cleaned)}</td>
+    <td><span class="badge-mode badge-${t.status_code >= 200 && t.status_code < 300 ? 'service' : t.status_code >= 400 ? 'api' : 'mcp'}" style="font-size:11px">${t.status_code}</span></td>
     <td>${t.latency_ms}ms</td>
     <td>$${(t.cost || 0).toFixed(4)}</td>
     <td style="text-align:center;vertical-align:middle;padding:0 4px" title="View detail"><svg width="14" height="14" style="display:block;margin:auto" viewBox="0 0 24 24" fill="none" stroke="var(--text2)" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><path d="M1 12s4-8 11-8 11 8 11 8-4 8-11 8-11-8-11-8z"/><circle cx="12" cy="12" r="3"/></svg></td>
@@ -2866,9 +2878,9 @@ function closeModal(id) { document.getElementById(id).classList.remove('open'); 
 function esc(s) { const d = document.createElement('div'); d.textContent = s; return d.innerHTML; }
 function fmtDate(s) { if (!s) return '\u2014'; return new Date(s).toLocaleDateString(); }
 function fmtTime(s) { if (!s) return '\u2014'; const d = new Date(s); return d.toLocaleDateString() + ' ' + d.toLocaleTimeString(); }
-function resolveAgentName(id) { const a = agentsCache.find(a => a.id === id); return a ? a.name : id.slice(0,8); }
-function resolveAgentTeam(id) { const a = agentsCache.find(a => a.id === id); return a ? (a.team || '') : ''; }
-function resolveToolName(id) { const t = toolsCache.find(t => t.id === id); return t ? t.name : id.slice(0,8); }
+function resolveAgentName(id, txn) { if (txn && txn.agent_name) return txn.agent_name; if (!id) return '(deleted)'; const a = agentsCache.find(a => a.id === id); return a ? a.name : id.slice(0,8); }
+function resolveAgentTeam(id) { if (!id) return ''; const a = agentsCache.find(a => a.id === id); return a ? (a.team || '') : ''; }
+function resolveToolName(id, txn) { if (txn && txn.tool_name) return txn.tool_name; if (!id) return '(deleted)'; const t = toolsCache.find(t => t.id === id); return t ? t.name : id.slice(0,8); }
 function resolveToolMode(id) { const t = toolsCache.find(t => t.id === id); return t ? (t.mode || '').toUpperCase() : ''; }
 function cleanPath(path, toolId) {
   if (!path) return '\u2014';
@@ -3115,7 +3127,7 @@ function renderUsageChart(txns) {
     ? t => t.agent_id
     : t => t.tool_id + '|' + cleanPath(t.path, t.tool_id);
   const resolveName = chartGroup === 'agent'
-    ? resolveAgentName
+    ? (id) => resolveAgentName(id)
     : gid => { const [tid, path] = gid.split('|', 2); return resolveToolName(tid) + ' \u203A ' + (path || '/'); };
 
   // Bucket transactions

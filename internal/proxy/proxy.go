@@ -32,6 +32,8 @@ type MCPCaller interface {
 // ToolStore is the interface for looking up tools by ID.
 type ToolStore interface {
 	GetByID(ctx context.Context, id string) (*registry.Tool, error)
+	// GetByIDIncludeArchived returns a tool even if it's archived (for recording failed txns).
+	GetByIDIncludeArchived(ctx context.Context, id string) (*registry.Tool, error)
 }
 
 // BudgetChecker is the interface for checking agent and global tool budgets.
@@ -161,17 +163,32 @@ func (h *Handler) ServeHTTP(w http.ResponseWriter, r *http.Request) {
 		return
 	}
 
-	// Look up tool.
-	tool, err := h.tools.GetByID(r.Context(), toolID)
-	if err != nil {
-		writeError(w, http.StatusNotFound, "not_found", "tool not found")
-		return
-	}
-
 	// Extract agent from context.
 	agent := auth.AgentFromContext(r.Context())
 	if agent == nil {
 		writeError(w, http.StatusUnauthorized, "unauthorized", "missing agent credentials")
+		return
+	}
+
+	// Look up tool (archived tools return not-found).
+	tool, err := h.tools.GetByID(r.Context(), toolID)
+	if err != nil {
+		// Check if the tool exists but is archived — if so, record the failed transaction.
+		// No tool_name is stored: post-deletion failures show just the tool ID in usage.
+		if archived, archErr := h.tools.GetByIDIncludeArchived(r.Context(), toolID); archErr == nil {
+			h.collector.Record(metering.Transaction{
+				AgentID:    agent.ID,
+				AgentName:  agent.Name,
+				ToolID:     archived.ID,
+				Timestamp:  time.Now().UTC(),
+				Method:     r.Method,
+				Path:       r.URL.Path,
+				StatusCode: http.StatusNotFound,
+				Success:    false,
+				Error:      "tool not found",
+			})
+		}
+		writeError(w, http.StatusNotFound, "not_found", "tool not found")
 		return
 	}
 
@@ -413,7 +430,7 @@ func (h *Handler) ServeHTTP(w http.ResponseWriter, r *http.Request) {
 			if h.circuitBreaker != nil && tool.CBEnabled {
 				h.circuitBreaker.RecordResult(tool.ID, cbCfg, 502)
 			}
-			h.recordTransactionWithID(attemptTxnID, agent.ID, tool, r, 502, latency, requestSize, 0, false, "")
+			h.recordTransactionWithID(attemptTxnID, agent.ID, agent.Name, tool, r, 502, latency, requestSize, 0, false, "")
 			lastErr = doErr
 			lastLatency = latency
 			lastResp = nil
@@ -432,7 +449,7 @@ func (h *Handler) ServeHTTP(w http.ResponseWriter, r *http.Request) {
 			if h.circuitBreaker != nil && tool.CBEnabled {
 				h.circuitBreaker.RecordResult(tool.ID, cbCfg, resp.StatusCode)
 			}
-			h.recordTransactionWithID(attemptTxnID, agent.ID, tool, r, resp.StatusCode, latency, requestSize, 0, false, resp.Header.Get("X-Octroi-Cost"))
+			h.recordTransactionWithID(attemptTxnID, agent.ID, agent.Name, tool, r, resp.StatusCode, latency, requestSize, 0, false, resp.Header.Get("X-Octroi-Cost"))
 			lastErr = nil
 			lastResp = nil
 			lastLatency = latency
@@ -468,7 +485,7 @@ func (h *Handler) ServeHTTP(w http.ResponseWriter, r *http.Request) {
 		}
 
 		success := resp.StatusCode >= 200 && resp.StatusCode < 300
-		h.recordTransactionWithID(attemptTxnID, agent.ID, tool, r, resp.StatusCode, latency, requestSize, responseSize, success, reportedCostHeader)
+		h.recordTransactionWithID(attemptTxnID, agent.ID, agent.Name, tool, r, resp.StatusCode, latency, requestSize, responseSize, success, reportedCostHeader)
 
 		// Record bodies asynchronously if enabled.
 		if tool.LogBodies && h.bodyRecorder != nil && (len(capturedReqBody) > 0 || len(capturedRespBody) > 0) {
@@ -493,11 +510,11 @@ func (h *Handler) ServeHTTP(w http.ResponseWriter, r *http.Request) {
 	_ = lastResp
 }
 
-func (h *Handler) recordTransaction(agentID string, tool *registry.Tool, r *http.Request, statusCode int, latency time.Duration, requestSize int64, responseSize int64, success bool, reportedCostHeader string) {
-	h.recordTransactionWithID("", agentID, tool, r, statusCode, latency, requestSize, responseSize, success, reportedCostHeader)
+func (h *Handler) recordTransaction(agentID, agentName string, tool *registry.Tool, r *http.Request, statusCode int, latency time.Duration, requestSize int64, responseSize int64, success bool, reportedCostHeader string) {
+	h.recordTransactionWithID("", agentID, agentName, tool, r, statusCode, latency, requestSize, responseSize, success, reportedCostHeader)
 }
 
-func (h *Handler) recordTransactionWithID(txnID string, agentID string, tool *registry.Tool, r *http.Request, statusCode int, latency time.Duration, requestSize int64, responseSize int64, success bool, reportedCostHeader string) {
+func (h *Handler) recordTransactionWithID(txnID string, agentID, agentName string, tool *registry.Tool, r *http.Request, statusCode int, latency time.Duration, requestSize int64, responseSize int64, success bool, reportedCostHeader string) {
 	cost := 0.0
 	costSource := "flat"
 
@@ -526,6 +543,8 @@ func (h *Handler) recordTransactionWithID(txnID string, agentID string, tool *re
 		Success:      success,
 		Cost:         cost,
 		CostSource:   costSource,
+		AgentName:    agentName,
+		ToolName:     tool.Name,
 	})
 }
 
@@ -620,7 +639,7 @@ func (h *Handler) serveMCP(w http.ResponseWriter, r *http.Request, tool *registr
 			h.metrics.IncProxyRequests(tool.ID, tool.Name, agent.ID, r.Method, 502)
 			h.metrics.IncUpstreamError("mcp_call", tool.ID, tool.Name)
 		}
-		h.recordTransactionWithID(txnID, agent.ID, tool, r, 502, latency, 0, 0, false, "")
+		h.recordTransactionWithID(txnID, agent.ID, agent.Name, tool, r, 502, latency, 0, 0, false, "")
 		writeError(w, http.StatusBadGateway, "proxy_error", "MCP upstream call failed")
 		return
 	}
@@ -641,7 +660,7 @@ func (h *Handler) serveMCP(w http.ResponseWriter, r *http.Request, tool *registr
 	w.WriteHeader(statusCode)
 	w.Write(respBytes)
 
-	h.recordTransactionWithID(txnID, agent.ID, tool, r, statusCode, latency, 0, int64(len(respBytes)), success, "")
+	h.recordTransactionWithID(txnID, agent.ID, agent.Name, tool, r, statusCode, latency, 0, int64(len(respBytes)), success, "")
 
 	// Record bodies asynchronously if enabled.
 	if tool.LogBodies && h.bodyRecorder != nil && (len(capturedReqBody) > 0 || len(respBytes) > 0) {

@@ -1,2 +1,0 @@
-ALTER TABLE tools ALTER COLUMN auth_config TYPE JSONB USING auth_config::JSONB;
-ALTER TABLE tools ALTER COLUMN auth_config SET DEFAULT '{}'::JSONB;

@@ -18,6 +18,8 @@ type Transaction struct {
 	Cost         float64   `json:"cost"`
 	CostSource   string    `json:"cost_source"`
 	Error        string    `json:"error"`
+	AgentName    string    `json:"agent_name"`
+	ToolName     string    `json:"tool_name"`
 }
 
 // UsageSummary holds aggregate metrics for a set of transactions.

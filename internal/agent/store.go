@@ -36,12 +36,12 @@ func (s *Store) Create(ctx context.Context, in CreateAgentInput) (*Agent, error)
 	return a, nil
 }
 
-// GetByID retrieves an agent by its primary key.
+// GetByID retrieves an active (non-archived) agent by its primary key.
 func (s *Store) GetByID(ctx context.Context, id string) (*Agent, error) {
 	a := &Agent{}
 	err := s.pool.QueryRow(ctx,
 		`SELECT id, name, api_key_hash, api_key_prefix, team, rate_limit, allowlist_mode, created_at
-		 FROM agents WHERE id = $1`,
+		 FROM agents WHERE id = $1 AND archived_at IS NULL`,
 		id,
 	).Scan(&a.ID, &a.Name, &a.APIKeyHash, &a.APIKeyPrefix, &a.Team, &a.RateLimit, &a.AllowlistMode, &a.CreatedAt)
 	if err != nil {
@@ -50,12 +50,13 @@ func (s *Store) GetByID(ctx context.Context, id string) (*Agent, error) {
 	return a, nil
 }
 
+
 // GetByKeyHash retrieves an agent by its API key hash, used for authentication.
 func (s *Store) GetByKeyHash(ctx context.Context, hash string) (*Agent, error) {
 	a := &Agent{}
 	err := s.pool.QueryRow(ctx,
 		`SELECT id, name, api_key_hash, api_key_prefix, team, rate_limit, allowlist_mode, created_at
-		 FROM agents WHERE api_key_hash = $1`,
+		 FROM agents WHERE api_key_hash = $1 AND archived_at IS NULL`,
 		hash,
 	).Scan(&a.ID, &a.Name, &a.APIKeyHash, &a.APIKeyPrefix, &a.Team, &a.RateLimit, &a.AllowlistMode, &a.CreatedAt)
 	if err != nil {
@@ -84,7 +85,7 @@ func (s *Store) List(ctx context.Context, params AgentListParams) ([]*Agent, str
 		rows, err = s.pool.Query(ctx,
 			`SELECT id, name, api_key_hash, api_key_prefix, team, rate_limit, allowlist_mode, created_at
 			 FROM agents
-			 WHERE (created_at, id) < ($1, $2)
+			 WHERE archived_at IS NULL AND (created_at, id) < ($1, $2)
 			 ORDER BY created_at DESC, id DESC
 			 LIMIT $3`,
 			cursorTime, cursorID, limit+1,
@@ -93,6 +94,7 @@ func (s *Store) List(ctx context.Context, params AgentListParams) ([]*Agent, str
 		rows, err = s.pool.Query(ctx,
 			`SELECT id, name, api_key_hash, api_key_prefix, team, rate_limit, allowlist_mode, created_at
 			 FROM agents
+			 WHERE archived_at IS NULL
 			 ORDER BY created_at DESC, id DESC
 			 LIMIT $1`,
 			limit+1,
@@ -150,7 +152,7 @@ func (s *Store) ListByTeams(ctx context.Context, teams []string, params AgentLis
 		rows, err = s.pool.Query(ctx,
 			`SELECT id, name, api_key_hash, api_key_prefix, team, rate_limit, allowlist_mode, created_at
 			 FROM agents
-			 WHERE team = ANY($1) AND (created_at, id) < ($2, $3)
+			 WHERE team = ANY($1) AND archived_at IS NULL AND (created_at, id) < ($2, $3)
 			 ORDER BY created_at DESC, id DESC
 			 LIMIT $4`,
 			teams, cursorTime, cursorID, limit+1,
@@ -159,7 +161,7 @@ func (s *Store) ListByTeams(ctx context.Context, teams []string, params AgentLis
 		rows, err = s.pool.Query(ctx,
 			`SELECT id, name, api_key_hash, api_key_prefix, team, rate_limit, allowlist_mode, created_at
 			 FROM agents
-			 WHERE team = ANY($1)
+			 WHERE team = ANY($1) AND archived_at IS NULL
 			 ORDER BY created_at DESC, id DESC
 			 LIMIT $2`,
 			teams, limit+1,
@@ -199,7 +201,7 @@ func (s *Store) ListIDsByTeam(ctx context.Context, team string) ([]string, error
 
 // ListIDsByTeams returns all agent IDs for the given teams.
 func (s *Store) ListIDsByTeams(ctx context.Context, teams []string) ([]string, error) {
-	rows, err := s.pool.Query(ctx, `SELECT id FROM agents WHERE team = ANY($1)`, teams)
+	rows, err := s.pool.Query(ctx, `SELECT id FROM agents WHERE team = ANY($1) AND archived_at IS NULL`, teams)
 	if err != nil {
 		return nil, fmt.Errorf("listing agent ids by teams: %w", err)
 	}
@@ -278,11 +280,14 @@ func (s *Store) Update(ctx context.Context, id string, in UpdateAgentInput) (*Ag
 	return a, nil
 }
 
-// Delete removes an agent by id.
-func (s *Store) Delete(ctx context.Context, id string) error {
-	_, err := s.pool.Exec(ctx, `DELETE FROM agents WHERE id = $1`, id)
+// Archive soft-deletes an agent by setting archived_at.
+func (s *Store) Archive(ctx context.Context, id string) error {
+	tag, err := s.pool.Exec(ctx, `UPDATE agents SET archived_at = now() WHERE id = $1 AND archived_at IS NULL`, id)
 	if err != nil {
-		return fmt.Errorf("deleting agent: %w", err)
+		return fmt.Errorf("archiving agent: %w", err)
+	}
+	if tag.RowsAffected() == 0 {
+		return fmt.Errorf("agent not found")
 	}
 	return nil
 }

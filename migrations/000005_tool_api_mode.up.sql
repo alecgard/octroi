@@ -1,2 +1,0 @@
-ALTER TABLE tools ADD COLUMN mode TEXT NOT NULL DEFAULT 'service';
-ALTER TABLE tools ADD COLUMN variables JSONB DEFAULT '{}';

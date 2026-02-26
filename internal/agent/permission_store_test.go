@@ -67,7 +67,7 @@ func TestPermissionStore_IsAllowed_NoAllowlist(t *testing.T) {
 	if err != nil {
 		t.Fatalf("creating agent: %v", err)
 	}
-	defer agentStore.Delete(ctx, a.ID)
+	defer pool.Exec(ctx, "DELETE FROM agents WHERE id = $1", a.ID)
 
 	// With allowlist_mode=false, any tool should be allowed.
 	allowed, err := permStore.IsAllowed(ctx, a.ID, "00000000-0000-0000-0000-000000000001")
@@ -98,7 +98,7 @@ func TestPermissionStore_IsAllowed_WithAllowlist(t *testing.T) {
 	if err != nil {
 		t.Fatalf("creating agent: %v", err)
 	}
-	defer agentStore.Delete(ctx, a.ID)
+	defer pool.Exec(ctx, "DELETE FROM agents WHERE id = $1", a.ID)
 
 	enabled := true
 	_, err = agentStore.Update(ctx, a.ID, UpdateAgentInput{AllowlistMode: &enabled})
@@ -139,7 +139,7 @@ func TestPermissionStore_SetAndList(t *testing.T) {
 		t.Fatalf("creating agent: %v", err)
 	}
 	defer func() {
-		agentStore.Delete(ctx, a.ID)
+		pool.Exec(ctx, "DELETE FROM agents WHERE id = $1", a.ID)
 	}()
 
 	// List should be empty initially.
@@ -170,7 +170,7 @@ func TestPermissionStore_IsSubToolAllowed_NoAllowlist(t *testing.T) {
 	if err != nil {
 		t.Fatalf("creating agent: %v", err)
 	}
-	defer agentStore.Delete(ctx, a.ID)
+	defer pool.Exec(ctx, "DELETE FROM agents WHERE id = $1", a.ID)
 
 	// Without allowlist mode, any sub-tool should be allowed.
 	allowed, err := permStore.IsSubToolAllowed(ctx, a.ID, "00000000-0000-0000-0000-000000000001", "search_code")
@@ -200,7 +200,7 @@ func TestPermissionStore_IsSubToolAllowed_ParentDenied(t *testing.T) {
 	if err != nil {
 		t.Fatalf("creating agent: %v", err)
 	}
-	defer agentStore.Delete(ctx, a.ID)
+	defer pool.Exec(ctx, "DELETE FROM agents WHERE id = $1", a.ID)
 
 	enabled := true
 	_, err = agentStore.Update(ctx, a.ID, UpdateAgentInput{AllowlistMode: &enabled})
@@ -253,7 +253,7 @@ func TestPermissionStore_IsSubToolAllowed_EmptySubTools(t *testing.T) {
 	if err != nil {
 		t.Fatalf("creating agent: %v", err)
 	}
-	defer agentStore.Delete(ctx, a.ID)
+	defer pool.Exec(ctx, "DELETE FROM agents WHERE id = $1", a.ID)
 
 	enabled := true
 	_, err = agentStore.Update(ctx, a.ID, UpdateAgentInput{AllowlistMode: &enabled})
@@ -297,7 +297,7 @@ func TestPermissionStore_IsSubToolAllowed_Membership(t *testing.T) {
 	if err != nil {
 		t.Fatalf("creating agent: %v", err)
 	}
-	defer agentStore.Delete(ctx, a.ID)
+	defer pool.Exec(ctx, "DELETE FROM agents WHERE id = $1", a.ID)
 
 	enabled := true
 	_, err = agentStore.Update(ctx, a.ID, UpdateAgentInput{AllowlistMode: &enabled})
@@ -360,7 +360,7 @@ func TestPermissionStore_SetWithSubTools_RoundTrip(t *testing.T) {
 	if err != nil {
 		t.Fatalf("creating agent: %v", err)
 	}
-	defer agentStore.Delete(ctx, a.ID)
+	defer pool.Exec(ctx, "DELETE FROM agents WHERE id = $1", a.ID)
 
 	toolID := createTestTool(t, pool, "subtool-roundtrip-tool")
 	defer deleteTestTool(t, pool, toolID)

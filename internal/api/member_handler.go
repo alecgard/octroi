@@ -17,17 +17,20 @@ import (
 // memberHandler groups member (team-scoped) HTTP handlers.
 type memberHandler struct {
 	agentStore  *agent.Store
+	toolStore   *registry.Store
 	toolService *registry.Service
 	meterStore  *metering.Store
 }
 
-func newMemberHandler(agentStore *agent.Store, toolService *registry.Service, meterStore *metering.Store) *memberHandler {
+func newMemberHandler(agentStore *agent.Store, toolStore *registry.Store, toolService *registry.Service, meterStore *metering.Store) *memberHandler {
 	return &memberHandler{
 		agentStore:  agentStore,
+		toolStore:   toolStore,
 		toolService: toolService,
 		meterStore:  meterStore,
 	}
 }
+
 
 // ListAgents handles GET /api/v1/member/agents — agents in user's teams.
 func (h *memberHandler) ListAgents(w http.ResponseWriter, r *http.Request) {
@@ -219,7 +222,7 @@ func (h *memberHandler) DeleteAgent(w http.ResponseWriter, r *http.Request) {
 		return
 	}
 
-	if err := h.agentStore.Delete(r.Context(), id); err != nil {
+	if err := h.agentStore.Archive(r.Context(), id); err != nil {
 		writeError(w, http.StatusInternalServerError, "internal_error", "failed to delete agent")
 		return
 	}

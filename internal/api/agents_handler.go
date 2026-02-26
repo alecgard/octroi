@@ -121,7 +121,7 @@ func (h *agentsHandler) DeleteAgent(w http.ResponseWriter, r *http.Request) {
 		agentName = ag.Name
 	}
 
-	err := h.store.Delete(r.Context(), id)
+	err := h.store.Archive(r.Context(), id)
 	if err != nil {
 		writeError(w, http.StatusInternalServerError, "internal_error", "failed to delete agent")
 		return

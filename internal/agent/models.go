@@ -10,8 +10,9 @@ type Agent struct {
 	APIKeyPrefix  string    `json:"api_key_prefix"`
 	Team          string    `json:"team"`
 	RateLimit     int       `json:"rate_limit"`
-	AllowlistMode bool      `json:"allowlist_mode"`
-	CreatedAt     time.Time `json:"created_at"`
+	AllowlistMode bool       `json:"allowlist_mode"`
+	CreatedAt     time.Time  `json:"created_at"`
+	ArchivedAt    *time.Time `json:"archived_at,omitempty"`
 }
 
 // CreateAgentInput holds the fields required to create a new agent.

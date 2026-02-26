@@ -469,6 +469,10 @@ func (h *usageHandler) ExportTransactions(w http.ResponseWriter, r *http.Request
 	}
 }
 
+// transactionView is an alias — Transaction already contains agent_name/tool_name
+// stored at write time, so no server-side enrichment is needed.
+type transactionView = metering.Transaction
+
 // tryParseJSON attempts to parse bytes as JSON, returning the parsed value or the raw string.
 func tryParseJSON(data []byte) interface{} {
 	if len(data) == 0 {

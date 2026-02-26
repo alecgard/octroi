@@ -34,6 +34,14 @@ func (f *fakeToolStore) GetByID(_ context.Context, id string) (*registry.Tool, e
 	return t, nil
 }
 
+func (f *fakeToolStore) GetByIDIncludeArchived(_ context.Context, id string) (*registry.Tool, error) {
+	t, ok := f.tools[id]
+	if !ok {
+		return nil, fmt.Errorf("tool not found: %s", id)
+	}
+	return t, nil
+}
+
 type fakeBudgetChecker struct {
 	agentAllowed  bool
 	globalAllowed bool

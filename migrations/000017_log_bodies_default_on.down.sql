@@ -1,1 +1,0 @@
-ALTER TABLE tools ALTER COLUMN log_bodies SET DEFAULT false;
