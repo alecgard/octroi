@@ -241,6 +241,14 @@ func buildWhereClause(q UsageQuery) (string, []any) {
 		}
 		conditions = append(conditions, "tool_id IN ("+strings.Join(placeholders, ", ")+")")
 	}
+	if len(q.Paths) > 0 {
+		pathConds := make([]string, len(q.Paths))
+		for i, p := range q.Paths {
+			args = append(args, "%/"+p)
+			pathConds[i] = fmt.Sprintf("path LIKE $%d", len(args))
+		}
+		conditions = append(conditions, "("+strings.Join(pathConds, " OR ")+")")
+	}
 	if !q.From.IsZero() {
 		args = append(args, q.From)
 		conditions = append(conditions, fmt.Sprintf("timestamp >= $%d", len(args)))

@@ -73,6 +73,10 @@ func buildUsageQuery(r *http.Request, isAdmin bool) (*metering.UsageQuery, error
 		}
 	}
 
+	if pathParam := r.URL.Query().Get("path"); pathParam != "" {
+		q.Paths = strings.Split(pathParam, ",")
+	}
+
 	from, err := parseTimeParam(r.URL.Query().Get("from"))
 	if err != nil {
 		return nil, err

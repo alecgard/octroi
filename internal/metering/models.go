@@ -35,6 +35,7 @@ type UsageQuery struct {
 	AgentIDs []string  `json:"agent_ids,omitempty"` // for team-scoped queries
 	ToolID   string    `json:"tool_id,omitempty"`
 	ToolIDs  []string  `json:"tool_ids,omitempty"`
+	Paths    []string  `json:"paths,omitempty"`
 	From     time.Time `json:"from"`
 	To       time.Time `json:"to"`
 	Cursor   string    `json:"cursor,omitempty"`

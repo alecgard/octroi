@@ -627,6 +627,7 @@ body.shift-held .txn-filter-pending { background: var(--surface2); }
       <div class="multi-select" id="usage-team-select" data-placeholder="All teams"></div>
       <div class="multi-select" id="usage-agent-select" data-placeholder="All agents"></div>
       <div class="multi-select" id="usage-tool-select" data-placeholder="All tools"></div>
+      <div class="multi-select" id="usage-path-select" data-placeholder="All paths"></div>
       <div style="flex:1"></div>
       <div id="usage-date-controls" style="display:none;gap:8px;align-items:center">
         <input type="date" id="usage-from">
@@ -1018,6 +1019,7 @@ let isAdmin = false;
 let usageAgentIds = [];    // array of agent UUIDs
 let usageToolIds = [];     // array of tool UUIDs
 let usageTeamFilters = []; // array of team names
+let usagePathFilters = []; // array of cleaned path/sub-tool strings
 let usageMode = 'live'; // 'live' or 'historical'
 let usagePollTimer = null;
 let lastTxnTimestamp = null;
@@ -1041,7 +1043,7 @@ let usersCache = [];
 
 // --- Shift-key multi-select state ---
 let shiftHeld = false;
-let pendingFilters = { teams: new Set(), agents: new Set(), tools: new Set() };
+let pendingFilters = { teams: new Set(), agents: new Set(), tools: new Set(), paths: new Set() };
 
 document.addEventListener('keydown', e => {
   if (e.key === 'Shift' && !shiftHeld) {
@@ -1080,7 +1082,15 @@ document.addEventListener('keyup', e => {
       });
       changed = true;
     }
-    pendingFilters = { teams: new Set(), agents: new Set(), tools: new Set() };
+    if (pendingFilters.paths.size) {
+      pendingFilters.paths.forEach(p => {
+        const idx = usagePathFilters.indexOf(p);
+        if (idx >= 0) usagePathFilters.splice(idx, 1);
+        else usagePathFilters.push(p);
+      });
+      changed = true;
+    }
+    pendingFilters = { teams: new Set(), agents: new Set(), tools: new Set(), paths: new Set() };
     // Remove pending highlights
     document.querySelectorAll('.txn-filter-pending').forEach(el => el.classList.remove('txn-filter-pending'));
     if (changed) {
@@ -1103,6 +1113,7 @@ function syncDropdowns() {
   msUpdateDisplay('usage-team-select', usageTeamFilters, v => v);
   msUpdateDisplay('usage-agent-select', usageAgentIds, resolveAgentName);
   msUpdateDisplay('usage-tool-select', usageToolIds, resolveToolName);
+  msUpdateDisplay('usage-path-select', usagePathFilters, v => v);
 }
 
 function msRender(id, options, selectedArr, resolveName, onToggle, onClear) {
@@ -1183,6 +1194,7 @@ function effectiveFilters() {
     teams: toggle(usageTeamFilters, pendingFilters.teams),
     agents: toggle(usageAgentIds, pendingFilters.agents),
     tools: toggle(usageToolIds, pendingFilters.tools),
+    paths: toggle(usagePathFilters, pendingFilters.paths),
   };
 }
 
@@ -1935,6 +1947,11 @@ async function loadUsageLive() {
       txnQs += '&tool_id=' + encodeURIComponent(usageToolIds.join(','));
     }
   }
+  if (usagePathFilters.length > 0) {
+    const pathParam = '&path=' + encodeURIComponent(usagePathFilters.join(','));
+    qs += pathParam;
+    txnQs += pathParam;
+  }
 
   txnBasePath = baseTxnPrefix + 'limit=' + txnPageSize + txnQs;
   const onPage1 = txnOffset === 0;
@@ -1981,6 +1998,7 @@ async function loadUsageLive() {
       liveChartNewest = liveChartTxns.reduce((max, t) => t.timestamp > max ? t.timestamp : max, liveChartTxns[0].timestamp);
     }
 
+    populatePathFilter(liveChartTxns);
     renderUsageChart(liveChartTxns);
     if (onPage1) {
       const tableResp = results[2];
@@ -2009,7 +2027,8 @@ function renderTxnTable(prevTimestamp) {
   function txnFilterBtn(type, val, rawVal) {
     const active = (type === 'team' && usageTeamFilters.includes(rawVal)) ||
                    (type === 'agent' && usageAgentIds.includes(rawVal)) ||
-                   (type === 'tool' && usageToolIds.includes(rawVal));
+                   (type === 'tool' && usageToolIds.includes(rawVal)) ||
+                   (type === 'path' && usagePathFilters.includes(rawVal));
     if (active) return `<span class="txn-filter-icon txn-filter-active" onclick="removeFilterItem('${type}','${val}',event)" title="Remove from filter">${fxicon}</span>`;
     return `<span class="txn-filter-icon" onclick="filterFromTxn('${type}','${val}',event)" title="Filter by ${type}">${ficon}</span>`;
   }
@@ -2017,13 +2036,16 @@ function renderTxnTable(prevTimestamp) {
   const hasTeamFilter = eff.teams.length > 0;
   const hasAgentFilter = eff.agents.length > 0;
   const hasToolFilter = eff.tools.length > 0;
+  const hasPathFilter = eff.paths.length > 0;
   tbody.innerHTML = txnAll.map(t => {
     const isNew = prevTimestamp && t.timestamp > prevTimestamp;
     const teamRaw = resolveAgentTeam(t.agent_id);
     const team = esc(teamRaw);
+    const cleaned = cleanPath(t.path, t.tool_id);
     const teamExcl = hasTeamFilter && !eff.teams.includes(teamRaw) ? ' txn-excluded' : '';
     const agentExcl = hasAgentFilter && !eff.agents.includes(t.agent_id) ? ' txn-excluded' : '';
     const toolExcl = hasToolFilter && !eff.tools.includes(t.tool_id) ? ' txn-excluded' : '';
+    const pathExcl = hasPathFilter && !eff.paths.includes(cleaned) ? ' txn-excluded' : '';
     return `<tr${isNew ? ' class="txn-new"' : ''}>
     <td style="white-space:nowrap">${fmtTime(t.timestamp)}</td>
     <td class="txn-filterable${teamExcl}">${team}${txnFilterBtn('team', esc(teamRaw), teamRaw)}</td>
@@ -2031,7 +2053,7 @@ function renderTxnTable(prevTimestamp) {
     <td class="txn-filterable${toolExcl}">${esc(resolveToolName(t.tool_id))}${txnFilterBtn('tool', t.tool_id, t.tool_id)}</td>
     <td><span class="badge-mode badge-${(resolveToolMode(t.tool_id) || '').toLowerCase()}">${resolveToolMode(t.tool_id)}</span></td>
     <td>${esc(t.method)}</td>
-    <td class="mono" style="font-size:12px">${esc(cleanPath(t.path, t.tool_id))}</td>
+    <td class="txn-filterable${pathExcl} mono" style="font-size:12px">${esc(cleaned)}${txnFilterBtn('path', esc(cleaned), cleaned)}</td>
     <td>${t.latency_ms}ms</td>
     <td>$${(t.cost || 0).toFixed(4)}</td>
   </tr>`;
@@ -2048,6 +2070,7 @@ function renderTxnTable(prevTimestamp) {
 function viewTeamUsage(teamName) {
   usageAgentIds = [];
   usageToolIds = [];
+  usagePathFilters = [];
   usageTeamFilters = [teamName];
   syncDropdowns();
   renderFilterPills();
@@ -2058,6 +2081,7 @@ function viewTeamUsage(teamName) {
 function viewAgentUsage(agentId, agentName) {
   usageToolIds = [];
   usageTeamFilters = [];
+  usagePathFilters = [];
   usageAgentIds = [agentId];
   syncDropdowns();
   renderFilterPills();
@@ -2087,6 +2111,7 @@ function populateAgentFilter() {
 function viewToolUsage(toolId, toolName) {
   usageAgentIds = [];
   usageTeamFilters = [];
+  usagePathFilters = [];
   usageToolIds = [toolId];
   syncDropdowns();
   renderFilterPills();
@@ -2108,6 +2133,27 @@ function populateToolFilter() {
     loadUsage();
   }, () => {
     usageToolIds = [];
+    syncDropdowns(); renderFilterPills(); renderTxnTable(); renderUsageChart(lastChartTxns); loadUsage();
+  });
+}
+
+function populatePathFilter(txns) {
+  const pathSet = new Set();
+  (txns || []).forEach(t => {
+    const p = cleanPath(t.path, t.tool_id);
+    if (p && p !== '\u2014') pathSet.add(p);
+  });
+  const options = Array.from(pathSet).sort().map(p => ({ value: p, label: p }));
+  msRender('usage-path-select', options, usagePathFilters, v => v, val => {
+    const idx = usagePathFilters.indexOf(val);
+    if (idx >= 0) usagePathFilters.splice(idx, 1); else usagePathFilters.push(val);
+    syncDropdowns();
+    renderFilterPills();
+    renderTxnTable();
+    renderUsageChart(lastChartTxns);
+    loadUsage();
+  }, () => {
+    usagePathFilters = [];
     syncDropdowns(); renderFilterPills(); renderTxnTable(); renderUsageChart(lastChartTxns); loadUsage();
   });
 }
@@ -2153,6 +2199,11 @@ async function loadUsage() {
       txnQs += '&tool_id=' + encodeURIComponent(usageToolIds.join(','));
     }
   }
+  if (usagePathFilters.length > 0) {
+    const pathParam = '&path=' + encodeURIComponent(usagePathFilters.join(','));
+    qs += pathParam;
+    txnQs += pathParam;
+  }
 
   txnBasePath = baseTxnPrefix + 'limit=' + txnPageSize + txnQs;
   try {
@@ -2167,7 +2218,9 @@ async function loadUsage() {
     txnNextCursor = tableResp.next_cursor || null;
     txnCursorStack = [];
     txnOffset = 0;
-    renderUsageChart((chartTxns.transactions || chartTxns) || txnAll);
+    const allChartTxns = (chartTxns.transactions || chartTxns) || txnAll;
+    populatePathFilter(allChartTxns);
+    renderUsageChart(allChartTxns);
     renderTxnTable();
   } catch (e) { console.error('Failed to load usage', e); hideUsageLoading(); }
 }
@@ -2440,7 +2493,7 @@ function cleanPath(path, toolId) {
 function filterFromTxn(type, value, event) {
   if (shiftHeld && value) {
     // Shift held: toggle in pending set, don't reload yet.
-    const setKey = type === 'team' ? 'teams' : type === 'agent' ? 'agents' : 'tools';
+    const setKey = type === 'team' ? 'teams' : type === 'agent' ? 'agents' : type === 'path' ? 'paths' : 'tools';
     if (pendingFilters[setKey].has(value)) {
       pendingFilters[setKey].delete(value);
     } else {
@@ -2470,6 +2523,12 @@ function filterFromTxn(type, value, event) {
     } else {
       usageToolIds = [value];
     }
+  } else if (type === 'path') {
+    if (!value || (usagePathFilters.length === 1 && usagePathFilters[0] === value)) {
+      usagePathFilters = [];
+    } else {
+      usagePathFilters = [value];
+    }
   }
   syncDropdowns();
   renderFilterPills();
@@ -2490,6 +2549,7 @@ function removeFilterItem(type, value, event) {
   if (type === 'team') usageTeamFilters = usageTeamFilters.filter(t => t !== value);
   else if (type === 'agent') usageAgentIds = usageAgentIds.filter(a => a !== value);
   else if (type === 'tool') usageToolIds = usageToolIds.filter(t => t !== value);
+  else if (type === 'path') usagePathFilters = usagePathFilters.filter(p => p !== value);
   syncDropdowns();
   renderFilterPills();
   loadUsage();
@@ -2663,8 +2723,12 @@ function renderUsageChart(txns) {
   const bucketEnd = Math.floor(tMax / bucketMs) * bucketMs + bucketMs;
   const numBuckets = Math.max(1, Math.round((bucketEnd - bucketStart) / bucketMs));
 
-  const groupKey = chartGroup === 'agent' ? 'agent_id' : 'tool_id';
-  const resolveName = chartGroup === 'agent' ? resolveAgentName : resolveToolName;
+  const resolveGroupId = chartGroup === 'agent'
+    ? t => t.agent_id
+    : t => t.tool_id + '|' + cleanPath(t.path, t.tool_id);
+  const resolveName = chartGroup === 'agent'
+    ? resolveAgentName
+    : gid => { const [tid, path] = gid.split('|', 2); return resolveToolName(tid) + ' \u203A ' + (path || '/'); };
 
   // Bucket transactions
   const buckets = [];
@@ -2675,7 +2739,7 @@ function renderUsageChart(txns) {
     const ts = new Date(t.timestamp).getTime();
     const bi = Math.min(Math.floor((ts - bucketStart) / bucketMs), numBuckets - 1);
     if (bi < 0) return;
-    const gid = t[groupKey];
+    const gid = resolveGroupId(t);
     groupSet.add(gid);
     if (chartType === 'latency') {
       if (!buckets[bi][gid]) buckets[bi][gid] = [];
@@ -2773,8 +2837,8 @@ function renderUsageChart(txns) {
 
   // Legend
   const eff = effectiveFilters();
-  const filterType = chartGroup === 'agent' ? 'agent' : 'tool';
-  const activeFilterArr = filterType === 'agent' ? eff.agents : eff.tools;
+  const filterType = chartGroup === 'agent' ? 'agent' : 'path';
+  const activeFilterArr = chartGroup === 'agent' ? eff.agents : eff.paths;
   const hasLegendFilter = activeFilterArr.length > 0;
   let legend = '<div class="chart-legend">';
   groups.forEach((gid, gi) => {
@@ -2782,10 +2846,12 @@ function renderUsageChart(txns) {
     const pctl = chartType === 'latency' ? gid.split('::')[1].toUpperCase() : null;
     const color = chartColorFor(baseGid);
     const name = resolveName(baseGid) + (pctl ? ' ' + pctl : '');
-    const isActive = activeFilterArr.includes(baseGid);
-    const filterVal = isActive ? '' : baseGid;
+    // For tool chart, the filter value is the path portion of the composite key.
+    const legendFilterVal = chartGroup === 'agent' ? baseGid : (baseGid.split('|')[1] || '/');
+    const isActive = activeFilterArr.includes(legendFilterVal);
+    const filterVal = isActive ? '' : legendFilterVal;
     const exclClass = hasLegendFilter && !isActive ? ' chart-legend-excluded' : '';
-    legend += `<div class="chart-legend-item${exclClass}" data-group="${baseGid}" onclick="filterFromTxn('${filterType}','${filterVal}')" style="cursor:pointer"><span class="chart-legend-swatch" style="background:${color}${hasLegendFilter && !isActive ? ';opacity:0.3' : ''}"></span>${esc(name)}</div>`;
+    legend += `<div class="chart-legend-item${exclClass}" data-group="${esc(baseGid)}" onclick="filterFromTxn('${filterType}','${esc(filterVal)}')" style="cursor:pointer"><span class="chart-legend-swatch" style="background:${color}${hasLegendFilter && !isActive ? ';opacity:0.3' : ''}"></span>${esc(name)}</div>`;
   });
   legend += '</div>';
 
