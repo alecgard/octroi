@@ -1,6 +1,7 @@
 package api
 
 import (
+	"context"
 	"errors"
 	"log/slog"
 	"net/http"
@@ -13,12 +14,22 @@ import (
 	"github.com/jackc/pgx/v5"
 )
 
-// toolsHandler groups tool-related HTTP handlers.
-type toolsHandler struct {
-	service *registry.Service
+// toolServicer abstracts the registry.Service methods used by toolsHandler,
+// enabling test fakes without a database.
+type toolServicer interface {
+	Create(ctx context.Context, input registry.CreateToolInput) (*registry.Tool, error)
+	GetByID(ctx context.Context, id string) (*registry.Tool, error)
+	List(ctx context.Context, params registry.ToolListParams) ([]*registry.Tool, string, error)
+	Update(ctx context.Context, id string, input registry.UpdateToolInput) (*registry.Tool, error)
+	Delete(ctx context.Context, id string) error
 }
 
-func newToolsHandler(svc *registry.Service) *toolsHandler {
+// toolsHandler groups tool-related HTTP handlers.
+type toolsHandler struct {
+	service toolServicer
+}
+
+func newToolsHandler(svc toolServicer) *toolsHandler {
 	return &toolsHandler{service: svc}
 }
 
