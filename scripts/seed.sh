@@ -50,17 +50,27 @@ check_error() {
 
 # --- login -----------------------------------------------------------------
 
-echo "==> Logging in as $ADMIN_EMAIL"
-LOGIN_RESP=$(curl -s -X POST "${BASE}/api/v1/auth/login" \
-  -H "Content-Type: application/json" \
-  -d "{\"email\":\"$ADMIN_EMAIL\",\"password\":\"$ADMIN_PASS\"}")
+echo "==> Logging in as $ADMIN_EMAIL (will retry for up to 30s if server isn't ready)"
+DEADLINE=$((SECONDS + 30))
+while true; do
+  LOGIN_RESP=$(curl -s -X POST "${BASE}/api/v1/auth/login" \
+    -H "Content-Type: application/json" \
+    -d "{\"email\":\"$ADMIN_EMAIL\",\"password\":\"$ADMIN_PASS\"}" 2>/dev/null || true)
 
-TOKEN=$(echo "$LOGIN_RESP" | jq -r '.token // empty')
-if [[ -z "$TOKEN" ]]; then
-  echo "Login failed. Make sure the admin user exists (run 'octroi ensure-admin' or 'make dev' first)."
-  echo "Response: $LOGIN_RESP"
-  exit 1
-fi
+  TOKEN=$(echo "$LOGIN_RESP" | jq -r '.token // empty' 2>/dev/null || true)
+  if [[ -n "$TOKEN" ]]; then
+    break
+  fi
+
+  if (( SECONDS >= DEADLINE )); then
+    echo "Login failed after 30s. Make sure the admin user exists (run 'octroi ensure-admin' or 'make dev' first)."
+    echo "Response: $LOGIN_RESP"
+    exit 1
+  fi
+
+  echo "    Server not ready, retrying in 1s..."
+  sleep 1
+done
 echo "    Logged in (token: ${TOKEN:0:12}...)"
 
 # ===========================================================================
