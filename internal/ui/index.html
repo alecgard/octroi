@@ -1122,6 +1122,25 @@ function appConfirm(msg, { title = 'Confirm', okLabel = 'Delete' } = {}) {
   });
 }
 
+function appAlert(html, { title = 'Info' } = {}) {
+  return new Promise(resolve => {
+    document.getElementById('confirm-title').textContent = title;
+    document.getElementById('confirm-msg').innerHTML = html;
+    const okBtn = document.getElementById('confirm-ok');
+    okBtn.textContent = 'Close';
+    okBtn.className = 'btn-primary';
+    document.getElementById('confirm-cancel').style.display = 'none';
+    document.getElementById('confirm-modal').classList.add('open');
+    okBtn.onclick = () => {
+      document.getElementById('confirm-modal').classList.remove('open');
+      document.getElementById('confirm-cancel').style.display = '';
+      document.getElementById('confirm-msg').textContent = '';
+      okBtn.onclick = null;
+      resolve();
+    };
+  });
+}
+
 function toast(msg, ms = 3000) {
   const el = document.getElementById('toast');
   el.textContent = msg;
