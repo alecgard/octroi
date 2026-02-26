@@ -82,11 +82,11 @@ Add to your `claude_desktop_config.json`:
 }
 ```
 
-The MCP client sees a unified tool list: REST API tools (from the Tools tab) and upstream MCP server tools (from the MCP Upstreams tab) all appear together. Rate limits, budgets, and audit logging apply uniformly to both.
+The MCP client sees a unified tool list: REST API tools and upstream MCP server tools all appear together. Rate limits, budgets, and audit logging apply uniformly to both.
 
 ### MCP Upstreams
 
-Octroi can also proxy to upstream MCP servers. In the UI, go to the **MCP Upstreams** tab and add an upstream — Octroi will discover its tools and expose them to all connected MCP clients, with governance applied.
+Octroi can also proxy to upstream MCP servers. In the UI, create a new tool with **MCP** mode and point it at the upstream server — Octroi will discover its tools and expose them to all connected MCP clients, with governance applied.
 
 This means Octroi can sit between your agents and any MCP server, adding spend limits and audit logging that the upstream server doesn't provide.
 
@@ -107,6 +107,7 @@ Tools are the external APIs your agents will call through the gateway. In the UI
 1. Go to the **Tools** tab and click **New Tool**
 2. Give it a name and description (agents discover tools by searching these)
 3. Choose a mode:
+   - **MCP** (default) — proxy to an upstream MCP server. Octroi discovers its tools automatically.
    - **Service** — a static endpoint URL (e.g. `https://api.openweathermap.org`)
    - **API** — a URL template with `{placeholders}` for multi-tenant APIs (e.g. `https://{instance}.atlassian.net/rest/api/3`)
 4. Set the auth type to match what the upstream API expects:
@@ -124,6 +125,7 @@ Tools are the external APIs your agents will call through the gateway. In the UI
 - **Teams** group agents and users. Members can manage agents within their team.
 - **Budgets** set per-agent per-tool spending limits (daily/monthly) and global per-tool caps. Requests exceeding a budget get HTTP 403.
 - **Rate limits** default to 60 req/min per agent, with per-tool overrides scoped to teams or individual agents.
+- **Tool permissions** — enable allowlist mode on an agent to restrict it to specific tools. For MCP tools, permissions can be further refined to individual sub-tools (e.g. allow `search_code` but deny `push_commits`).
 
 Configure all of these from the **Tools** and **Agents** tabs in the UI.
 

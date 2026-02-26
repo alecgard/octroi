@@ -762,7 +762,7 @@ body.shift-held .txn-filter-pending { background: var(--surface2); }
   <div class="tab-panel" id="tab-audit">
     <div style="display:flex;align-items:center;margin-bottom:8px;gap:8px">
       <h2 class="toolbar-title">Audit Log</h2>
-      <select class="styled-select" id="audit-resource-type" onchange="loadAuditLog()">
+      <select class="styled-select" id="audit-resource-type" onchange="loadAuditLog()" title="Filter by resource type">
         <option value="">All types</option>
         <option value="tool">tool</option>
         <option value="agent">agent</option>
@@ -771,19 +771,19 @@ body.shift-held .txn-filter-pending { background: var(--surface2); }
         <option value="agent_budget">agent_budget</option>
         <option value="agent_tool_permission">agent_tool_permission</option>
       </select>
-      <input type="date" id="audit-from" onchange="loadAuditLog()" style="padding:4px 6px;border:1px solid var(--border);border-radius:4px;font-family:var(--font);font-size:11px">
-      <input type="date" id="audit-to" onchange="loadAuditLog()" style="padding:4px 6px;border:1px solid var(--border);border-radius:4px;font-family:var(--font);font-size:11px">
+      <input type="date" id="audit-from" onchange="loadAuditLog()" style="padding:4px 6px;border:1px solid var(--border);border-radius:4px;font-family:var(--font);font-size:11px" title="Start date (inclusive)">
+      <input type="date" id="audit-to" onchange="loadAuditLog()" style="padding:4px 6px;border:1px solid var(--border);border-radius:4px;font-family:var(--font);font-size:11px" title="End date (inclusive)">
     </div>
     <table>
       <thead>
         <tr>
           <th>Timestamp</th>
-          <th style="width:80px">Action</th>
-          <th style="width:80px">Resource</th>
+          <th style="width:80px" class="has-tooltip">Action<span class="tip">The mutation performed (create, update, delete, etc.)</span></th>
+          <th style="width:80px" class="has-tooltip">Resource<span class="tip">Type of entity affected (tool, agent, user, team, etc.)</span></th>
           <th>Resource ID</th>
           <th>User</th>
           <th>IP</th>
-          <th>Details</th>
+          <th class="has-tooltip">Details<span class="tip">Additional context like changed fields or values</span></th>
         </tr>
       </thead>
       <tbody id="audit-table-body">
@@ -806,7 +806,7 @@ body.shift-held .txn-filter-pending { background: var(--surface2); }
       <code id="tool-id-display" style="display:block;padding:6px 8px;background:var(--surface);border:1px solid var(--border);border-radius:4px;font-size:12px;color:var(--text2);user-select:all"></code>
     </div>
     <div class="form-group">
-      <label>Mode</label>
+      <label title="MCP: proxy to an upstream MCP server. Service: proxy to a static URL. API: proxy with URL template variables.">Mode</label>
       <select id="tool-mode" onchange="toggleToolMode()">
         <option value="mcp">MCP</option>
         <option value="service">Service</option>
@@ -831,7 +831,7 @@ body.shift-held .txn-filter-pending { background: var(--surface2); }
       <span style="font-size:10px;color:var(--text2)">Key-value pairs for {placeholder} substitution in the endpoint URL</span>
     </div>
     <div class="form-group" id="tool-transport-section" style="display:none">
-      <label>Transport *</label>
+      <label title="MCP transport protocol. streamable-http is preferred; sse is for older servers that only support Server-Sent Events.">Transport *</label>
       <select id="tool-transport">
         <option value="streamable-http">streamable-http</option>
         <option value="sse">sse</option>
@@ -841,9 +841,10 @@ body.shift-held .txn-filter-pending { background: var(--surface2); }
       <label style="display:inline-flex;align-items:center;gap:6px;text-transform:uppercase;font-size:10px;font-weight:600;letter-spacing:0.5px;color:var(--text2);cursor:pointer">
         <input type="checkbox" id="tool-enabled" checked> Enabled
       </label>
+      <div style="font-size:11px;color:var(--text2);margin-top:2px">Disabled tools are skipped during MCP tool discovery</div>
     </div>
     <div class="form-group" id="tool-log-bodies-section" style="display:none">
-      <label style="display:inline-flex;align-items:center;gap:6px;text-transform:uppercase;font-size:10px;font-weight:600;letter-spacing:0.5px;color:var(--text2);cursor:pointer">
+      <label style="display:inline-flex;align-items:center;gap:6px;text-transform:uppercase;font-size:10px;font-weight:600;letter-spacing:0.5px;color:var(--text2);cursor:pointer" title="Store request and response payloads for each proxied call. Auth credentials are automatically redacted.">
         <input type="checkbox" id="tool-log-bodies"> Log Request/Response Bodies
       </label>
       <div style="font-size:11px;color:var(--text2);margin-top:2px">Capture and store request/response bodies (sensitive data is redacted)</div>
@@ -877,29 +878,29 @@ body.shift-held .txn-filter-pending { background: var(--surface2); }
     </div>
     <div class="form-row">
       <div class="form-group">
-        <label>Pricing Model</label>
+        <label title="How each request is priced. per_request charges a flat amount per call. Upstreams can override via the X-Octroi-Cost header.">Pricing Model</label>
         <select id="tool-pricing-model">
           <option value="">none</option>
           <option value="per_request">per_request</option>
         </select>
       </div>
       <div class="form-group">
-        <label>Pricing Amount</label>
+        <label title="Cost charged per request (in the selected currency). Used for budget enforcement and usage reporting.">Pricing Amount</label>
         <input type="number" step="any" id="tool-pricing-amount" placeholder="0.00">
       </div>
     </div>
     <div class="form-row">
       <div class="form-group">
-        <label>Pricing Currency</label>
+        <label title="Currency code for pricing and budget display (e.g. USD, EUR).">Pricing Currency</label>
         <input type="text" id="tool-pricing-currency" placeholder="USD">
       </div>
       <div class="form-group">
-        <label>Budget Limit</label>
+        <label title="Global spending cap for this tool across all agents. Requests are rejected with 403 when exceeded.">Budget Limit</label>
         <input type="number" step="any" id="tool-budget-limit" placeholder="0.00">
       </div>
     </div>
     <div class="form-group">
-      <label>Budget Window</label>
+      <label title="Time period for the budget limit. Daily resets at midnight UTC, monthly on the 1st.">Budget Window</label>
       <select id="tool-budget-window">
         <option value="">none</option>
         <option value="daily">daily</option>
@@ -982,7 +983,7 @@ body.shift-held .txn-filter-pending { background: var(--surface2); }
         <select id="agent-team"></select>
       </div>
       <div class="form-group">
-        <label>Rate Limit (req/min)</label>
+        <label title="Default rate limit for this agent across all tools. Per-tool overrides (set on the tool) take priority.">Rate Limit (req/min)</label>
         <input type="number" id="agent-rate-limit" placeholder="0">
       </div>
     </div>
@@ -993,7 +994,7 @@ body.shift-held .txn-filter-pending { background: var(--surface2); }
       <div style="font-size:11px;color:var(--text2);margin-top:2px">When enabled, agent can only access explicitly permitted tools</div>
     </div>
     <div id="agent-permissions-section" style="display:none;margin-bottom:12px">
-      <label style="text-transform:uppercase;font-size:10px;font-weight:600;letter-spacing:0.5px;color:var(--text2)">Tool Permissions</label>
+      <label style="text-transform:uppercase;font-size:10px;font-weight:600;letter-spacing:0.5px;color:var(--text2)" title="Check the tools this agent may use. For MCP tools, you can also restrict access to specific sub-tools.">Tool Permissions</label>
       <div id="agent-permissions-list" style="max-height:200px;overflow-y:auto;margin-top:4px;border:1px solid var(--border);border-radius:6px;padding:6px"></div>
     </div>
     <div class="modal-actions">
@@ -1886,10 +1887,10 @@ async function loadAgentPermissions(agentId) {
       const subs = mcpSubTools[t.id];
       if (subs && subs.length > 0) {
         const allAllowed = perm.sub_tools.length === 0;
-        html += `<div class="agent-sub-tools" data-tool-id="${t.id}" style="padding-left:24px;display:${perm.allowed ? '' : 'none'}">`;
+        html += `<div class="agent-sub-tools" data-tool-id="${t.id}" style="padding-left:24px;display:${perm.allowed ? '' : 'none'}" title="Uncheck specific sub-tools to restrict this agent. All checked = full access.">`;
         subs.forEach(st => {
           const stChecked = allAllowed || perm.sub_tools.includes(st) ? 'checked' : '';
-          html += `<label style="display:flex;align-items:center;gap:4px;padding:1px 2px;font-size:11px;color:var(--text2);cursor:pointer">
+          html += `<label style="display:flex;align-items:center;gap:4px;padding:1px 2px;font-size:11px;color:var(--text2);cursor:pointer" title="Allow this agent to call the ${esc(st)} sub-tool">
             <input type="checkbox" data-tool-id="${t.id}" data-sub-tool="${esc(st)}" class="agent-sub-perm-cb" ${stChecked}> ${esc(st)}
           </label>`;
         });
