@@ -1,0 +1,1 @@
+ALTER TABLE request_bodies DROP CONSTRAINT request_bodies_transaction_id_fkey;
