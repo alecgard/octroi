@@ -588,6 +588,7 @@ func (h *Handler) serveMCP(w http.ResponseWriter, r *http.Request, tool *registr
 
 	// Parse arguments from body.
 	var arguments map[string]any
+	var capturedReqBody []byte
 	if r.Body != nil {
 		body := io.LimitReader(r.Body, h.maxRequestSize+1)
 		data, err := io.ReadAll(body)
@@ -595,6 +596,7 @@ func (h *Handler) serveMCP(w http.ResponseWriter, r *http.Request, tool *registr
 			writeError(w, http.StatusBadRequest, "bad_request", "failed to read request body")
 			return
 		}
+		capturedReqBody = data
 		if len(data) > 0 {
 			if err := json.Unmarshal(data, &arguments); err != nil {
 				writeError(w, http.StatusBadRequest, "bad_request", "invalid JSON body")
@@ -602,6 +604,8 @@ func (h *Handler) serveMCP(w http.ResponseWriter, r *http.Request, tool *registr
 			}
 		}
 	}
+
+	txnID := uuid.New().String()
 
 	start := time.Now()
 	result, err := h.mcpCaller.Call(r.Context(), tool.ID, subTool, arguments)
@@ -616,7 +620,7 @@ func (h *Handler) serveMCP(w http.ResponseWriter, r *http.Request, tool *registr
 			h.metrics.IncProxyRequests(tool.ID, tool.Name, agent.ID, r.Method, 502)
 			h.metrics.IncUpstreamError("mcp_call", tool.ID, tool.Name)
 		}
-		h.recordTransaction(agent.ID, tool, r, 502, latency, 0, 0, false, "")
+		h.recordTransactionWithID(txnID, agent.ID, tool, r, 502, latency, 0, 0, false, "")
 		writeError(w, http.StatusBadGateway, "proxy_error", "MCP upstream call failed")
 		return
 	}
@@ -637,7 +641,12 @@ func (h *Handler) serveMCP(w http.ResponseWriter, r *http.Request, tool *registr
 	w.WriteHeader(statusCode)
 	w.Write(respBytes)
 
-	h.recordTransaction(agent.ID, tool, r, statusCode, latency, 0, int64(len(respBytes)), success, "")
+	h.recordTransactionWithID(txnID, agent.ID, tool, r, statusCode, latency, 0, int64(len(respBytes)), success, "")
+
+	// Record bodies asynchronously if enabled.
+	if tool.LogBodies && h.bodyRecorder != nil && (len(capturedReqBody) > 0 || len(respBytes) > 0) {
+		go h.bodyRecorder.RecordBody(context.Background(), txnID, capturedReqBody, respBytes)
+	}
 }
 
 func writeError(w http.ResponseWriter, status int, code, message string) {

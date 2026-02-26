@@ -784,11 +784,12 @@ while true; do
     rng; path_idx=$(( (RNG & 0x7FFFFFFF) % NUM_PATHS ))
     method="${METHODS[$method_idx]}"
     path="${PATHS[$path_idx]}"
-    # REST tools: standard proxy request.
-    http_code=$(curl -s -o /dev/null -w "%{http_code}" \
-      -H "Authorization: Bearer $agent_key" \
-      -X "$method" \
-      "${BASE}/proxy/${tool_id}${path}")
+    # REST tools: standard proxy request (include body for POST/PUT).
+    local rest_args=(-s -o /dev/null -w "%{http_code}" -H "Authorization: Bearer $agent_key" -X "$method")
+    if [[ "$method" == "POST" || "$method" == "PUT" ]]; then
+      rest_args+=(-H "Content-Type: application/json" -d '{"query":"test","limit":10}')
+    fi
+    http_code=$(curl "${rest_args[@]}" "${BASE}/proxy/${tool_id}${path}")
   fi
 
   count=$(( count + 1 ))
