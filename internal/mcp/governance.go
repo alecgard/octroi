@@ -23,13 +23,19 @@ type MCPUpstreamCaller interface {
 // GovernedCaller implements ToolCaller by applying governance policy
 // (rate limits, budgets, metering) before delegating to the actual upstream.
 type GovernedCaller struct {
-	router     ToolRouter
-	toolStore  proxy.ToolStore
-	budgets    proxy.BudgetChecker
-	rateLimits proxy.ToolRateLimitChecker
-	collector  proxy.MeteringRecorder
-	restCaller RESTCaller
-	mcpCaller  MCPUpstreamCaller
+	router      ToolRouter
+	toolStore   proxy.ToolStore
+	budgets     proxy.BudgetChecker
+	rateLimits  proxy.ToolRateLimitChecker
+	collector   proxy.MeteringRecorder
+	permissions proxy.PermissionChecker
+	restCaller  RESTCaller
+	mcpCaller   MCPUpstreamCaller
+}
+
+// SetPermissionChecker sets the optional permission checker for sub-tool enforcement.
+func (g *GovernedCaller) SetPermissionChecker(c proxy.PermissionChecker) {
+	g.permissions = c
 }
 
 // NewGovernedCaller creates a GovernedCaller with all required dependencies.
@@ -133,6 +139,15 @@ func (g *GovernedCaller) callMCP(ctx context.Context, agent AgentInfo, name stri
 	tool, err := g.toolStore.GetByID(ctx, toolID)
 	if err != nil {
 		return mcp.NewToolResultError(fmt.Sprintf("tool not found: %s", toolID)), nil
+	}
+
+	// Check sub-tool permissions.
+	if g.permissions != nil {
+		allowed, permErr := g.permissions.IsSubToolAllowed(ctx, agent.ID, toolID, route.UpstreamToolName)
+		if permErr == nil && !allowed {
+			g.recordTransaction(agent, toolID, name, 403, 0, false, 0, "flat")
+			return mcp.NewToolResultError(fmt.Sprintf("sub-tool %s not permitted for tool %s", route.UpstreamToolName, tool.Name)), nil
+		}
 	}
 
 	// Check per-tool rate limits.

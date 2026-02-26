@@ -15,16 +15,24 @@ import (
 	"github.com/alecgard/octroi/internal/metering"
 	"github.com/alecgard/octroi/internal/registry"
 	"github.com/go-chi/chi/v5"
+	mcpgo "github.com/mark3labs/mcp-go/mcp"
 )
 
 // --- Fakes ---
 
 type fakePermissionChecker struct {
-	allowed bool
+	allowed        bool
+	subToolAllowed bool
+	subToolChecked bool
 }
 
 func (f *fakePermissionChecker) IsAllowed(_ context.Context, _, _ string) (bool, error) {
 	return f.allowed, nil
+}
+
+func (f *fakePermissionChecker) IsSubToolAllowed(_ context.Context, _, _, _ string) (bool, error) {
+	f.subToolChecked = true
+	return f.subToolAllowed, nil
 }
 
 type fakeToolStore struct {
@@ -838,5 +846,81 @@ func TestCircuitBreakerRecordsResult(t *testing.T) {
 	}
 	if len(cb.results) != 1 || cb.results[0] != 200 {
 		t.Errorf("expected CB result [200], got %v", cb.results)
+	}
+}
+
+// --- MCP sub-tool permission tests ---
+
+type fakeMCPCaller struct {
+	called bool
+}
+
+func (f *fakeMCPCaller) Call(_ context.Context, _ string, _ string, _ map[string]any) (*mcpgo.CallToolResult, error) {
+	f.called = true
+	return mcpgo.NewToolResultText("ok"), nil
+}
+
+func TestMCPSubToolPermissionDenied(t *testing.T) {
+	tool := newTestTool("http://localhost")
+	tool.Mode = "mcp"
+	store := &fakeToolStore{tools: map[string]*registry.Tool{"tool-1": tool}}
+	budgets := &fakeBudgetChecker{agentAllowed: true, globalAllowed: true}
+	collector := &fakeCollector{}
+	handler := NewHandler(store, budgets, collector, 5*time.Second, 1<<20)
+	handler.SetMCPCaller(&fakeMCPCaller{})
+	perm := &fakePermissionChecker{allowed: true, subToolAllowed: false}
+	handler.SetPermissionChecker(perm)
+
+	router := setupRouter(handler)
+
+	req := httptest.NewRequest("POST", "/proxy/tool-1/search_code", bytes.NewReader([]byte(`{}`)))
+	req = withAgent(req, newTestAgent())
+	rr := httptest.NewRecorder()
+	router.ServeHTTP(rr, req)
+
+	if rr.Code != http.StatusForbidden {
+		t.Fatalf("expected 403, got %d: %s", rr.Code, rr.Body.String())
+	}
+
+	var errResp proxyError
+	_ = json.NewDecoder(rr.Body).Decode(&errResp)
+	if errResp.Error.Code != "permission_denied" {
+		t.Errorf("expected error code permission_denied, got %s", errResp.Error.Code)
+	}
+	if !perm.subToolChecked {
+		t.Error("expected sub-tool permission check to be called")
+	}
+}
+
+func TestMCPSubToolPermissionAllowed(t *testing.T) {
+	tool := newTestTool("http://localhost")
+	tool.Mode = "mcp"
+	store := &fakeToolStore{tools: map[string]*registry.Tool{"tool-1": tool}}
+	budgets := &fakeBudgetChecker{agentAllowed: true, globalAllowed: true}
+	collector := &fakeCollector{}
+	mcpUp := &fakeMCPCaller{}
+	handler := NewHandler(store, budgets, collector, 5*time.Second, 1<<20)
+	handler.SetMCPCaller(mcpUp)
+	perm := &fakePermissionChecker{allowed: true, subToolAllowed: true}
+	handler.SetPermissionChecker(perm)
+
+	router := setupRouter(handler)
+
+	req := httptest.NewRequest("POST", "/proxy/tool-1/search_code", bytes.NewReader([]byte(`{}`)))
+	req = withAgent(req, newTestAgent())
+	rr := httptest.NewRecorder()
+	router.ServeHTTP(rr, req)
+
+	if rr.Code == http.StatusForbidden {
+		t.Fatal("expected to pass permission check, but got 403")
+	}
+	if rr.Code != http.StatusOK {
+		t.Fatalf("expected 200, got %d: %s", rr.Code, rr.Body.String())
+	}
+	if !perm.subToolChecked {
+		t.Error("expected sub-tool permission check to be called")
+	}
+	if !mcpUp.called {
+		t.Error("expected MCP caller to be invoked")
 	}
 }

@@ -10,10 +10,17 @@ import (
 
 // Permission represents a single agent-tool permission record.
 type Permission struct {
-	ID      string `json:"id"`
-	AgentID string `json:"agent_id"`
-	ToolID  string `json:"tool_id"`
-	Allowed bool   `json:"allowed"`
+	ID       string   `json:"id"`
+	AgentID  string   `json:"agent_id"`
+	ToolID   string   `json:"tool_id"`
+	Allowed  bool     `json:"allowed"`
+	SubTools []string `json:"sub_tools,omitempty"`
+}
+
+// BulkPermission represents a permission entry for bulk set operations.
+type BulkPermission struct {
+	Allowed  bool     `json:"allowed"`
+	SubTools []string `json:"sub_tools,omitempty"`
 }
 
 // PermissionStore provides database operations for agent tool permissions.
@@ -53,6 +60,46 @@ func (s *PermissionStore) IsAllowed(ctx context.Context, agentID, toolID string)
 	return allowed, nil
 }
 
+// IsSubToolAllowed checks if an agent is permitted to use a specific sub-tool of a tool.
+// Returns true if:
+//   - The agent's allowlist_mode is false (all tools allowed)
+//   - The tool has an allowed=true row AND (sub_tools is empty OR subTool is in sub_tools OR subTool is "")
+func (s *PermissionStore) IsSubToolAllowed(ctx context.Context, agentID, toolID, subTool string) (bool, error) {
+	agent, err := s.agentStore.GetByID(ctx, agentID)
+	if err != nil {
+		return false, fmt.Errorf("looking up agent: %w", err)
+	}
+	if !agent.AllowlistMode {
+		return true, nil
+	}
+
+	var allowed bool
+	var subTools []string
+	err = s.pool.QueryRow(ctx,
+		`SELECT allowed, sub_tools FROM agent_tool_permissions WHERE agent_id = $1 AND tool_id = $2`,
+		agentID, toolID,
+	).Scan(&allowed, &subTools)
+	if err != nil {
+		if err == pgx.ErrNoRows {
+			return false, nil
+		}
+		return false, fmt.Errorf("checking permission: %w", err)
+	}
+	if !allowed {
+		return false, nil
+	}
+	// Empty sub_tools or empty subTool name means all sub-tools allowed.
+	if len(subTools) == 0 || subTool == "" {
+		return true, nil
+	}
+	for _, st := range subTools {
+		if st == subTool {
+			return true, nil
+		}
+	}
+	return false, nil
+}
+
 // Set upserts a permission for an agent-tool pair.
 func (s *PermissionStore) Set(ctx context.Context, agentID, toolID string, allowed bool) error {
 	_, err := s.pool.Exec(ctx,
@@ -60,6 +107,20 @@ func (s *PermissionStore) Set(ctx context.Context, agentID, toolID string, allow
 		 VALUES ($1, $2, $3)
 		 ON CONFLICT (agent_id, tool_id) DO UPDATE SET allowed = $3`,
 		agentID, toolID, allowed,
+	)
+	if err != nil {
+		return fmt.Errorf("setting permission: %w", err)
+	}
+	return nil
+}
+
+// SetWithSubTools upserts a permission for an agent-tool pair including sub-tools.
+func (s *PermissionStore) SetWithSubTools(ctx context.Context, agentID, toolID string, allowed bool, subTools []string) error {
+	_, err := s.pool.Exec(ctx,
+		`INSERT INTO agent_tool_permissions (agent_id, tool_id, allowed, sub_tools)
+		 VALUES ($1, $2, $3, $4)
+		 ON CONFLICT (agent_id, tool_id) DO UPDATE SET allowed = $3, sub_tools = $4`,
+		agentID, toolID, allowed, subTools,
 	)
 	if err != nil {
 		return fmt.Errorf("setting permission: %w", err)
@@ -82,7 +143,7 @@ func (s *PermissionStore) Delete(ctx context.Context, agentID, toolID string) er
 // ListByAgent returns all permissions for the given agent.
 func (s *PermissionStore) ListByAgent(ctx context.Context, agentID string) ([]Permission, error) {
 	rows, err := s.pool.Query(ctx,
-		`SELECT id, agent_id, tool_id, allowed FROM agent_tool_permissions WHERE agent_id = $1 ORDER BY created_at DESC`,
+		`SELECT id, agent_id, tool_id, allowed, sub_tools FROM agent_tool_permissions WHERE agent_id = $1 ORDER BY created_at DESC`,
 		agentID,
 	)
 	if err != nil {
@@ -93,7 +154,7 @@ func (s *PermissionStore) ListByAgent(ctx context.Context, agentID string) ([]Pe
 	var perms []Permission
 	for rows.Next() {
 		var p Permission
-		if err := rows.Scan(&p.ID, &p.AgentID, &p.ToolID, &p.Allowed); err != nil {
+		if err := rows.Scan(&p.ID, &p.AgentID, &p.ToolID, &p.Allowed, &p.SubTools); err != nil {
 			return nil, fmt.Errorf("scanning permission: %w", err)
 		}
 		perms = append(perms, p)
@@ -119,6 +180,33 @@ func (s *PermissionStore) SetBulk(ctx context.Context, agentID string, permissio
 			 VALUES ($1, $2, $3)
 			 ON CONFLICT (agent_id, tool_id) DO UPDATE SET allowed = $3`,
 			agentID, toolID, allowed,
+		)
+		if err != nil {
+			return fmt.Errorf("setting permission for tool %s: %w", toolID, err)
+		}
+	}
+
+	return tx.Commit(ctx)
+}
+
+// SetBulkWithSubTools sets permissions with sub-tools for an agent in bulk.
+func (s *PermissionStore) SetBulkWithSubTools(ctx context.Context, agentID string, permissions map[string]BulkPermission) error {
+	if len(permissions) == 0 {
+		return nil
+	}
+
+	tx, err := s.pool.Begin(ctx)
+	if err != nil {
+		return fmt.Errorf("beginning transaction: %w", err)
+	}
+	defer tx.Rollback(ctx)
+
+	for toolID, perm := range permissions {
+		_, err := tx.Exec(ctx,
+			`INSERT INTO agent_tool_permissions (agent_id, tool_id, allowed, sub_tools)
+			 VALUES ($1, $2, $3, $4)
+			 ON CONFLICT (agent_id, tool_id) DO UPDATE SET allowed = $3, sub_tools = $4`,
+			agentID, toolID, perm.Allowed, perm.SubTools,
 		)
 		if err != nil {
 			return fmt.Errorf("setting permission for tool %s: %w", toolID, err)

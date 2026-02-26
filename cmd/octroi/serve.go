@@ -235,6 +235,7 @@ func runServe(cmd *cobra.Command, args []string) error {
 	}
 
 	governedCaller := mcp.NewGovernedCaller(aggregator, toolStore, budgetStore, toolRateLimiter, collector, restCaller, aggregator)
+	governedCaller.SetPermissionChecker(permissionStore)
 	mcpServer := mcp.NewServer(aggregator, governedCaller)
 
 	// Wire MCP caller into the proxy for HTTP-based MCP tool access.

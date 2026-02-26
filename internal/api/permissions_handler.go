@@ -1,6 +1,7 @@
 package api
 
 import (
+	"encoding/json"
 	"net/http"
 
 	"github.com/alecgard/octroi/internal/agent"
@@ -52,14 +53,15 @@ func (h *permissionsHandler) SetPermission(w http.ResponseWriter, r *http.Reques
 	}
 
 	var body struct {
-		Allowed bool `json:"allowed"`
+		Allowed  bool     `json:"allowed"`
+		SubTools []string `json:"sub_tools,omitempty"`
 	}
 	if err := readJSON(r, &body); err != nil {
 		writeError(w, http.StatusBadRequest, "invalid_body", "invalid request body")
 		return
 	}
 
-	if err := h.store.Set(r.Context(), agentID, toolID, body.Allowed); err != nil {
+	if err := h.store.SetWithSubTools(r.Context(), agentID, toolID, body.Allowed, body.SubTools); err != nil {
 		writeError(w, http.StatusInternalServerError, "internal_error", "failed to set permission")
 		return
 	}
@@ -68,9 +70,10 @@ func (h *permissionsHandler) SetPermission(w http.ResponseWriter, r *http.Reques
 		"allowed", body.Allowed)
 
 	writeJSON(w, http.StatusOK, map[string]interface{}{
-		"agent_id": agentID,
-		"tool_id":  toolID,
-		"allowed":  body.Allowed,
+		"agent_id":  agentID,
+		"tool_id":   toolID,
+		"allowed":   body.Allowed,
+		"sub_tools": body.SubTools,
 	})
 }
 
@@ -83,8 +86,8 @@ func (h *permissionsHandler) BulkSetPermissions(w http.ResponseWriter, r *http.R
 	}
 
 	var body struct {
-		Permissions   map[string]bool `json:"permissions"`
-		AllowlistMode *bool           `json:"allowlist_mode,omitempty"`
+		Permissions   map[string]json.RawMessage `json:"permissions"`
+		AllowlistMode *bool                      `json:"allowlist_mode,omitempty"`
 	}
 	if err := readJSON(r, &body); err != nil {
 		writeError(w, http.StatusBadRequest, "invalid_body", "invalid request body")
@@ -103,9 +106,43 @@ func (h *permissionsHandler) BulkSetPermissions(w http.ResponseWriter, r *http.R
 	}
 
 	if len(body.Permissions) > 0 {
-		if err := h.store.SetBulk(r.Context(), agentID, body.Permissions); err != nil {
-			writeError(w, http.StatusInternalServerError, "internal_error", "failed to set permissions")
-			return
+		// Parse each permission value: either a plain bool or {allowed, sub_tools}.
+		bulkPerms := make(map[string]agent.BulkPermission, len(body.Permissions))
+		hasSubTools := false
+		for toolID, raw := range body.Permissions {
+			// Try bool first (legacy format).
+			var boolVal bool
+			if err := json.Unmarshal(raw, &boolVal); err == nil {
+				bulkPerms[toolID] = agent.BulkPermission{Allowed: boolVal}
+				continue
+			}
+			// Try object format.
+			var obj agent.BulkPermission
+			if err := json.Unmarshal(raw, &obj); err != nil {
+				writeError(w, http.StatusBadRequest, "invalid_body", "invalid permission value for tool "+toolID)
+				return
+			}
+			if len(obj.SubTools) > 0 {
+				hasSubTools = true
+			}
+			bulkPerms[toolID] = obj
+		}
+
+		if hasSubTools {
+			if err := h.store.SetBulkWithSubTools(r.Context(), agentID, bulkPerms); err != nil {
+				writeError(w, http.StatusInternalServerError, "internal_error", "failed to set permissions")
+				return
+			}
+		} else {
+			// Use the simpler path when no sub-tools are involved.
+			simple := make(map[string]bool, len(bulkPerms))
+			for toolID, p := range bulkPerms {
+				simple[toolID] = p.Allowed
+			}
+			if err := h.store.SetBulk(r.Context(), agentID, simple); err != nil {
+				writeError(w, http.StatusInternalServerError, "internal_error", "failed to set permissions")
+				return
+			}
 		}
 	}
 

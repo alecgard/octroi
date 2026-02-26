@@ -808,9 +808,9 @@ body.shift-held .txn-filter-pending { background: var(--surface2); }
     <div class="form-group">
       <label>Mode</label>
       <select id="tool-mode" onchange="toggleToolMode()">
+        <option value="mcp">MCP</option>
         <option value="service">Service</option>
         <option value="api">API</option>
-        <option value="mcp">MCP</option>
       </select>
     </div>
     <div class="form-group">
@@ -1863,14 +1863,48 @@ async function loadAgentPermissions(agentId) {
     const permRes = await api('GET', apiBase() + '/agents/' + agentId + '/permissions');
     const perms = permRes.permissions || [];
     const permMap = {};
-    perms.forEach(p => { permMap[p.tool_id] = p.allowed; });
+    perms.forEach(p => { permMap[p.tool_id] = { allowed: p.allowed, sub_tools: p.sub_tools || [] }; });
     if (!tools.length) { list.innerHTML = '<div style="color:var(--text2);font-size:11px">No tools registered</div>'; return; }
+
+    // Fetch MCP sub-tools for MCP mode tools in parallel.
+    const mcpSubTools = {};
+    const mcpFetches = tools.filter(t => t.mode === 'mcp').map(async t => {
+      try {
+        const res = await api('GET', apiBase() + '/tools/' + t.id + '/mcp-tools');
+        mcpSubTools[t.id] = (res.tools || []).map(st => st.name);
+      } catch (e) { mcpSubTools[t.id] = []; }
+    });
+    await Promise.all(mcpFetches);
+
     list.innerHTML = tools.map(t => {
-      const checked = permMap[t.id] === true ? 'checked' : '';
-      return `<label style="display:flex;align-items:center;gap:6px;padding:3px 2px;font-size:12px;cursor:pointer" title="${esc(t.description || '')}">
+      const perm = permMap[t.id] || { allowed: false, sub_tools: [] };
+      const checked = perm.allowed ? 'checked' : '';
+      let html = `<label style="display:flex;align-items:center;gap:6px;padding:3px 2px;font-size:12px;cursor:pointer" title="${esc(t.description || '')}">
         <input type="checkbox" data-tool-id="${t.id}" class="agent-perm-cb" ${checked}> ${esc(t.name)}
       </label>`;
+      // Render sub-tool checkboxes for MCP tools.
+      const subs = mcpSubTools[t.id];
+      if (subs && subs.length > 0) {
+        const allAllowed = perm.sub_tools.length === 0;
+        html += `<div class="agent-sub-tools" data-tool-id="${t.id}" style="padding-left:24px;display:${perm.allowed ? '' : 'none'}">`;
+        subs.forEach(st => {
+          const stChecked = allAllowed || perm.sub_tools.includes(st) ? 'checked' : '';
+          html += `<label style="display:flex;align-items:center;gap:4px;padding:1px 2px;font-size:11px;color:var(--text2);cursor:pointer">
+            <input type="checkbox" data-tool-id="${t.id}" data-sub-tool="${esc(st)}" class="agent-sub-perm-cb" ${stChecked}> ${esc(st)}
+          </label>`;
+        });
+        html += '</div>';
+      }
+      return html;
     }).join('');
+
+    // Toggle sub-tool visibility when parent checkbox changes.
+    list.querySelectorAll('.agent-perm-cb').forEach(cb => {
+      cb.addEventListener('change', function() {
+        const subDiv = list.querySelector('.agent-sub-tools[data-tool-id="' + this.dataset.toolId + '"]');
+        if (subDiv) subDiv.style.display = this.checked ? '' : 'none';
+      });
+    });
   } catch (e) { list.innerHTML = '<div style="color:var(--warn);font-size:11px">Failed to load</div>'; }
 }
 
@@ -1896,7 +1930,17 @@ async function submitAgent() {
       const permCbs = document.querySelectorAll('.agent-perm-cb');
       if (permCbs.length > 0) {
         const permissions = {};
-        permCbs.forEach(cb => { permissions[cb.dataset.toolId] = cb.checked; });
+        permCbs.forEach(cb => {
+          const toolId = cb.dataset.toolId;
+          const subCbs = document.querySelectorAll('.agent-sub-perm-cb[data-tool-id="' + toolId + '"]');
+          if (subCbs.length > 0) {
+            const allChecked = Array.from(subCbs).every(s => s.checked);
+            const checkedSubs = Array.from(subCbs).filter(s => s.checked).map(s => s.dataset.subTool);
+            permissions[toolId] = { allowed: cb.checked, sub_tools: allChecked ? [] : checkedSubs };
+          } else {
+            permissions[toolId] = cb.checked;
+          }
+        });
         await api('PUT', apiBase() + '/agents/' + id + '/permissions', { permissions, allowlist_mode: allowlistMode });
       }
       closeModal('agent-modal');

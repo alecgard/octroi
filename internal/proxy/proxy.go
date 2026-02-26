@@ -58,6 +58,7 @@ type BodyRecorder interface {
 // PermissionChecker checks if an agent is allowed to use a tool.
 type PermissionChecker interface {
 	IsAllowed(ctx context.Context, agentID, toolID string) (bool, error)
+	IsSubToolAllowed(ctx context.Context, agentID, toolID, subTool string) (bool, error)
 }
 
 // WebhookDispatcher dispatches budget threshold webhooks.
@@ -574,6 +575,15 @@ func (h *Handler) serveMCP(w http.ResponseWriter, r *http.Request, tool *registr
 	if subTool == "" {
 		writeError(w, http.StatusBadRequest, "bad_request", "missing MCP tool name in path")
 		return
+	}
+
+	// Check sub-tool permissions.
+	if h.permissions != nil {
+		allowed, permErr := h.permissions.IsSubToolAllowed(r.Context(), agent.ID, tool.ID, subTool)
+		if permErr == nil && !allowed {
+			writeError(w, http.StatusForbidden, "permission_denied", "agent not permitted to use this sub-tool")
+			return
+		}
 	}
 
 	// Parse arguments from body.
