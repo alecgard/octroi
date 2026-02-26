@@ -683,7 +683,21 @@ body.shift-held .txn-filter-pending { background: var(--surface2); }
       </div>
     </div>
     <div id="usage-chart" style="width:100%;margin-bottom:16px;border:1px solid var(--border);background:var(--surface);overflow:hidden"></div>
-    <h3 style="font-size:14px; font-weight:600; margin-bottom:12px;">Transactions</h3>
+    <div style="display:flex;align-items:center;gap:12px;margin-bottom:12px;flex-wrap:wrap">
+      <h3 style="font-size:14px; font-weight:600; margin:0;">Transactions</h3>
+      <select id="txn-filter-status" onchange="reloadTransactions()" style="font-size:12px;padding:3px 6px">
+        <option value="">All Status</option>
+        <option value="200">200 OK</option>
+        <option value="400">400 Bad Request</option>
+        <option value="403">403 Forbidden</option>
+        <option value="429">429 Rate Limited</option>
+        <option value="500">500 Server Error</option>
+        <option value="502">502 Bad Gateway</option>
+        <option value="503">503 Unavailable</option>
+      </select>
+      <input id="txn-filter-min-latency" type="number" placeholder="Min latency (ms)" onchange="reloadTransactions()" style="font-size:12px;padding:3px 6px;width:130px">
+      <button class="btn-ghost" onclick="exportTransactions()" style="padding:3px 8px;font-size:12px;margin-left:auto">Export CSV</button>
+    </div>
     <table>
       <thead>
         <tr>
@@ -789,6 +803,12 @@ body.shift-held .txn-filter-pending { background: var(--surface2); }
       <label style="display:inline-flex;align-items:center;gap:6px;text-transform:uppercase;font-size:10px;font-weight:600;letter-spacing:0.5px;color:var(--text2);cursor:pointer">
         <input type="checkbox" id="tool-enabled" checked> Enabled
       </label>
+    </div>
+    <div class="form-group" id="tool-log-bodies-section" style="display:none">
+      <label style="display:inline-flex;align-items:center;gap:6px;text-transform:uppercase;font-size:10px;font-weight:600;letter-spacing:0.5px;color:var(--text2);cursor:pointer">
+        <input type="checkbox" id="tool-log-bodies"> Log Request/Response Bodies
+      </label>
+      <div style="font-size:11px;color:var(--text2);margin-top:2px">Capture and store request/response bodies (sensitive data is redacted)</div>
     </div>
     <div class="form-row">
       <div class="form-group">
@@ -1507,6 +1527,8 @@ function openToolModal(tool) {
   document.getElementById('tool-variables').value = tool && tool.variables && Object.keys(tool.variables).length ? JSON.stringify(tool.variables) : '';
   document.getElementById('tool-transport').value = tool ? tool.transport || 'streamable-http' : 'streamable-http';
   document.getElementById('tool-enabled').checked = tool ? (tool.enabled !== false) : true;
+  document.getElementById('tool-log-bodies').checked = tool ? !!tool.log_bodies : false;
+  document.getElementById('tool-log-bodies-section').style.display = tool ? '' : 'none';
   toggleToolMode();
   document.getElementById('tool-rate-limit').value = tool ? tool.rate_limit || '' : '';
   document.getElementById('tool-auth-config').value = tool && tool.auth_config ? JSON.stringify(tool.auth_config) : '';
@@ -1597,6 +1619,7 @@ async function submitTool() {
     budget_window: document.getElementById('tool-budget-window').value.trim(),
     transport: mode === 'mcp' ? document.getElementById('tool-transport').value : '',
     enabled: mode === 'mcp' ? document.getElementById('tool-enabled').checked : true,
+    log_bodies: document.getElementById('tool-log-bodies').checked,
   };
   try {
     if (id) {
@@ -2000,6 +2023,12 @@ async function loadUsageLive() {
     txnQs += pathParam;
   }
 
+  // Append transaction filter params.
+  const txnStatusFilter = document.getElementById('txn-filter-status') ? document.getElementById('txn-filter-status').value : '';
+  const txnMinLatency = document.getElementById('txn-filter-min-latency') ? document.getElementById('txn-filter-min-latency').value : '';
+  if (txnStatusFilter) txnQs += '&status_code=' + txnStatusFilter;
+  if (txnMinLatency) txnQs += '&min_latency_ms=' + txnMinLatency;
+
   txnBasePath = baseTxnPrefix + 'limit=' + txnPageSize + txnQs;
   const onPage1 = txnOffset === 0;
 
@@ -2093,7 +2122,7 @@ function renderTxnTable(prevTimestamp) {
     const agentExcl = hasAgentFilter && !eff.agents.includes(t.agent_id) ? ' txn-excluded' : '';
     const toolExcl = hasToolFilter && !eff.tools.includes(t.tool_id) ? ' txn-excluded' : '';
     const pathExcl = hasPathFilter && !eff.paths.includes(cleaned) ? ' txn-excluded' : '';
-    return `<tr${isNew ? ' class="txn-new"' : ''}>
+    return `<tr${isNew ? ' class="txn-new"' : ''} style="cursor:pointer" onclick="showTransactionDetail('${t.id}')">
     <td style="white-space:nowrap">${fmtTime(t.timestamp)}</td>
     <td class="txn-filterable${teamExcl}">${team}${txnFilterBtn('team', esc(teamRaw), teamRaw)}</td>
     <td class="txn-filterable${agentExcl}">${esc(resolveAgentName(t.agent_id))}${txnFilterBtn('agent', t.agent_id, t.agent_id)}</td>
@@ -2315,6 +2344,42 @@ async function txnNextPage() {
     txnOffset += txnPageSize;
     renderTxnTable();
   } catch (e) { console.error('Failed to load next page', e); }
+}
+
+function reloadTransactions() { txnOffset = 0; txnCursorStack = []; txnNextCursor = null; loadUsage(); }
+
+async function exportTransactions() {
+  try {
+    const token = sessionStorage.getItem('token') || localStorage.getItem('token');
+    const resp = await fetch('/api/v1/admin/usage/transactions/export', {
+      headers: { 'Authorization': 'Bearer ' + token }
+    });
+    const blob = await resp.blob();
+    const url = URL.createObjectURL(blob);
+    const a = document.createElement('a'); a.href = url; a.download = 'transactions.csv'; a.click();
+    URL.revokeObjectURL(url);
+  } catch (e) { toast('Export failed: ' + e.message); }
+}
+
+async function showTransactionDetail(txnId) {
+  try {
+    const data = await api('GET', '/api/v1/admin/usage/transactions/' + txnId);
+    const tx = data.transaction;
+    const body = data.body;
+    let html = '<div style="font-size:12px;line-height:1.6">';
+    html += '<div><b>ID:</b> ' + tx.id + '</div>';
+    html += '<div><b>Agent:</b> ' + tx.agent_id + '</div>';
+    html += '<div><b>Tool:</b> ' + tx.tool_id + '</div>';
+    html += '<div><b>Status:</b> ' + tx.status_code + '</div>';
+    html += '<div><b>Latency:</b> ' + tx.latency_ms + 'ms</div>';
+    html += '<div><b>Cost:</b> ' + tx.cost + ' (' + tx.cost_source + ')</div>';
+    if (body) {
+      if (body.request_body) html += '<div style="margin-top:8px"><b>Request Body:</b><pre style="background:var(--bg);padding:8px;border-radius:4px;overflow:auto;max-height:200px;font-size:11px">' + esc(typeof body.request_body === 'string' ? body.request_body : JSON.stringify(body.request_body, null, 2)) + '</pre></div>';
+      if (body.response_body) html += '<div style="margin-top:8px"><b>Response Body:</b><pre style="background:var(--bg);padding:8px;border-radius:4px;overflow:auto;max-height:200px;font-size:11px">' + esc(typeof body.response_body === 'string' ? body.response_body : JSON.stringify(body.response_body, null, 2)) + '</pre></div>';
+    }
+    html += '</div>';
+    await appAlert(html, { title: 'Transaction Detail' });
+  } catch (e) { toast('Failed to load detail: ' + e.message); }
 }
 
 // --- Users ---

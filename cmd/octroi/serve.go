@@ -26,6 +26,19 @@ import (
 	"github.com/spf13/cobra"
 )
 
+// bodyRecorderAdapter adapts metering.BodyStore for the proxy.BodyRecorder interface.
+type bodyRecorderAdapter struct {
+	store *metering.BodyStore
+}
+
+func (a *bodyRecorderAdapter) RecordBody(ctx context.Context, transactionID string, reqBody, respBody []byte) {
+	insertCtx, cancel := context.WithTimeout(ctx, 5*time.Second)
+	defer cancel()
+	if err := a.store.Insert(insertCtx, transactionID, reqBody, respBody); err != nil {
+		slog.Warn("failed to record request body", "transaction_id", transactionID, "error", err)
+	}
+}
+
 // toolRegistryAdapter adapts registry.Store to the mcp.ToolRegistryLister
 // interface by fetching all enabled tools without pagination.
 type toolRegistryAdapter struct {
@@ -131,11 +144,33 @@ func runServe(cmd *cobra.Command, args []string) error {
 	toolRateLimitStore := ratelimit.NewToolRateLimitStore(pool)
 	toolRateLimiter := ratelimit.NewToolRateLimiter(toolRateLimitStore, limiter)
 
+	bodyStore := metering.NewBodyStore(pool)
+
+	// Periodic body purge every hour.
+	go func() {
+		ticker := time.NewTicker(1 * time.Hour)
+		defer ticker.Stop()
+		for {
+			select {
+			case <-ctx.Done():
+				return
+			case <-ticker.C:
+				n, err := bodyStore.PurgeOlderThan(ctx, cfg.Metering.BodyRetention)
+				if err != nil {
+					slog.Warn("body purge failed", "error", err)
+				} else if n > 0 {
+					slog.Info("purged old request bodies", "count", n)
+				}
+			}
+		}
+	}()
+
 	permissionStore := agent.NewPermissionStore(pool, agentStore)
 
 	proxyHandler := proxy.NewHandler(toolStore, budgetStore, collector, cfg.Proxy.Timeout, cfg.Proxy.MaxRequestSize)
 	proxyHandler.SetToolRateLimitChecker(toolRateLimiter)
 	proxyHandler.SetPermissionChecker(permissionStore)
+	proxyHandler.SetBodyRecorder(&bodyRecorderAdapter{store: bodyStore})
 	proxyHandler.SetMetrics(m)
 
 	// MCP components.
@@ -182,6 +217,7 @@ func runServe(cmd *cobra.Command, args []string) error {
 		BudgetStore:        budgetStore,
 		PermissionStore:    permissionStore,
 		MeterStore:         meterStore,
+		BodyStore:          bodyStore,
 		Collector:          collector,
 		Auth:               authService,
 		Limiter:            limiter,

@@ -29,7 +29,7 @@ func NewStore(pool *pgxpool.Pool, cipher *crypto.Cipher) *Store {
 // toolColumns is the full list of columns used in SELECT statements.
 const toolColumns = `id, name, description, mode, endpoint, auth_type, auth_config, variables,
 	pricing_model, pricing_amount, pricing_currency, rate_limit,
-	budget_limit, budget_window, transport, enabled, created_at, updated_at`
+	budget_limit, budget_window, transport, log_bodies, enabled, created_at, updated_at`
 
 // scanTool scans a single tool row into a Tool struct, decrypting auth_config if a cipher is set.
 func (s *Store) scanTool(row pgx.Row) (*Tool, error) {
@@ -53,6 +53,7 @@ func (s *Store) scanTool(row pgx.Row) (*Tool, error) {
 		&t.BudgetLimit,
 		&budgetWindow,
 		&transport,
+		&t.LogBodies,
 		&t.Enabled,
 		&t.CreatedAt,
 		&t.UpdatedAt,
@@ -125,11 +126,16 @@ func (s *Store) Create(ctx context.Context, input CreateToolInput) (*Tool, error
 		transportVal = input.Transport
 	}
 
+	logBodies := false
+	if input.LogBodies != nil {
+		logBodies = *input.LogBodies
+	}
+
 	query := fmt.Sprintf(`INSERT INTO tools
 		(name, description, mode, endpoint, auth_type, auth_config, variables,
 		 pricing_model, pricing_amount, pricing_currency, rate_limit,
-		 budget_limit, budget_window, transport, enabled)
-		VALUES ($1, $2, $3, $4, $5, $6, $7, $8, $9, $10, $11, $12, $13, $14, $15)
+		 budget_limit, budget_window, transport, log_bodies, enabled)
+		VALUES ($1, $2, $3, $4, $5, $6, $7, $8, $9, $10, $11, $12, $13, $14, $15, $16)
 		RETURNING %s`, toolColumns)
 
 	row := s.pool.QueryRow(ctx, query,
@@ -147,6 +153,7 @@ func (s *Store) Create(ctx context.Context, input CreateToolInput) (*Tool, error
 		input.BudgetLimit,
 		input.BudgetWindow,
 		transportVal,
+		logBodies,
 		enabled,
 	)
 	return s.scanTool(row)
@@ -340,6 +347,11 @@ func (s *Store) Update(ctx context.Context, id string, input UpdateToolInput) (*
 		}
 		setClauses = append(setClauses, fmt.Sprintf("transport = $%d", argIdx))
 		args = append(args, transportVal)
+		argIdx++
+	}
+	if input.LogBodies != nil {
+		setClauses = append(setClauses, fmt.Sprintf("log_bodies = $%d", argIdx))
+		args = append(args, *input.LogBodies)
 		argIdx++
 	}
 	if input.Enabled != nil {

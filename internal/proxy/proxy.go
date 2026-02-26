@@ -1,6 +1,7 @@
 package proxy
 
 import (
+	"bytes"
 	"context"
 	"encoding/json"
 	"errors"
@@ -11,6 +12,8 @@ import (
 	"strconv"
 	"strings"
 	"time"
+
+	"github.com/google/uuid"
 
 	"github.com/alecgard/octroi/internal/auth"
 	"github.com/alecgard/octroi/internal/metering"
@@ -45,6 +48,11 @@ type ToolRateLimitChecker interface {
 	CheckToolRateLimit(ctx context.Context, toolID, team, agentID string) (allowed bool, limit, remaining int, resetAt time.Time, err error)
 }
 
+// BodyRecorder stores request/response bodies for a transaction.
+type BodyRecorder interface {
+	RecordBody(ctx context.Context, transactionID string, reqBody, respBody []byte)
+}
+
 // PermissionChecker checks if an agent is allowed to use a tool.
 type PermissionChecker interface {
 	IsAllowed(ctx context.Context, agentID, toolID string) (bool, error)
@@ -68,6 +76,7 @@ type Handler struct {
 	collector      MeteringRecorder
 	toolRateLimits ToolRateLimitChecker
 	permissions    PermissionChecker
+	bodyRecorder   BodyRecorder
 	client         *http.Client
 	maxRequestSize int64
 	metrics        MetricsRecorder
@@ -98,6 +107,11 @@ func (h *Handler) SetMetrics(m MetricsRecorder) {
 // SetPermissionChecker sets the optional permission checker for agent tool allowlists.
 func (h *Handler) SetPermissionChecker(c PermissionChecker) {
 	h.permissions = c
+}
+
+// SetBodyRecorder sets the optional body recorder for request/response body logging.
+func (h *Handler) SetBodyRecorder(r BodyRecorder) {
+	h.bodyRecorder = r
 }
 
 // SetMCPCaller sets the optional MCP upstream caller for proxying MCP tools.
@@ -209,10 +223,24 @@ func (h *Handler) ServeHTTP(w http.ResponseWriter, r *http.Request) {
 		targetURL += "?" + r.URL.RawQuery
 	}
 
-	// Enforce max request body size.
+	// Generate transaction ID for body linking.
+	txnID := uuid.New().String()
+
+	// Enforce max request body size and optionally buffer for body logging.
 	var body io.Reader
+	var capturedReqBody []byte
 	if r.Body != nil {
-		body = io.LimitReader(r.Body, h.maxRequestSize+1)
+		if tool.LogBodies && h.bodyRecorder != nil {
+			data, readErr := io.ReadAll(io.LimitReader(r.Body, h.maxRequestSize+1))
+			if readErr != nil {
+				writeError(w, http.StatusBadRequest, "bad_request", "failed to read request body")
+				return
+			}
+			capturedReqBody = data
+			body = bytes.NewReader(data)
+		} else {
+			body = io.LimitReader(r.Body, h.maxRequestSize+1)
+		}
 	}
 
 	outReq, err := http.NewRequestWithContext(r.Context(), r.Method, targetURL, body)
@@ -292,8 +320,17 @@ func (h *Handler) ServeHTTP(w http.ResponseWriter, r *http.Request) {
 	}
 	w.WriteHeader(resp.StatusCode)
 
-	// Copy response body.
-	responseSize, _ := io.Copy(w, resp.Body)
+	// Copy response body, optionally capturing it for logging.
+	var responseSize int64
+	var capturedRespBody []byte
+	if tool.LogBodies && h.bodyRecorder != nil {
+		respData, _ := io.ReadAll(resp.Body)
+		capturedRespBody = respData
+		responseSize = int64(len(respData))
+		w.Write(respData)
+	} else {
+		responseSize, _ = io.Copy(w, resp.Body)
+	}
 
 	// Determine request size from Content-Length header, or 0.
 	requestSize := r.ContentLength
@@ -302,10 +339,22 @@ func (h *Handler) ServeHTTP(w http.ResponseWriter, r *http.Request) {
 	}
 
 	success := resp.StatusCode >= 200 && resp.StatusCode < 300
-	h.recordTransaction(agent.ID, tool, r, resp.StatusCode, latency, requestSize, responseSize, success, reportedCostHeader)
+	h.recordTransactionWithID(txnID, agent.ID, tool, r, resp.StatusCode, latency, requestSize, responseSize, success, reportedCostHeader)
+
+	// Record bodies asynchronously if enabled.
+	if tool.LogBodies && h.bodyRecorder != nil && (len(capturedReqBody) > 0 || len(capturedRespBody) > 0) {
+		redactCfg := metering.RedactConfig{AuthType: tool.AuthType, AuthConfig: tool.AuthConfig}
+		reqRedacted := metering.RedactBody(capturedReqBody, redactCfg)
+		respRedacted := metering.RedactBody(capturedRespBody, redactCfg)
+		go h.bodyRecorder.RecordBody(context.Background(), txnID, reqRedacted, respRedacted)
+	}
 }
 
 func (h *Handler) recordTransaction(agentID string, tool *registry.Tool, r *http.Request, statusCode int, latency time.Duration, requestSize int64, responseSize int64, success bool, reportedCostHeader string) {
+	h.recordTransactionWithID("", agentID, tool, r, statusCode, latency, requestSize, responseSize, success, reportedCostHeader)
+}
+
+func (h *Handler) recordTransactionWithID(txnID string, agentID string, tool *registry.Tool, r *http.Request, statusCode int, latency time.Duration, requestSize int64, responseSize int64, success bool, reportedCostHeader string) {
 	cost := 0.0
 	costSource := "flat"
 
@@ -321,6 +370,7 @@ func (h *Handler) recordTransaction(agentID string, tool *registry.Tool, r *http
 	}
 
 	h.collector.Record(metering.Transaction{
+		ID:           txnID,
 		AgentID:      agentID,
 		ToolID:       tool.ID,
 		Timestamp:    time.Now().UTC(),

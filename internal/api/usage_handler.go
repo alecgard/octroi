@@ -1,6 +1,8 @@
 package api
 
 import (
+	"encoding/json"
+	"fmt"
 	"net/http"
 	"strconv"
 	"strings"
@@ -16,10 +18,15 @@ import (
 type usageHandler struct {
 	store      *metering.Store
 	agentStore *agent.Store
+	bodyStore  *metering.BodyStore
 }
 
 func newUsageHandler(store *metering.Store, agentStore *agent.Store) *usageHandler {
 	return &usageHandler{store: store, agentStore: agentStore}
+}
+
+func (h *usageHandler) setBodyStore(s *metering.BodyStore) {
+	h.bodyStore = s
 }
 
 // parseTimeParam parses a date query param in YYYY-MM-DD or RFC3339 format.
@@ -88,6 +95,21 @@ func buildUsageQuery(r *http.Request, isAdmin bool) (*metering.UsageQuery, error
 		return nil, err
 	}
 	q.To = to
+
+	if scStr := r.URL.Query().Get("status_code"); scStr != "" {
+		sc, scErr := strconv.Atoi(scStr)
+		if scErr != nil {
+			return nil, scErr
+		}
+		q.StatusCode = &sc
+	}
+	if mlStr := r.URL.Query().Get("min_latency_ms"); mlStr != "" {
+		ml, mlErr := strconv.ParseInt(mlStr, 10, 64)
+		if mlErr != nil {
+			return nil, mlErr
+		}
+		q.MinLatencyMs = &ml
+	}
 
 	q.Cursor = r.URL.Query().Get("cursor")
 
@@ -357,4 +379,104 @@ func (h *usageHandler) GetSubToolCallCounts(w http.ResponseWriter, r *http.Reque
 		return
 	}
 	writeJSON(w, http.StatusOK, map[string]interface{}{"counts": counts})
+}
+
+// GetTransactionDetail handles GET /api/v1/admin/usage/transactions/{id}.
+func (h *usageHandler) GetTransactionDetail(w http.ResponseWriter, r *http.Request) {
+	id := chi.URLParam(r, "id")
+	if id == "" {
+		writeError(w, http.StatusBadRequest, "invalid_id", "transaction id is required")
+		return
+	}
+
+	// Get the transaction itself.
+	q := metering.UsageQuery{Limit: 1}
+	txns, _, err := h.store.ListTransactions(r.Context(), q)
+	if err != nil {
+		writeError(w, http.StatusInternalServerError, "internal_error", "failed to query transaction")
+		return
+	}
+
+	// Find by ID.
+	var found *metering.Transaction
+	for _, t := range txns {
+		if t.ID == id {
+			found = t
+			break
+		}
+	}
+
+	// If not found via list, query directly.
+	if found == nil {
+		tx, txErr := h.store.GetByID(r.Context(), id)
+		if txErr != nil {
+			writeError(w, http.StatusNotFound, "not_found", "transaction not found")
+			return
+		}
+		found = tx
+	}
+
+	result := map[string]interface{}{
+		"transaction": found,
+	}
+
+	// Include body if available.
+	if h.bodyStore != nil {
+		body, bErr := h.bodyStore.GetByTransactionID(r.Context(), id)
+		if bErr == nil && body != nil {
+			bodyMap := map[string]interface{}{
+				"request_body":  tryParseJSON(body.RequestBody),
+				"response_body": tryParseJSON(body.ResponseBody),
+			}
+			result["body"] = bodyMap
+		}
+	}
+
+	writeJSON(w, http.StatusOK, result)
+}
+
+// ExportTransactions handles GET /api/v1/admin/usage/transactions/export as CSV.
+func (h *usageHandler) ExportTransactions(w http.ResponseWriter, r *http.Request) {
+	q, err := buildUsageQuery(r, true)
+	if err != nil {
+		writeError(w, http.StatusBadRequest, "invalid_params", "invalid query parameters: "+err.Error())
+		return
+	}
+	q.Limit = 10000 // cap export
+
+	txns, _, err := h.store.ListTransactions(r.Context(), *q)
+	if err != nil {
+		writeError(w, http.StatusInternalServerError, "internal_error", "failed to list transactions")
+		return
+	}
+
+	w.Header().Set("Content-Type", "text/csv")
+	w.Header().Set("Content-Disposition", "attachment; filename=transactions.csv")
+	w.WriteHeader(http.StatusOK)
+
+	// CSV header.
+	fmt.Fprintln(w, "id,agent_id,tool_id,timestamp,method,path,status_code,latency_ms,request_size,response_size,success,cost,cost_source,error")
+	for _, tx := range txns {
+		fmt.Fprintf(w, "%s,%s,%s,%s,%s,%s,%d,%d,%d,%d,%t,%.6f,%s,%s\n",
+			tx.ID, tx.AgentID, tx.ToolID,
+			tx.Timestamp.Format(time.RFC3339),
+			tx.Method, tx.Path,
+			tx.StatusCode, tx.LatencyMs,
+			tx.RequestSize, tx.ResponseSize,
+			tx.Success, tx.Cost, tx.CostSource,
+			strings.ReplaceAll(tx.Error, ",", ";"),
+		)
+	}
+}
+
+// tryParseJSON attempts to parse bytes as JSON, returning the parsed value or the raw string.
+func tryParseJSON(data []byte) interface{} {
+	if len(data) == 0 {
+		return nil
+	}
+	var v interface{}
+	if err := json.Unmarshal(data, &v); err == nil {
+		return v
+	}
+	return string(data)
 }

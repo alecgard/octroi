@@ -28,42 +28,79 @@ func (s *Store) BatchInsert(ctx context.Context, txns []Transaction) error {
 		return nil
 	}
 
-	const cols = 13 // number of columns per row (excluding server-generated id)
-	args := make([]any, 0, len(txns)*cols)
+	// Determine if we need to insert with explicit IDs.
+	hasExplicitIDs := txns[0].ID != ""
+
+	var colsPerRow int
+	var insertCols string
+	if hasExplicitIDs {
+		colsPerRow = 14
+		insertCols = `(id, agent_id, tool_id, timestamp, method, path, status_code, latency_ms,
+		 request_size, response_size, success, cost, error, cost_source)`
+	} else {
+		colsPerRow = 13
+		insertCols = `(agent_id, tool_id, timestamp, method, path, status_code, latency_ms,
+		 request_size, response_size, success, cost, error, cost_source)`
+	}
+
+	args := make([]any, 0, len(txns)*colsPerRow)
 	rows := make([]string, 0, len(txns))
 
 	for i, tx := range txns {
-		base := i * cols
-		rows = append(rows, fmt.Sprintf(
-			"($%d, $%d, $%d, $%d, $%d, $%d, $%d, $%d, $%d, $%d, $%d, $%d, $%d)",
-			base+1, base+2, base+3, base+4, base+5, base+6,
-			base+7, base+8, base+9, base+10, base+11, base+12, base+13,
-		))
+		base := i * colsPerRow
 		costSource := tx.CostSource
 		if costSource == "" {
 			costSource = "flat"
 		}
-		args = append(args,
-			tx.AgentID,
-			tx.ToolID,
-			tx.Timestamp,
-			tx.Method,
-			tx.Path,
-			tx.StatusCode,
-			tx.LatencyMs,
-			tx.RequestSize,
-			tx.ResponseSize,
-			tx.Success,
-			tx.Cost,
-			tx.Error,
-			costSource,
-		)
+
+		if hasExplicitIDs {
+			rows = append(rows, fmt.Sprintf(
+				"($%d, $%d, $%d, $%d, $%d, $%d, $%d, $%d, $%d, $%d, $%d, $%d, $%d, $%d)",
+				base+1, base+2, base+3, base+4, base+5, base+6, base+7,
+				base+8, base+9, base+10, base+11, base+12, base+13, base+14,
+			))
+			args = append(args,
+				tx.ID,
+				tx.AgentID,
+				tx.ToolID,
+				tx.Timestamp,
+				tx.Method,
+				tx.Path,
+				tx.StatusCode,
+				tx.LatencyMs,
+				tx.RequestSize,
+				tx.ResponseSize,
+				tx.Success,
+				tx.Cost,
+				tx.Error,
+				costSource,
+			)
+		} else {
+			rows = append(rows, fmt.Sprintf(
+				"($%d, $%d, $%d, $%d, $%d, $%d, $%d, $%d, $%d, $%d, $%d, $%d, $%d)",
+				base+1, base+2, base+3, base+4, base+5, base+6,
+				base+7, base+8, base+9, base+10, base+11, base+12, base+13,
+			))
+			args = append(args,
+				tx.AgentID,
+				tx.ToolID,
+				tx.Timestamp,
+				tx.Method,
+				tx.Path,
+				tx.StatusCode,
+				tx.LatencyMs,
+				tx.RequestSize,
+				tx.ResponseSize,
+				tx.Success,
+				tx.Cost,
+				tx.Error,
+				costSource,
+			)
+		}
 	}
 
-	query := `INSERT INTO transactions
-		(agent_id, tool_id, timestamp, method, path, status_code, latency_ms,
-		 request_size, response_size, success, cost, error, cost_source)
-		VALUES ` + strings.Join(rows, ", ")
+	query := `INSERT INTO transactions ` + insertCols +
+		` VALUES ` + strings.Join(rows, ", ")
 
 	_, err := s.pool.Exec(ctx, query, args...)
 	if err != nil {
@@ -71,6 +108,24 @@ func (s *Store) BatchInsert(ctx context.Context, txns []Transaction) error {
 	}
 
 	return nil
+}
+
+// GetByID retrieves a single transaction by its ID.
+func (s *Store) GetByID(ctx context.Context, id string) (*Transaction, error) {
+	var tx Transaction
+	err := s.pool.QueryRow(ctx,
+		`SELECT id, agent_id, tool_id, timestamp, method, path,
+			status_code, latency_ms, request_size, response_size, success, cost, cost_source, error
+		 FROM transactions WHERE id = $1`, id,
+	).Scan(
+		&tx.ID, &tx.AgentID, &tx.ToolID, &tx.Timestamp,
+		&tx.Method, &tx.Path, &tx.StatusCode, &tx.LatencyMs,
+		&tx.RequestSize, &tx.ResponseSize, &tx.Success, &tx.Cost, &tx.CostSource, &tx.Error,
+	)
+	if err != nil {
+		return nil, fmt.Errorf("getting transaction by id: %w", err)
+	}
+	return &tx, nil
 }
 
 // GetSummary returns aggregate usage metrics matching the given query filters.
@@ -256,6 +311,14 @@ func buildWhereClause(q UsageQuery) (string, []any) {
 	if !q.To.IsZero() {
 		args = append(args, q.To)
 		conditions = append(conditions, fmt.Sprintf("timestamp <= $%d", len(args)))
+	}
+	if q.StatusCode != nil {
+		args = append(args, *q.StatusCode)
+		conditions = append(conditions, fmt.Sprintf("status_code = $%d", len(args)))
+	}
+	if q.MinLatencyMs != nil {
+		args = append(args, *q.MinLatencyMs)
+		conditions = append(conditions, fmt.Sprintf("latency_ms >= $%d", len(args)))
 	}
 
 	if len(conditions) == 0 {

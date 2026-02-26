@@ -19,6 +19,7 @@ type Tool struct {
 	BudgetLimit     float64           `json:"budget_limit"`
 	BudgetWindow    string            `json:"budget_window"`
 	Transport       string            `json:"transport,omitempty"`
+	LogBodies       bool              `json:"log_bodies"`
 	Enabled         bool              `json:"enabled"`
 	CreatedAt       time.Time         `json:"created_at"`
 	UpdatedAt       time.Time         `json:"updated_at"`
@@ -40,6 +41,7 @@ type CreateToolInput struct {
 	BudgetLimit     float64           `json:"budget_limit"`
 	BudgetWindow    string            `json:"budget_window"`
 	Transport       string            `json:"transport"`
+	LogBodies       *bool             `json:"log_bodies"`
 	Enabled         *bool             `json:"enabled"`
 }
 
@@ -60,6 +62,7 @@ type UpdateToolInput struct {
 	BudgetLimit     *float64           `json:"budget_limit"`
 	BudgetWindow    *string            `json:"budget_window"`
 	Transport       *string            `json:"transport"`
+	LogBodies       *bool              `json:"log_bodies"`
 	Enabled         *bool              `json:"enabled"`
 }
 

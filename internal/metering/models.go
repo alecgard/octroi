@@ -38,6 +38,8 @@ type UsageQuery struct {
 	Paths    []string  `json:"paths,omitempty"`
 	From     time.Time `json:"from"`
 	To       time.Time `json:"to"`
-	Cursor   string    `json:"cursor,omitempty"`
-	Limit    int       `json:"limit"`
+	StatusCode   *int      `json:"status_code,omitempty"`
+	MinLatencyMs *int64    `json:"min_latency_ms,omitempty"`
+	Cursor       string    `json:"cursor,omitempty"`
+	Limit        int       `json:"limit"`
 }

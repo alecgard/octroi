@@ -114,6 +114,7 @@ type RouterDeps struct {
 	BudgetStore        *agent.BudgetStore
 	PermissionStore    *agent.PermissionStore
 	MeterStore         *metering.Store
+	BodyStore          *metering.BodyStore
 	Collector          *metering.Collector
 	Auth               *auth.Service
 	Limiter            *ratelimit.Limiter
@@ -145,6 +146,9 @@ func NewRouter(deps RouterDeps) http.Handler {
 	agents := newAgentsHandler(deps.AgentStore, deps.BudgetStore)
 	search := newSearchHandler(deps.ToolService)
 	usage := newUsageHandler(deps.MeterStore, deps.AgentStore)
+	if deps.BodyStore != nil {
+		usage.setBodyStore(deps.BodyStore)
+	}
 
 	// Login rate limiter: 5 attempts per IP per minute.
 	loginRL := newLoginRateLimiter(5, time.Minute)
@@ -279,6 +283,8 @@ func NewRouter(deps RouterDeps) http.Handler {
 		ar.Get("/usage/transactions", func(w http.ResponseWriter, r *http.Request) {
 			usage.ListTransactions(w, r, true)
 		})
+		ar.Get("/usage/transactions/export", usage.ExportTransactions)
+		ar.Get("/usage/transactions/{id}", usage.GetTransactionDetail)
 
 		// User management (admin only).
 		if deps.UserStore != nil {
