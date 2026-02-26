@@ -659,6 +659,7 @@ class H(BaseHTTPRequestHandler):
             self.end_headers()
             return
 
+
         length = int(self.headers.get('Content-Length', 0))
         body = json.loads(self.rfile.read(length)) if length else {}
         method = body.get('method', '')
