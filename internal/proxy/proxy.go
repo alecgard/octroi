@@ -482,7 +482,7 @@ func (h *Handler) ServeHTTP(w http.ResponseWriter, r *http.Request) {
 			respData, _ := io.ReadAll(resp.Body)
 			capturedRespBody = respData
 			responseSize = int64(len(respData))
-			w.Write(respData)
+			_, _ = w.Write(respData)
 		} else {
 			responseSize, _ = io.Copy(w, resp.Body)
 		}
@@ -663,7 +663,7 @@ func (h *Handler) serveMCP(w http.ResponseWriter, r *http.Request, tool *registr
 	respBytes, _ := json.Marshal(result)
 	w.Header().Set("Content-Type", "application/json")
 	w.WriteHeader(statusCode)
-	w.Write(respBytes)
+	_, _ = w.Write(respBytes)
 
 	if h.circuitBreaker != nil && tool.CBEnabled {
 		h.circuitBreaker.RecordResult(tool.ID, cbCfg, statusCode)
@@ -698,7 +698,7 @@ func (h *Handler) serveListMCPTools(w http.ResponseWriter, r *http.Request, tool
 		return
 	}
 	w.Header().Set("Content-Type", "application/json")
-	json.NewEncoder(w).Encode(map[string]any{
+	_ = json.NewEncoder(w).Encode(map[string]any{
 		"tool_id":   tool.ID,
 		"tool_name": tool.Name,
 		"sub_tools": tools,

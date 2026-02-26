@@ -2,6 +2,7 @@ package agent
 
 import (
 	"context"
+	"errors"
 	"fmt"
 
 	"github.com/jackc/pgx/v5"
@@ -52,7 +53,7 @@ func (s *PermissionStore) IsAllowed(ctx context.Context, agentID, toolID string)
 		agentID, toolID,
 	).Scan(&allowed)
 	if err != nil {
-		if err == pgx.ErrNoRows {
+		if errors.Is(err, pgx.ErrNoRows) {
 			return false, nil
 		}
 		return false, fmt.Errorf("checking permission: %w", err)
@@ -80,7 +81,7 @@ func (s *PermissionStore) IsSubToolAllowed(ctx context.Context, agentID, toolID,
 		agentID, toolID,
 	).Scan(&allowed, &subTools)
 	if err != nil {
-		if err == pgx.ErrNoRows {
+		if errors.Is(err, pgx.ErrNoRows) {
 			return false, nil
 		}
 		return false, fmt.Errorf("checking permission: %w", err)

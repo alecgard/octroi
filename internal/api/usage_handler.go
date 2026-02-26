@@ -1,6 +1,7 @@
 package api
 
 import (
+	"context"
 	"encoding/json"
 	"net/http"
 	"strconv"
@@ -26,6 +27,52 @@ func newUsageHandler(store *metering.Store, agentStore *agent.Store) *usageHandl
 
 func (h *usageHandler) setBodyStore(s *metering.BodyStore) {
 	h.bodyStore = s
+}
+
+// agentIDLister is the subset of agent.Store needed to resolve team filters.
+type agentIDLister interface {
+	ListIDsByTeam(ctx context.Context, team string) ([]string, error)
+}
+
+// resolveTeamFilter resolves ?team= query param into agent IDs and
+// sets q.AgentIDs, intersecting with any existing agent filter.
+// It is a no-op if the team param is empty or q.AgentID is already set.
+func resolveTeamFilter(ctx context.Context, r *http.Request, q *metering.UsageQuery, store agentIDLister) error {
+	teamFilter := r.URL.Query().Get("team")
+	if teamFilter == "" || q.AgentID != "" {
+		return nil
+	}
+	teams := strings.Split(teamFilter, ",")
+	var allAgentIDs []string
+	for _, t := range teams {
+		t = strings.TrimSpace(t)
+		if t == "" {
+			continue
+		}
+		ids, err := store.ListIDsByTeam(ctx, t)
+		if err != nil {
+			return err
+		}
+		allAgentIDs = append(allAgentIDs, ids...)
+	}
+	// Merge with any existing AgentIDs from agent_id param.
+	if len(q.AgentIDs) > 0 {
+		// Intersect: only keep agent IDs that are in both sets.
+		teamSet := make(map[string]bool, len(allAgentIDs))
+		for _, id := range allAgentIDs {
+			teamSet[id] = true
+		}
+		var intersected []string
+		for _, id := range q.AgentIDs {
+			if teamSet[id] {
+				intersected = append(intersected, id)
+			}
+		}
+		q.AgentIDs = intersected
+	} else {
+		q.AgentIDs = allAgentIDs
+	}
+	return nil
 }
 
 // parseTimeParam parses a date query param in YYYY-MM-DD or RFC3339 format.
@@ -158,39 +205,9 @@ func (h *usageHandler) GetUsageAdmin(w http.ResponseWriter, r *http.Request) {
 		return
 	}
 
-	// Team filter: if ?team=X (or comma-separated), resolve to agent IDs.
-	if teamFilter := r.URL.Query().Get("team"); teamFilter != "" && q.AgentID == "" {
-		teams := strings.Split(teamFilter, ",")
-		var allAgentIDs []string
-		for _, t := range teams {
-			t = strings.TrimSpace(t)
-			if t == "" {
-				continue
-			}
-			ids, tErr := h.agentStore.ListIDsByTeam(r.Context(), t)
-			if tErr != nil {
-				writeError(w, http.StatusInternalServerError, "internal_error", "failed to list team agents")
-				return
-			}
-			allAgentIDs = append(allAgentIDs, ids...)
-		}
-		// Merge with any existing AgentIDs from agent_id param.
-		if len(q.AgentIDs) > 0 {
-			// Intersect: only keep agent IDs that are in both sets.
-			teamSet := make(map[string]bool, len(allAgentIDs))
-			for _, id := range allAgentIDs {
-				teamSet[id] = true
-			}
-			var intersected []string
-			for _, id := range q.AgentIDs {
-				if teamSet[id] {
-					intersected = append(intersected, id)
-				}
-			}
-			q.AgentIDs = intersected
-		} else {
-			q.AgentIDs = allAgentIDs
-		}
+	if err := resolveTeamFilter(r.Context(), r, q, h.agentStore); err != nil {
+		writeError(w, http.StatusInternalServerError, "internal_error", "failed to list team agents")
+		return
 	}
 
 	summary, err := h.store.GetSummary(r.Context(), *q)
@@ -213,36 +230,9 @@ func (h *usageHandler) ListTransactions(w http.ResponseWriter, r *http.Request, 
 
 	// Team filter for admin.
 	if isAdmin {
-		if teamFilter := r.URL.Query().Get("team"); teamFilter != "" && q.AgentID == "" {
-			teams := strings.Split(teamFilter, ",")
-			var allAgentIDs []string
-			for _, t := range teams {
-				t = strings.TrimSpace(t)
-				if t == "" {
-					continue
-				}
-				ids, tErr := h.agentStore.ListIDsByTeam(r.Context(), t)
-				if tErr != nil {
-					writeError(w, http.StatusInternalServerError, "internal_error", "failed to list team agents")
-					return
-				}
-				allAgentIDs = append(allAgentIDs, ids...)
-			}
-			if len(q.AgentIDs) > 0 {
-				teamSet := make(map[string]bool, len(allAgentIDs))
-				for _, id := range allAgentIDs {
-					teamSet[id] = true
-				}
-				var intersected []string
-				for _, id := range q.AgentIDs {
-					if teamSet[id] {
-						intersected = append(intersected, id)
-					}
-				}
-				q.AgentIDs = intersected
-			} else {
-				q.AgentIDs = allAgentIDs
-			}
+		if err := resolveTeamFilter(r.Context(), r, q, h.agentStore); err != nil {
+			writeError(w, http.StatusInternalServerError, "internal_error", "failed to list team agents")
+			return
 		}
 	}
 

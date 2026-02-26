@@ -90,7 +90,7 @@ func (h *authHandler) Me(w http.ResponseWriter, r *http.Request) {
 
 // Logout handles POST /api/v1/auth/logout.
 func (h *authHandler) Logout(w http.ResponseWriter, r *http.Request) {
-	token := extractBearerToken(r)
+	token := auth.ExtractBearerToken(r)
 	if token == "" {
 		w.WriteHeader(http.StatusNoContent)
 		return
@@ -107,11 +107,3 @@ func (h *authHandler) Logout(w http.ResponseWriter, r *http.Request) {
 	w.WriteHeader(http.StatusNoContent)
 }
 
-// extractBearerToken extracts the bearer token from the Authorization header.
-func extractBearerToken(r *http.Request) string {
-	h := r.Header.Get("Authorization")
-	if len(h) > 7 && h[:7] == "Bearer " {
-		return h[7:]
-	}
-	return ""
-}

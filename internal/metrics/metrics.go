@@ -43,11 +43,6 @@ type Metrics struct {
 	// Server lifecycle.
 	ServerStartTime prometheus.Gauge
 
-	// MCP metrics.
-	MCPRequestsTotal         *prometheus.CounterVec
-	MCPToolCallsTotal        *prometheus.CounterVec
-	MCPUpstreamDuration      *prometheus.HistogramVec
-	MCPUpstreamErrorsTotal   *prometheus.CounterVec
 }
 
 // New creates and registers all Prometheus metrics on a private registry.
@@ -147,26 +142,6 @@ func New() *Metrics {
 			Help: "Unix timestamp when the server started.",
 		}),
 
-		MCPRequestsTotal: prometheus.NewCounterVec(prometheus.CounterOpts{
-			Name: "octroi_mcp_requests_total",
-			Help: "Total number of MCP JSON-RPC requests.",
-		}, []string{"method", "status"}),
-
-		MCPToolCallsTotal: prometheus.NewCounterVec(prometheus.CounterOpts{
-			Name: "octroi_mcp_tool_calls_total",
-			Help: "Total number of MCP tool calls.",
-		}, []string{"tool_name", "source", "agent_id", "status"}),
-
-		MCPUpstreamDuration: prometheus.NewHistogramVec(prometheus.HistogramOpts{
-			Name:    "octroi_mcp_upstream_duration_seconds",
-			Help:    "MCP upstream request duration in seconds.",
-			Buckets: prometheus.DefBuckets,
-		}, []string{"upstream_name"}),
-
-		MCPUpstreamErrorsTotal: prometheus.NewCounterVec(prometheus.CounterOpts{
-			Name: "octroi_mcp_upstream_errors_total",
-			Help: "Total number of MCP upstream errors.",
-		}, []string{"upstream_name", "error_type"}),
 	}
 
 	// Register all metrics.
@@ -188,10 +163,6 @@ func New() *Metrics {
 		m.AuthSuccessesTotal,
 		m.ProxyUpstreamErrorsTotal,
 		m.ServerStartTime,
-		m.MCPRequestsTotal,
-		m.MCPToolCallsTotal,
-		m.MCPUpstreamDuration,
-		m.MCPUpstreamErrorsTotal,
 	)
 
 	// Set server start time.
@@ -264,22 +235,3 @@ func (m *Metrics) IncUpstreamError(errorType, toolID, toolName string) {
 	m.ProxyUpstreamErrorsTotal.WithLabelValues(errorType, toolID, toolName).Inc()
 }
 
-// IncMCPRequest increments the MCP request counter.
-func (m *Metrics) IncMCPRequest(method, status string) {
-	m.MCPRequestsTotal.WithLabelValues(method, status).Inc()
-}
-
-// IncMCPToolCall increments the MCP tool call counter.
-func (m *Metrics) IncMCPToolCall(toolName, source, agentID, status string) {
-	m.MCPToolCallsTotal.WithLabelValues(toolName, source, agentID, status).Inc()
-}
-
-// ObserveMCPUpstreamDuration records an MCP upstream request duration.
-func (m *Metrics) ObserveMCPUpstreamDuration(upstreamName string, seconds float64) {
-	m.MCPUpstreamDuration.WithLabelValues(upstreamName).Observe(seconds)
-}
-
-// IncMCPUpstreamError increments the MCP upstream error counter.
-func (m *Metrics) IncMCPUpstreamError(upstreamName, errorType string) {
-	m.MCPUpstreamErrorsTotal.WithLabelValues(upstreamName, errorType).Inc()
-}

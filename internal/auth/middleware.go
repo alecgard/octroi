@@ -50,7 +50,7 @@ func AgentAuthMiddleware(svc *Service, callbacks ...func()) func(http.Handler) h
 	}
 	return func(next http.Handler) http.Handler {
 		return http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
-			token := extractBearerToken(r)
+			token := ExtractBearerToken(r)
 			if token == "" {
 				if onFailure != nil {
 					onFailure()
@@ -89,7 +89,7 @@ func AdminSessionMiddleware(sessions SessionLookup, callbacks ...func()) func(ht
 	}
 	return func(next http.Handler) http.Handler {
 		return http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
-			token := extractBearerToken(r)
+			token := ExtractBearerToken(r)
 			if token == "" {
 				if onFailure != nil {
 					onFailure()
@@ -123,7 +123,9 @@ func AdminSessionMiddleware(sessions SessionLookup, callbacks ...func()) func(ht
 	}
 }
 
-func extractBearerToken(r *http.Request) string {
+// ExtractBearerToken extracts the bearer token from the Authorization header.
+// It handles mixed-case "Bearer" prefixes via case-insensitive comparison.
+func ExtractBearerToken(r *http.Request) string {
 	auth := r.Header.Get("Authorization")
 	if auth == "" {
 		return ""
@@ -156,7 +158,7 @@ func MemberAuthMiddleware(sessions SessionLookup, callbacks ...func()) func(http
 	}
 	return func(next http.Handler) http.Handler {
 		return http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
-			token := extractBearerToken(r)
+			token := ExtractBearerToken(r)
 			if token == "" {
 				if onFailure != nil {
 					onFailure()

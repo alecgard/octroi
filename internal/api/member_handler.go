@@ -1,7 +1,9 @@
 package api
 
 import (
+	"context"
 	"errors"
+	"fmt"
 	"net/http"
 	"strconv"
 	"strings"
@@ -26,6 +28,31 @@ func newMemberHandler(agentStore *agent.Store, meterStore *metering.Store) *memb
 	}
 }
 
+// resolveMemberTeamFilter resolves team scope for a member user.
+// It validates the optional ?team= param against the user's teams and returns
+// the agent IDs the member is allowed to see.
+func resolveMemberTeamFilter(ctx context.Context, r *http.Request, u *auth.User, agentStore *agent.Store) ([]string, error) {
+	teamNames := u.TeamNames()
+	teams := teamNames
+	if teamFilter := r.URL.Query().Get("team"); teamFilter != "" {
+		filterTeams := strings.Split(teamFilter, ",")
+		var validTeams []string
+		for _, t := range filterTeams {
+			t = strings.TrimSpace(t)
+			if t == "" {
+				continue
+			}
+			if !u.InTeam(t) {
+				return nil, fmt.Errorf("you are not a member of team %s", t)
+			}
+			validTeams = append(validTeams, t)
+		}
+		if len(validTeams) > 0 {
+			teams = validTeams
+		}
+	}
+	return agentStore.ListIDsByTeams(ctx, teams)
+}
 
 // ListAgents handles GET /api/v1/member/agents — agents in user's teams.
 func (h *memberHandler) ListAgents(w http.ResponseWriter, r *http.Request) {
@@ -70,11 +97,7 @@ func (h *memberHandler) CreateAgent(w http.ResponseWriter, r *http.Request) {
 		return
 	}
 
-	var req struct {
-		Name      string `json:"name"`
-		Team      string `json:"team"`
-		RateLimit int    `json:"rate_limit"`
-	}
+	var req createAgentRequest
 	if err := readJSON(r, &req); err != nil {
 		writeError(w, http.StatusBadRequest, "invalid_body", "failed to parse request body")
 		return
@@ -289,31 +312,9 @@ func (h *memberHandler) GetUsage(w http.ResponseWriter, r *http.Request) {
 		return
 	}
 
-	// Optional team filter — must be one of user's teams (supports comma-separated).
-	teamNames := u.TeamNames()
-	teams := teamNames
-	if teamFilter := r.URL.Query().Get("team"); teamFilter != "" {
-		filterTeams := strings.Split(teamFilter, ",")
-		var validTeams []string
-		for _, t := range filterTeams {
-			t = strings.TrimSpace(t)
-			if t == "" {
-				continue
-			}
-			if !u.InTeam(t) {
-				writeError(w, http.StatusForbidden, "forbidden", "you are not a member of team "+t)
-				return
-			}
-			validTeams = append(validTeams, t)
-		}
-		if len(validTeams) > 0 {
-			teams = validTeams
-		}
-	}
-
-	agentIDs, err := h.agentStore.ListIDsByTeams(r.Context(), teams)
+	agentIDs, err := resolveMemberTeamFilter(r.Context(), r, u, h.agentStore)
 	if err != nil {
-		writeError(w, http.StatusInternalServerError, "internal_error", "failed to list team agents")
+		writeError(w, http.StatusForbidden, "forbidden", err.Error())
 		return
 	}
 
@@ -341,31 +342,9 @@ func (h *memberHandler) ListTransactions(w http.ResponseWriter, r *http.Request)
 		return
 	}
 
-	// Optional team filter — must be one of user's teams (supports comma-separated).
-	teamNames := u.TeamNames()
-	teams := teamNames
-	if teamFilter := r.URL.Query().Get("team"); teamFilter != "" {
-		filterTeams := strings.Split(teamFilter, ",")
-		var validTeams []string
-		for _, t := range filterTeams {
-			t = strings.TrimSpace(t)
-			if t == "" {
-				continue
-			}
-			if !u.InTeam(t) {
-				writeError(w, http.StatusForbidden, "forbidden", "you are not a member of team "+t)
-				return
-			}
-			validTeams = append(validTeams, t)
-		}
-		if len(validTeams) > 0 {
-			teams = validTeams
-		}
-	}
-
-	agentIDs, err := h.agentStore.ListIDsByTeams(r.Context(), teams)
+	agentIDs, err := resolveMemberTeamFilter(r.Context(), r, u, h.agentStore)
 	if err != nil {
-		writeError(w, http.StatusInternalServerError, "internal_error", "failed to list team agents")
+		writeError(w, http.StatusForbidden, "forbidden", err.Error())
 		return
 	}
 

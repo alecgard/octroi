@@ -8,6 +8,8 @@ import (
 	"strings"
 	"testing"
 	"time"
+
+	"github.com/alecgard/octroi/internal/auth"
 )
 
 // ---------------------------------------------------------------------------
@@ -713,7 +715,7 @@ func TestParseTimeParam(t *testing.T) {
 }
 
 // ---------------------------------------------------------------------------
-// extractBearerToken tests
+// ExtractBearerToken tests (uses auth.ExtractBearerToken)
 // ---------------------------------------------------------------------------
 
 func TestExtractBearerToken(t *testing.T) {
@@ -736,7 +738,7 @@ func TestExtractBearerToken(t *testing.T) {
 			if tt.auth != "" {
 				req.Header.Set("Authorization", tt.auth)
 			}
-			got := extractBearerToken(req)
+			got := auth.ExtractBearerToken(req)
 			if got != tt.want {
 				t.Errorf("got %q, want %q", got, tt.want)
 			}
