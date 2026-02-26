@@ -18,6 +18,8 @@ type Tool struct {
 	RateLimit       int               `json:"rate_limit"`
 	BudgetLimit     float64           `json:"budget_limit"`
 	BudgetWindow    string            `json:"budget_window"`
+	Transport       string            `json:"transport,omitempty"`
+	Enabled         bool              `json:"enabled"`
 	CreatedAt       time.Time         `json:"created_at"`
 	UpdatedAt       time.Time         `json:"updated_at"`
 }
@@ -37,6 +39,8 @@ type CreateToolInput struct {
 	RateLimit       int               `json:"rate_limit"`
 	BudgetLimit     float64           `json:"budget_limit"`
 	BudgetWindow    string            `json:"budget_window"`
+	Transport       string            `json:"transport"`
+	Enabled         *bool             `json:"enabled"`
 }
 
 // UpdateToolInput holds the fields that can be updated on a tool.
@@ -55,6 +59,8 @@ type UpdateToolInput struct {
 	RateLimit       *int               `json:"rate_limit"`
 	BudgetLimit     *float64           `json:"budget_limit"`
 	BudgetWindow    *string            `json:"budget_window"`
+	Transport       *string            `json:"transport"`
+	Enabled         *bool              `json:"enabled"`
 }
 
 // ToolListParams controls listing and pagination of tools.

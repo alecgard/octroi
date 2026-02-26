@@ -78,6 +78,14 @@ button:disabled { opacity: 0.4; cursor: not-allowed; }
 .btn-ghost { background: transparent; color: var(--text2); }
 .btn-ghost:hover:not(:disabled) { color: var(--text); background: var(--surface); }
 .btn-sm { padding: 2px 8px; font-size: 11px; }
+.badge-mode { font-size: 10px; font-weight: 600; padding: 1px 6px; border-radius: 3px; text-transform: uppercase; letter-spacing: 0.5px; }
+.badge-service { background: #e8f4fd; color: #1a73e8; }
+.badge-api { background: #fef3e0; color: #e65100; }
+.badge-mcp { background: #e8f5e9; color: #2e7d32; }
+.mcp-chevron { cursor: pointer; display: inline-block; font-size: 10px; color: var(--text2); transition: transform 0.15s ease; user-select: none; width: 14px; text-align: center; }
+.mcp-chevron:hover { color: var(--text); }
+.mcp-chevron.open { transform: rotate(90deg); }
+.mcp-subrow td { background: var(--surface); border-bottom: 1px solid var(--border); }
 .btn-warn { background: var(--bg); color: var(--warn); border-color: var(--warn); }
 .btn-warn:hover:not(:disabled) { background: #fef8f0; }
 /* Tabs */
@@ -619,6 +627,7 @@ body.shift-held .txn-filter-pending { background: var(--surface2); }
       <div class="multi-select" id="usage-team-select" data-placeholder="All teams"></div>
       <div class="multi-select" id="usage-agent-select" data-placeholder="All agents"></div>
       <div class="multi-select" id="usage-tool-select" data-placeholder="All tools"></div>
+      <div class="multi-select" id="usage-path-select" data-placeholder="All paths"></div>
       <div style="flex:1"></div>
       <div id="usage-date-controls" style="display:none;gap:8px;align-items:center">
         <input type="date" id="usage-from">
@@ -682,8 +691,9 @@ body.shift-held .txn-filter-pending { background: var(--surface2); }
           <th>Team</th>
           <th>Agent</th>
           <th>Tool</th>
+          <th>Type</th>
           <th>Method</th>
-          <th>Path</th>
+          <th class="has-tooltip">Path / Sub-tool<span class="tip">API path for Service/API tools, sub-tool name for MCP tools</span></th>
           <th>Latency</th>
           <th>Cost</th>
         </tr>
@@ -748,6 +758,7 @@ body.shift-held .txn-filter-pending { background: var(--surface2); }
       <select id="tool-mode" onchange="toggleToolMode()">
         <option value="service">Service</option>
         <option value="api">API</option>
+        <option value="mcp">MCP</option>
       </select>
     </div>
     <div class="form-group">
@@ -766,6 +777,18 @@ body.shift-held .txn-filter-pending { background: var(--surface2); }
       <label>Variables (JSON)</label>
       <textarea id="tool-variables" placeholder='{"instance": "mycompany"}'></textarea>
       <span style="font-size:10px;color:var(--text2)">Key-value pairs for {placeholder} substitution in the endpoint URL</span>
+    </div>
+    <div class="form-group" id="tool-transport-section" style="display:none">
+      <label>Transport *</label>
+      <select id="tool-transport">
+        <option value="streamable-http">streamable-http</option>
+        <option value="sse">sse</option>
+      </select>
+    </div>
+    <div class="form-group" id="tool-enabled-section" style="display:none">
+      <label style="display:inline-flex;align-items:center;gap:6px;text-transform:uppercase;font-size:10px;font-weight:600;letter-spacing:0.5px;color:var(--text2);cursor:pointer">
+        <input type="checkbox" id="tool-enabled" checked> Enabled
+      </label>
     </div>
     <div class="form-row">
       <div class="form-group">
@@ -996,6 +1019,7 @@ let isAdmin = false;
 let usageAgentIds = [];    // array of agent UUIDs
 let usageToolIds = [];     // array of tool UUIDs
 let usageTeamFilters = []; // array of team names
+let usagePathFilters = []; // array of cleaned path/sub-tool strings
 let usageMode = 'live'; // 'live' or 'historical'
 let usagePollTimer = null;
 let lastTxnTimestamp = null;
@@ -1019,7 +1043,7 @@ let usersCache = [];
 
 // --- Shift-key multi-select state ---
 let shiftHeld = false;
-let pendingFilters = { teams: new Set(), agents: new Set(), tools: new Set() };
+let pendingFilters = { teams: new Set(), agents: new Set(), tools: new Set(), paths: new Set() };
 
 document.addEventListener('keydown', e => {
   if (e.key === 'Shift' && !shiftHeld) {
@@ -1058,7 +1082,15 @@ document.addEventListener('keyup', e => {
       });
       changed = true;
     }
-    pendingFilters = { teams: new Set(), agents: new Set(), tools: new Set() };
+    if (pendingFilters.paths.size) {
+      pendingFilters.paths.forEach(p => {
+        const idx = usagePathFilters.indexOf(p);
+        if (idx >= 0) usagePathFilters.splice(idx, 1);
+        else usagePathFilters.push(p);
+      });
+      changed = true;
+    }
+    pendingFilters = { teams: new Set(), agents: new Set(), tools: new Set(), paths: new Set() };
     // Remove pending highlights
     document.querySelectorAll('.txn-filter-pending').forEach(el => el.classList.remove('txn-filter-pending'));
     if (changed) {
@@ -1081,6 +1113,7 @@ function syncDropdowns() {
   msUpdateDisplay('usage-team-select', usageTeamFilters, v => v);
   msUpdateDisplay('usage-agent-select', usageAgentIds, resolveAgentName);
   msUpdateDisplay('usage-tool-select', usageToolIds, resolveToolName);
+  msUpdateDisplay('usage-path-select', usagePathFilters, v => v);
 }
 
 function msRender(id, options, selectedArr, resolveName, onToggle, onClear) {
@@ -1161,6 +1194,7 @@ function effectiveFilters() {
     teams: toggle(usageTeamFilters, pendingFilters.teams),
     agents: toggle(usageAgentIds, pendingFilters.agents),
     tools: toggle(usageToolIds, pendingFilters.tools),
+    paths: toggle(usagePathFilters, pendingFilters.paths),
   };
 }
 
@@ -1394,17 +1428,25 @@ function renderTools() {
   empty.style.display = 'none';
 
   const disAttr = isAdmin ? '' : ' disabled title="Org admin only"';
-  tbody.innerHTML = filtered.map(t => `<tr>
-    <td><a href="#" onclick="viewToolUsage('${t.id}','${esc(t.name)}');return false" style="text-decoration:none;font-weight:700;border-bottom:1px solid var(--border)">${esc(t.name)}</a><br><span style="color:var(--text2);font-size:11px">${esc(t.description || '')}</span></td>
-    <td>${isAdmin ? (t.mode === 'api' ? 'API' : 'Service') : (t.mode === 'api' ? 'API' : 'Service')}</td>
+  const modeLabel = m => m === 'api' ? 'API' : m === 'mcp' ? 'MCP' : 'Service';
+  const chevron = id => `<span class="mcp-chevron" id="mcp-chev-${id}" onclick="toggleMcpSubTools('${id}')" title="Show sub-tools">&#x25B6;</span>`;
+  tbody.innerHTML = filtered.map(t => {
+    const isMcp = isAdmin && t.mode === 'mcp';
+    const mcpBtns = isMcp ? `<button class="btn-ghost btn-sm has-tooltip" style="cursor:pointer" onclick="refreshMcpTools('${t.id}')">Rediscover<span class="tip">Re-scan the upstream MCP server for available tools</span></button> ` : '';
+    const enabledBadge = t.mode === 'mcp' ? (t.enabled !== false ? '' : ' <span style="color:var(--text2);font-size:10px">(disabled)</span>') : '';
+    const namePrefix = isMcp ? chevron(t.id) + ' ' : '';
+    return `<tr>
+    <td>${namePrefix}<a href="#" onclick="viewToolUsage('${t.id}','${esc(t.name)}');return false" style="text-decoration:none;font-weight:700;border-bottom:1px solid var(--border)">${esc(t.name)}</a>${enabledBadge}<br><span style="color:var(--text2);font-size:11px;${isMcp ? 'margin-left:18px;display:inline-block' : ''}">${esc(t.description || '')}</span></td>
+    <td>${modeLabel(t.mode)}</td>
     <td class="mono" style="word-break:break-all;max-width:220px">${isAdmin ? esc(t.endpoint || '\u2014') : esc(t.pricing_model || 'free')}</td>
     <td>${esc(t.auth_type || 'none')}</td>
     <td>${toolCallCounts[t.id] != null ? Number(toolCallCounts[t.id]).toLocaleString() : '\u2014'}</td>
     <td style="white-space:nowrap">
-      <button class="btn-ghost btn-sm" onclick="editTool('${t.id}')"${disAttr}>Edit</button>
+      ${mcpBtns}<button class="btn-ghost btn-sm" onclick="editTool('${t.id}')"${disAttr}>Edit</button>
       <button class="btn-danger btn-sm" onclick="deleteTool('${t.id}','${esc(t.name)}')"${disAttr}>Delete</button>
     </td>
-  </tr>`).join('');
+  </tr>`;
+  }).join('');
 
   if (!isAdmin) {
     document.getElementById('tools-endpoint-th').textContent = 'Pricing';
@@ -1417,13 +1459,25 @@ let toolRateOverridesOriginal = []; // track original overrides for diff on save
 function toggleToolMode() {
   const mode = document.getElementById('tool-mode').value;
   const varsSection = document.getElementById('tool-variables-section');
+  const transportSection = document.getElementById('tool-transport-section');
+  const enabledSection = document.getElementById('tool-enabled-section');
   const endpointInput = document.getElementById('tool-endpoint');
   if (mode === 'api') {
     varsSection.style.display = '';
+    transportSection.style.display = 'none';
+    enabledSection.style.display = 'none';
     endpointInput.type = 'text';
     endpointInput.placeholder = 'https://{instance}.example.com/api/{version}';
+  } else if (mode === 'mcp') {
+    varsSection.style.display = 'none';
+    transportSection.style.display = '';
+    enabledSection.style.display = '';
+    endpointInput.type = 'url';
+    endpointInput.placeholder = 'https://mcp.example.com/mcp';
   } else {
     varsSection.style.display = 'none';
+    transportSection.style.display = 'none';
+    enabledSection.style.display = 'none';
     endpointInput.type = 'url';
     endpointInput.placeholder = 'https://api.example.com/v1';
   }
@@ -1435,12 +1489,14 @@ function openToolModal(tool) {
   document.getElementById('tool-id-display').textContent = tool ? tool.id : '';
   document.getElementById('tool-modal-title').textContent = tool ? 'Edit Tool' : 'Create Tool';
   document.getElementById('tool-submit-btn').textContent = tool ? 'Save' : 'Create';
-  document.getElementById('tool-mode').value = tool ? tool.mode || 'service' : 'service';
+  document.getElementById('tool-mode').value = tool ? tool.mode || 'service' : 'mcp';
   document.getElementById('tool-name').value = tool ? tool.name : '';
   document.getElementById('tool-description').value = tool ? tool.description : '';
   document.getElementById('tool-endpoint').value = tool ? tool.endpoint || '' : '';
   document.getElementById('tool-auth-type').value = tool ? tool.auth_type || 'none' : 'none';
   document.getElementById('tool-variables').value = tool && tool.variables && Object.keys(tool.variables).length ? JSON.stringify(tool.variables) : '';
+  document.getElementById('tool-transport').value = tool ? tool.transport || 'streamable-http' : 'streamable-http';
+  document.getElementById('tool-enabled').checked = tool ? (tool.enabled !== false) : true;
   toggleToolMode();
   document.getElementById('tool-rate-limit').value = tool ? tool.rate_limit || '' : '';
   document.getElementById('tool-auth-config').value = tool && tool.auth_config ? JSON.stringify(tool.auth_config) : '';
@@ -1529,6 +1585,8 @@ async function submitTool() {
     rate_limit: parseInt(document.getElementById('tool-rate-limit').value) || 0,
     budget_limit: parseFloat(document.getElementById('tool-budget-limit').value) || 0,
     budget_window: document.getElementById('tool-budget-window').value.trim(),
+    transport: mode === 'mcp' ? document.getElementById('tool-transport').value : '',
+    enabled: mode === 'mcp' ? document.getElementById('tool-enabled').checked : true,
   };
   try {
     if (id) {
@@ -1889,6 +1947,11 @@ async function loadUsageLive() {
       txnQs += '&tool_id=' + encodeURIComponent(usageToolIds.join(','));
     }
   }
+  if (usagePathFilters.length > 0) {
+    const pathParam = '&path=' + encodeURIComponent(usagePathFilters.join(','));
+    qs += pathParam;
+    txnQs += pathParam;
+  }
 
   txnBasePath = baseTxnPrefix + 'limit=' + txnPageSize + txnQs;
   const onPage1 = txnOffset === 0;
@@ -1935,6 +1998,7 @@ async function loadUsageLive() {
       liveChartNewest = liveChartTxns.reduce((max, t) => t.timestamp > max ? t.timestamp : max, liveChartTxns[0].timestamp);
     }
 
+    populatePathFilter(liveChartTxns);
     renderUsageChart(liveChartTxns);
     if (onPage1) {
       const tableResp = results[2];
@@ -1963,7 +2027,8 @@ function renderTxnTable(prevTimestamp) {
   function txnFilterBtn(type, val, rawVal) {
     const active = (type === 'team' && usageTeamFilters.includes(rawVal)) ||
                    (type === 'agent' && usageAgentIds.includes(rawVal)) ||
-                   (type === 'tool' && usageToolIds.includes(rawVal));
+                   (type === 'tool' && usageToolIds.includes(rawVal)) ||
+                   (type === 'path' && usagePathFilters.includes(rawVal));
     if (active) return `<span class="txn-filter-icon txn-filter-active" onclick="removeFilterItem('${type}','${val}',event)" title="Remove from filter">${fxicon}</span>`;
     return `<span class="txn-filter-icon" onclick="filterFromTxn('${type}','${val}',event)" title="Filter by ${type}">${ficon}</span>`;
   }
@@ -1971,20 +2036,24 @@ function renderTxnTable(prevTimestamp) {
   const hasTeamFilter = eff.teams.length > 0;
   const hasAgentFilter = eff.agents.length > 0;
   const hasToolFilter = eff.tools.length > 0;
+  const hasPathFilter = eff.paths.length > 0;
   tbody.innerHTML = txnAll.map(t => {
     const isNew = prevTimestamp && t.timestamp > prevTimestamp;
     const teamRaw = resolveAgentTeam(t.agent_id);
     const team = esc(teamRaw);
+    const cleaned = cleanPath(t.path, t.tool_id);
     const teamExcl = hasTeamFilter && !eff.teams.includes(teamRaw) ? ' txn-excluded' : '';
     const agentExcl = hasAgentFilter && !eff.agents.includes(t.agent_id) ? ' txn-excluded' : '';
     const toolExcl = hasToolFilter && !eff.tools.includes(t.tool_id) ? ' txn-excluded' : '';
+    const pathExcl = hasPathFilter && !eff.paths.includes(cleaned) ? ' txn-excluded' : '';
     return `<tr${isNew ? ' class="txn-new"' : ''}>
     <td style="white-space:nowrap">${fmtTime(t.timestamp)}</td>
     <td class="txn-filterable${teamExcl}">${team}${txnFilterBtn('team', esc(teamRaw), teamRaw)}</td>
     <td class="txn-filterable${agentExcl}">${esc(resolveAgentName(t.agent_id))}${txnFilterBtn('agent', t.agent_id, t.agent_id)}</td>
     <td class="txn-filterable${toolExcl}">${esc(resolveToolName(t.tool_id))}${txnFilterBtn('tool', t.tool_id, t.tool_id)}</td>
+    <td><span class="badge-mode badge-${(resolveToolMode(t.tool_id) || '').toLowerCase()}">${resolveToolMode(t.tool_id)}</span></td>
     <td>${esc(t.method)}</td>
-    <td class="mono" style="font-size:12px">${esc(t.path || '')}</td>
+    <td class="txn-filterable${pathExcl} mono" style="font-size:12px">${esc(cleaned)}${txnFilterBtn('path', esc(cleaned), cleaned)}</td>
     <td>${t.latency_ms}ms</td>
     <td>$${(t.cost || 0).toFixed(4)}</td>
   </tr>`;
@@ -2001,6 +2070,7 @@ function renderTxnTable(prevTimestamp) {
 function viewTeamUsage(teamName) {
   usageAgentIds = [];
   usageToolIds = [];
+  usagePathFilters = [];
   usageTeamFilters = [teamName];
   syncDropdowns();
   renderFilterPills();
@@ -2011,6 +2081,7 @@ function viewTeamUsage(teamName) {
 function viewAgentUsage(agentId, agentName) {
   usageToolIds = [];
   usageTeamFilters = [];
+  usagePathFilters = [];
   usageAgentIds = [agentId];
   syncDropdowns();
   renderFilterPills();
@@ -2040,6 +2111,7 @@ function populateAgentFilter() {
 function viewToolUsage(toolId, toolName) {
   usageAgentIds = [];
   usageTeamFilters = [];
+  usagePathFilters = [];
   usageToolIds = [toolId];
   syncDropdowns();
   renderFilterPills();
@@ -2061,6 +2133,27 @@ function populateToolFilter() {
     loadUsage();
   }, () => {
     usageToolIds = [];
+    syncDropdowns(); renderFilterPills(); renderTxnTable(); renderUsageChart(lastChartTxns); loadUsage();
+  });
+}
+
+function populatePathFilter(txns) {
+  const pathSet = new Set();
+  (txns || []).forEach(t => {
+    const p = cleanPath(t.path, t.tool_id);
+    if (p && p !== '\u2014') pathSet.add(p);
+  });
+  const options = Array.from(pathSet).sort().map(p => ({ value: p, label: p }));
+  msRender('usage-path-select', options, usagePathFilters, v => v, val => {
+    const idx = usagePathFilters.indexOf(val);
+    if (idx >= 0) usagePathFilters.splice(idx, 1); else usagePathFilters.push(val);
+    syncDropdowns();
+    renderFilterPills();
+    renderTxnTable();
+    renderUsageChart(lastChartTxns);
+    loadUsage();
+  }, () => {
+    usagePathFilters = [];
     syncDropdowns(); renderFilterPills(); renderTxnTable(); renderUsageChart(lastChartTxns); loadUsage();
   });
 }
@@ -2106,6 +2199,11 @@ async function loadUsage() {
       txnQs += '&tool_id=' + encodeURIComponent(usageToolIds.join(','));
     }
   }
+  if (usagePathFilters.length > 0) {
+    const pathParam = '&path=' + encodeURIComponent(usagePathFilters.join(','));
+    qs += pathParam;
+    txnQs += pathParam;
+  }
 
   txnBasePath = baseTxnPrefix + 'limit=' + txnPageSize + txnQs;
   try {
@@ -2120,7 +2218,9 @@ async function loadUsage() {
     txnNextCursor = tableResp.next_cursor || null;
     txnCursorStack = [];
     txnOffset = 0;
-    renderUsageChart((chartTxns.transactions || chartTxns) || txnAll);
+    const allChartTxns = (chartTxns.transactions || chartTxns) || txnAll;
+    populatePathFilter(allChartTxns);
+    renderUsageChart(allChartTxns);
     renderTxnTable();
   } catch (e) { console.error('Failed to load usage', e); hideUsageLoading(); }
 }
@@ -2314,6 +2414,67 @@ async function deleteUser(id, email) {
   } catch (e) { toast('Error: ' + e.message); }
 }
 
+// --- MCP Sub-tools ---
+async function toggleMcpSubTools(toolId) {
+  const chev = document.getElementById('mcp-chev-' + toolId);
+  // Remove existing sub-rows if expanded (toggle off).
+  const existing = document.querySelectorAll('.mcp-subrow-' + toolId);
+  if (existing.length) {
+    existing.forEach(r => r.remove());
+    if (chev) chev.classList.remove('open');
+    return;
+  }
+  if (chev) chev.classList.add('open');
+  // Insert a loading row right after the parent.
+  const parentRow = chev.closest('tr');
+  const loadingRow = document.createElement('tr');
+  loadingRow.className = 'mcp-subrow mcp-subrow-' + toolId;
+  loadingRow.innerHTML = '<td colspan="6" style="padding:4px 0 4px 26px"><span style="color:var(--text2);font-size:11px">Loading sub-tools\u2026</span></td>';
+  parentRow.after(loadingRow);
+  try {
+    const [toolsData, countsData] = await Promise.all([
+      api('GET', '/api/v1/admin/tools/' + toolId + '/mcp-tools'),
+      api('GET', '/api/v1/admin/usage/tools/' + toolId + '/calls'),
+    ]);
+    const tools = toolsData.tools || [];
+    const counts = countsData.counts || {};
+    loadingRow.remove();
+    if (!tools.length) {
+      const emptyRow = document.createElement('tr');
+      emptyRow.className = 'mcp-subrow mcp-subrow-' + toolId;
+      emptyRow.innerHTML = '<td colspan="6" style="padding:4px 0 4px 26px"><span style="color:var(--text2);font-size:11px">No sub-tools discovered. Try rediscovering.</span></td>';
+      parentRow.after(emptyRow);
+      return;
+    }
+    // Insert sub-tool rows in reverse so they appear in order after parentRow.
+    for (let i = tools.length - 1; i >= 0; i--) {
+      const st = tools[i];
+      const callCount = counts[st.name] != null ? Number(counts[st.name]).toLocaleString() : '\u2014';
+      const subRow = document.createElement('tr');
+      subRow.className = 'mcp-subrow mcp-subrow-' + toolId;
+      subRow.innerHTML = `<td style="padding-left:26px"><span style="font-size:12px;font-weight:600">${esc(st.name)}</span><br><span style="color:var(--text2);font-size:11px">${esc(st.description || '')}</span></td><td colspan="3"></td><td>${callCount}</td><td></td>`;
+      parentRow.after(subRow);
+    }
+  } catch (e) {
+    loadingRow.innerHTML = '<td colspan="6" style="padding:4px 0 4px 26px"><span style="color:var(--danger);font-size:11px">Failed to load sub-tools</span></td>';
+  }
+}
+
+async function refreshMcpTools(toolId) {
+  try {
+    await api('POST', '/api/v1/admin/tools/' + toolId + '/refresh-mcp');
+    toast('Sub-tools rediscovered');
+    // Reload sub-tools if currently expanded.
+    const existing = document.querySelectorAll('.mcp-subrow-' + toolId);
+    if (existing.length) {
+      existing.forEach(r => r.remove());
+      const chev = document.getElementById('mcp-chev-' + toolId);
+      if (chev) chev.classList.remove('open');
+      toggleMcpSubTools(toolId);
+    }
+  } catch (e) { toast('Error: ' + e.message); }
+}
+
 // --- Helpers ---
 function closeModal(id) { document.getElementById(id).classList.remove('open'); }
 function esc(s) { const d = document.createElement('div'); d.textContent = s; return d.innerHTML; }
@@ -2322,11 +2483,17 @@ function fmtTime(s) { if (!s) return '\u2014'; const d = new Date(s); return d.t
 function resolveAgentName(id) { const a = agentsCache.find(a => a.id === id); return a ? a.name : id.slice(0,8); }
 function resolveAgentTeam(id) { const a = agentsCache.find(a => a.id === id); return a ? (a.team || '') : ''; }
 function resolveToolName(id) { const t = toolsCache.find(t => t.id === id); return t ? t.name : id.slice(0,8); }
+function resolveToolMode(id) { const t = toolsCache.find(t => t.id === id); return t ? (t.mode || '').toUpperCase() : ''; }
+function cleanPath(path, toolId) {
+  if (!path) return '\u2014';
+  const prefix = '/proxy/' + toolId + '/';
+  return path.startsWith(prefix) ? path.slice(prefix.length) || '/' : path;
+}
 
 function filterFromTxn(type, value, event) {
   if (shiftHeld && value) {
     // Shift held: toggle in pending set, don't reload yet.
-    const setKey = type === 'team' ? 'teams' : type === 'agent' ? 'agents' : 'tools';
+    const setKey = type === 'team' ? 'teams' : type === 'agent' ? 'agents' : type === 'path' ? 'paths' : 'tools';
     if (pendingFilters[setKey].has(value)) {
       pendingFilters[setKey].delete(value);
     } else {
@@ -2356,6 +2523,12 @@ function filterFromTxn(type, value, event) {
     } else {
       usageToolIds = [value];
     }
+  } else if (type === 'path') {
+    if (!value || (usagePathFilters.length === 1 && usagePathFilters[0] === value)) {
+      usagePathFilters = [];
+    } else {
+      usagePathFilters = [value];
+    }
   }
   syncDropdowns();
   renderFilterPills();
@@ -2376,6 +2549,7 @@ function removeFilterItem(type, value, event) {
   if (type === 'team') usageTeamFilters = usageTeamFilters.filter(t => t !== value);
   else if (type === 'agent') usageAgentIds = usageAgentIds.filter(a => a !== value);
   else if (type === 'tool') usageToolIds = usageToolIds.filter(t => t !== value);
+  else if (type === 'path') usagePathFilters = usagePathFilters.filter(p => p !== value);
   syncDropdowns();
   renderFilterPills();
   loadUsage();
@@ -2549,8 +2723,12 @@ function renderUsageChart(txns) {
   const bucketEnd = Math.floor(tMax / bucketMs) * bucketMs + bucketMs;
   const numBuckets = Math.max(1, Math.round((bucketEnd - bucketStart) / bucketMs));
 
-  const groupKey = chartGroup === 'agent' ? 'agent_id' : 'tool_id';
-  const resolveName = chartGroup === 'agent' ? resolveAgentName : resolveToolName;
+  const resolveGroupId = chartGroup === 'agent'
+    ? t => t.agent_id
+    : t => t.tool_id + '|' + cleanPath(t.path, t.tool_id);
+  const resolveName = chartGroup === 'agent'
+    ? resolveAgentName
+    : gid => { const [tid, path] = gid.split('|', 2); return resolveToolName(tid) + ' \u203A ' + (path || '/'); };
 
   // Bucket transactions
   const buckets = [];
@@ -2561,7 +2739,7 @@ function renderUsageChart(txns) {
     const ts = new Date(t.timestamp).getTime();
     const bi = Math.min(Math.floor((ts - bucketStart) / bucketMs), numBuckets - 1);
     if (bi < 0) return;
-    const gid = t[groupKey];
+    const gid = resolveGroupId(t);
     groupSet.add(gid);
     if (chartType === 'latency') {
       if (!buckets[bi][gid]) buckets[bi][gid] = [];
@@ -2659,8 +2837,8 @@ function renderUsageChart(txns) {
 
   // Legend
   const eff = effectiveFilters();
-  const filterType = chartGroup === 'agent' ? 'agent' : 'tool';
-  const activeFilterArr = filterType === 'agent' ? eff.agents : eff.tools;
+  const filterType = chartGroup === 'agent' ? 'agent' : 'path';
+  const activeFilterArr = chartGroup === 'agent' ? eff.agents : eff.paths;
   const hasLegendFilter = activeFilterArr.length > 0;
   let legend = '<div class="chart-legend">';
   groups.forEach((gid, gi) => {
@@ -2668,10 +2846,12 @@ function renderUsageChart(txns) {
     const pctl = chartType === 'latency' ? gid.split('::')[1].toUpperCase() : null;
     const color = chartColorFor(baseGid);
     const name = resolveName(baseGid) + (pctl ? ' ' + pctl : '');
-    const isActive = activeFilterArr.includes(baseGid);
-    const filterVal = isActive ? '' : baseGid;
+    // For tool chart, the filter value is the path portion of the composite key.
+    const legendFilterVal = chartGroup === 'agent' ? baseGid : (baseGid.split('|')[1] || '/');
+    const isActive = activeFilterArr.includes(legendFilterVal);
+    const filterVal = isActive ? '' : legendFilterVal;
     const exclClass = hasLegendFilter && !isActive ? ' chart-legend-excluded' : '';
-    legend += `<div class="chart-legend-item${exclClass}" data-group="${baseGid}" onclick="filterFromTxn('${filterType}','${filterVal}')" style="cursor:pointer"><span class="chart-legend-swatch" style="background:${color}${hasLegendFilter && !isActive ? ';opacity:0.3' : ''}"></span>${esc(name)}</div>`;
+    legend += `<div class="chart-legend-item${exclClass}" data-group="${esc(baseGid)}" onclick="filterFromTxn('${filterType}','${esc(filterVal)}')" style="cursor:pointer"><span class="chart-legend-swatch" style="background:${color}${hasLegendFilter && !isActive ? ';opacity:0.3' : ''}"></span>${esc(name)}</div>`;
   });
   legend += '</div>';
 
@@ -2781,37 +2961,37 @@ function loadMetrics() {
 
 function renderMetricsLive(d) {
   const sections = [
-    { title: 'Inbound (Agent \u2192 Octroi)', tip: 'HTTP requests from agents hitting the /proxy endpoint', cards: [
-      { label: 'Total Requests', value: fmtNum(d.http.totalRequests), tip: 'Total proxy HTTP requests from agents since startup' },
+    { title: 'Inbound (Agent \u2192 Octroi)', tip: 'HTTP requests from agents to the proxy endpoint. Includes all tool modes: Service, API, and MCP.', cards: [
+      { label: 'Total Requests', value: fmtNum(d.http.totalRequests), tip: 'Total proxy HTTP requests from agents since startup (Service, API, and MCP)' },
       { label: 'Error Rate', value: d.http.errorRate.toFixed(2) + '%', tip: 'Percentage of proxy requests that returned 4xx/5xx' },
-      { label: 'P50 Latency', value: fmtMs(d.http.p50Latency), tip: '50th percentile proxy request duration' },
-      { label: 'P95 Latency', value: fmtMs(d.http.p95Latency), tip: '95th percentile proxy request duration' },
-      { label: 'P99 Latency', value: fmtMs(d.http.p99Latency), tip: '99th percentile proxy request duration' },
+      { label: 'P50 Latency', value: fmtMs(d.http.p50Latency), tip: '50th percentile end-to-end proxy request duration' },
+      { label: 'P95 Latency', value: fmtMs(d.http.p95Latency), tip: '95th percentile end-to-end proxy request duration' },
+      { label: 'P99 Latency', value: fmtMs(d.http.p99Latency), tip: '99th percentile end-to-end proxy request duration' },
     ]},
-    { title: 'Management', tip: 'Non-proxy HTTP traffic: admin UI, API calls, metrics scrapes, login', cards: [
+    { title: 'Management', tip: 'Non-proxy HTTP traffic: admin UI, API calls, metrics scrapes, login, and direct MCP client connections (/mcp). Does not include agent proxy requests.', cards: [
       { label: 'Total Requests', value: fmtNum((d.management||{}).totalRequests), tip: 'Total management HTTP requests (UI, API, metrics) since startup' },
       { label: 'Error Rate', value: ((d.management||{}).errorRate||0).toFixed(2) + '%', tip: 'Percentage of management requests that returned 4xx/5xx' },
       { label: 'P50 Latency', value: fmtMs((d.management||{}).p50Latency), tip: '50th percentile management request duration' },
       { label: 'P95 Latency', value: fmtMs((d.management||{}).p95Latency), tip: '95th percentile management request duration' },
     ]},
-    { title: 'Upstream (Octroi \u2192 Tool)', tip: 'Requests forwarded from Octroi to upstream tool endpoints', cards: [
-      { label: 'Requests', value: fmtNum(d.proxy.totalRequests), tip: 'Total requests proxied to upstream tool endpoints' },
-      { label: 'Errors', value: fmtNum((d.server||{}).upstreamErrors), tip: 'Proxy requests that failed to reach the upstream tool (timeouts, DNS, connection errors)' },
+    { title: 'Upstream (Octroi \u2192 Tool)', tip: 'Requests forwarded to upstream tool endpoints. Includes all tool modes: Service, API, and MCP.', cards: [
+      { label: 'Requests', value: fmtNum(d.proxy.totalRequests), tip: 'Total requests proxied to upstream tools (Service, API, and MCP)' },
+      { label: 'Errors', value: fmtNum((d.server||{}).upstreamErrors), tip: 'Requests that failed to reach the upstream tool (timeouts, DNS, connection errors)' },
       { label: 'P50 Latency', value: fmtMs(d.proxy.p50Upstream), tip: '50th percentile upstream tool response time' },
       { label: 'P95 Latency', value: fmtMs(d.proxy.p95Upstream), tip: '95th percentile upstream tool response time' },
       { label: 'Active', value: fmtNum(d.proxy.activeRequests), tip: 'Requests currently in-flight to upstream tools' },
     ]},
-    { title: 'Security', tip: 'Rate limiting, budget enforcement, and authentication events', cards: [
+    { title: 'Security', tip: 'Rate limiting, budget enforcement, and authentication. Applies to all tool modes.', cards: [
       { label: 'Rate Limit Rejects', value: fmtNum(d.rateLimit.rejections), tip: 'Requests rejected due to agent or tool rate limits (HTTP 429)' },
-      { label: 'Budget Rejects', value: fmtNum(d.budget.rejections), tip: 'Requests rejected due to agent or global tool budget limits' },
+      { label: 'Budget Rejects', value: fmtNum(d.budget.rejections), tip: 'Requests rejected due to agent or tool budget limits' },
       { label: 'Auth Failures', value: fmtNum(d.auth.failures), tip: 'Failed authentication attempts (invalid API keys or sessions)' },
       { label: 'Auth Successes', value: fmtNum(d.auth.successes), tip: 'Successful authentication attempts (agent keys and user sessions)' },
     ]},
-    { title: 'Collector', tip: 'Metering collector that buffers and flushes usage data to the database', cards: [
-      { label: 'Buffer Size', value: fmtNum(d.collector.bufferSize), tip: 'Metering transactions buffered in memory awaiting flush to database' },
-      { label: 'Total Flushes', value: fmtNum(d.collector.totalFlushes), tip: 'Total metering collector flush operations (both successful and failed)' },
-      { label: 'Flush Errors', value: fmtNum(d.collector.flushErrors), tip: 'Metering collector flushes that failed to write to the database' },
-      { label: 'Transactions', value: fmtNum(d.collector.transactions), tip: 'Total metering transactions recorded (proxy calls tracked for billing/usage)' },
+    { title: 'Collector', tip: 'Metering collector that buffers and flushes usage data to the database. Records all proxied tool calls.', cards: [
+      { label: 'Buffer Size', value: fmtNum(d.collector.bufferSize), tip: 'Transactions buffered in memory awaiting flush to database' },
+      { label: 'Total Flushes', value: fmtNum(d.collector.totalFlushes), tip: 'Total flush operations (both successful and failed)' },
+      { label: 'Flush Errors', value: fmtNum(d.collector.flushErrors), tip: 'Flushes that failed to write to the database' },
+      { label: 'Transactions', value: fmtNum(d.collector.transactions), tip: 'Total transactions recorded across all tool modes (Service, API, MCP)' },
     ]},
     { title: 'System', tip: 'Server uptime and PostgreSQL connection pool status', cards: [
       { label: 'Uptime', value: fmtUptime((d.server||{}).uptimeSeconds), tip: 'Time since the Octroi server process started' },

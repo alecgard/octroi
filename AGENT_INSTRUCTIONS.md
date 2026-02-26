@@ -70,13 +70,38 @@ X-RateLimit-Remaining: 45
 X-RateLimit-Reset: 1700000000
 ```
 
+## MCP Endpoint
+
+If your framework supports MCP (Model Context Protocol), connect to Octroi's MCP server instead of using the HTTP proxy. This gives you a unified tool list and structured tool calling.
+
+**Endpoint:** `POST /mcp` (Streamable HTTP transport)
+
+Authenticate with the same API key:
+
+```
+Authorization: Bearer $OCTROI_AGENT_KEY
+```
+
+The MCP server exposes all registered tools (REST APIs and upstream MCP servers) via `tools/list`. Use `tools/call` to invoke them — Octroi handles credential injection, rate limiting, and budget enforcement.
+
+Rate limit and budget rejections are returned as MCP tool results with `isError: true` and a descriptive message. Adapt accordingly: stop calling a tool on budget errors, wait and retry on rate limits.
+
 ## Workflow
+
+### HTTP Proxy
 
 1. Discover tools via `GET /api/v1/tools` or search
 2. Pick the tool that fits your task
 3. Proxy your request through `/proxy/{toolID}/...`
 4. Handle errors: back off on 429, stop on 403
 5. Check `/api/v1/usage` to monitor consumption
+
+### MCP
+
+1. Connect to `/mcp` with your API key
+2. Call `tools/list` to discover available tools
+3. Call `tools/call` with the tool name and arguments
+4. Handle error results: back off on rate limits, stop on budget exceeded
 
 ## Learn More
 

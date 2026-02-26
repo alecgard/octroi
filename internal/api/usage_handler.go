@@ -73,6 +73,10 @@ func buildUsageQuery(r *http.Request, isAdmin bool) (*metering.UsageQuery, error
 		}
 	}
 
+	if pathParam := r.URL.Query().Get("path"); pathParam != "" {
+		q.Paths = strings.Split(pathParam, ",")
+	}
+
 	from, err := parseTimeParam(r.URL.Query().Get("from"))
 	if err != nil {
 		return nil, err
@@ -335,6 +339,21 @@ func (h *usageHandler) GetToolCallCounts(w http.ResponseWriter, r *http.Request)
 	counts, err := h.store.GetToolCallCounts(r.Context())
 	if err != nil {
 		writeError(w, http.StatusInternalServerError, "internal_error", "failed to get tool call counts")
+		return
+	}
+	writeJSON(w, http.StatusOK, map[string]interface{}{"counts": counts})
+}
+
+// GetSubToolCallCounts handles GET /api/v1/admin/usage/tools/{id}/calls (admin).
+func (h *usageHandler) GetSubToolCallCounts(w http.ResponseWriter, r *http.Request) {
+	id := chi.URLParam(r, "id")
+	if id == "" {
+		writeError(w, http.StatusBadRequest, "invalid_id", "tool id is required")
+		return
+	}
+	counts, err := h.store.GetSubToolCallCounts(r.Context(), id)
+	if err != nil {
+		writeError(w, http.StatusInternalServerError, "internal_error", "failed to get sub-tool call counts")
 		return
 	}
 	writeJSON(w, http.StatusOK, map[string]interface{}{"counts": counts})

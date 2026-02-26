@@ -15,6 +15,7 @@ import (
 	"github.com/alecgard/octroi/internal/auth"
 	"github.com/alecgard/octroi/internal/config"
 	"github.com/alecgard/octroi/internal/crypto"
+	"github.com/alecgard/octroi/internal/mcp"
 	"github.com/alecgard/octroi/internal/metering"
 	"github.com/alecgard/octroi/internal/metrics"
 	"github.com/alecgard/octroi/internal/proxy"
@@ -24,6 +25,16 @@ import (
 	"github.com/jackc/pgx/v5/pgxpool"
 	"github.com/spf13/cobra"
 )
+
+// toolRegistryAdapter adapts registry.Store to the mcp.ToolRegistryLister
+// interface by fetching all enabled tools without pagination.
+type toolRegistryAdapter struct {
+	store *registry.Store
+}
+
+func (a *toolRegistryAdapter) List(ctx context.Context) ([]*registry.Tool, error) {
+	return a.store.ListEnabled(ctx)
+}
 
 var serveCmd = &cobra.Command{
 	Use:   "serve",
@@ -124,6 +135,42 @@ func runServe(cmd *cobra.Command, args []string) error {
 	proxyHandler.SetToolRateLimitChecker(toolRateLimiter)
 	proxyHandler.SetMetrics(m)
 
+	// MCP components.
+	restCaller := mcp.NewRESTCaller(cfg.Proxy.Timeout, cfg.Proxy.MaxRequestSize)
+	aggregator := mcp.NewAggregator(&toolRegistryAdapter{store: toolStore})
+
+	// Load MCP tools from the tools table and create clients.
+	enabledTools, err := toolStore.ListEnabled(ctx)
+	if err != nil {
+		slog.Warn("failed to list enabled tools", "error", err)
+	} else {
+		for _, t := range enabledTools {
+			if t.Mode != "mcp" {
+				continue
+			}
+			c, err := mcp.NewClient(t.Endpoint, t.AuthType, t.AuthConfig, cfg.Proxy.Timeout)
+			if err != nil {
+				slog.Warn("failed to create MCP client", "tool", t.Name, "error", err)
+				continue
+			}
+			if err := c.Initialize(ctx); err != nil {
+				slog.Warn("failed to initialize MCP upstream", "tool", t.Name, "error", err)
+				continue
+			}
+			aggregator.AddUpstream(t.ID, t.Name, c)
+			slog.Info("connected to MCP upstream", "name", t.Name, "endpoint", t.Endpoint)
+		}
+		if err := aggregator.RefreshAllUpstreams(ctx); err != nil {
+			slog.Warn("failed to refresh some MCP upstreams", "error", err)
+		}
+	}
+
+	governedCaller := mcp.NewGovernedCaller(aggregator, toolStore, budgetStore, toolRateLimiter, collector, restCaller, aggregator)
+	mcpServer := mcp.NewServer(aggregator, governedCaller)
+
+	// Wire MCP caller into the proxy for HTTP-based MCP tool access.
+	proxyHandler.SetMCPCaller(aggregator)
+
 	router := api.NewRouter(api.RouterDeps{
 		DBPool:             pool,
 		ToolService:        toolService,
@@ -139,6 +186,8 @@ func runServe(cmd *cobra.Command, args []string) error {
 		ToolRateLimitStore: toolRateLimitStore,
 		AllowedOrigins:     cfg.CORS.AllowedOrigins,
 		Metrics:            m,
+		MCPServer:          mcpServer,
+		MCPAggregator:      aggregator,
 	})
 
 	srv := &http.Server{

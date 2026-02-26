@@ -138,6 +138,8 @@ TOOL_NAMES=(
   "Argo CD"
   "Docker Registry"
   "RPC Gateway"
+  "Brave Search"
+  "DeepWiki"
 )
 TOOL_ENDPOINTS=(
   "https://bigquery.googleapis.com"
@@ -158,18 +160,28 @@ TOOL_ENDPOINTS=(
   "https://argocd.internal.example.com"
   "https://registry.internal.example.com"
   "https://rpc.internal.example.com"
+  "https://brave-search.internal.example.com/mcp"
+  "https://mcp.deepwiki.com/mcp"
 )
 TOOL_MODES=(
   service service service service service service service service service
   service service api service api service service service service
+  mcp mcp
+)
+TOOL_TRANSPORTS=(
+  '' '' '' '' '' '' '' '' ''
+  '' '' '' '' '' '' '' '' ''
+  'streamable-http' 'streamable-http'
 )
 TOOL_VARIABLES=(
   '{}' '{}' '{}' '{}' '{}' '{}' '{}' '{}' '{}'
   '{}' '{}' '{"instance":"mycompany"}' '{}' '{"org":"mycompany"}' '{}' '{}' '{}' '{}'
+  '{}' '{}'
 )
 TOOL_AUTH_TYPES=(
   bearer header bearer bearer bearer bearer bearer bearer bearer
   bearer bearer bearer bearer bearer bearer bearer bearer bearer
+  bearer none
 )
 TOOL_AUTH_CONFIGS=(
   '{"key":"mock-gcp-token"}'
@@ -190,10 +202,13 @@ TOOL_AUTH_CONFIGS=(
   '{"key":"mock-argo-token"}'
   '{"key":"mock-registry-token"}'
   '{"key":"mock-rpc-token"}'
+  '{"key":"mock-brave-token"}'
+  '{}'
 )
 TOOL_PRICING=(
   per_request per_request free free per_request free per_request per_request
   free per_request free per_request free per_request per_request free free per_request
+  per_request free
 )
 TOOL_PRICING_AMOUNTS=(
   0.05    # BigQuery — data warehouse queries
@@ -214,10 +229,13 @@ TOOL_PRICING_AMOUNTS=(
   0       # Argo CD — free
   0       # Docker Registry — free
   0.002   # RPC Gateway — blockchain node
+  0.003   # Brave Search — web search queries
+  0       # DeepWiki — free
 )
 TOOL_RATE_LIMITS=(
   100 500 200 200 150 300 80 200
   100 60 120 120 200 100 150 60 100 500
+  60 200
 )
 TOOL_DESCRIPTIONS=(
   "Google BigQuery data warehouse for analytics and SQL queries"
@@ -238,19 +256,22 @@ TOOL_DESCRIPTIONS=(
   "GitOps continuous delivery for Kubernetes deployments"
   "Private container image registry"
   "JSON-RPC gateway for blockchain node access"
+  "Web search via Brave Search MCP server"
+  "AI-powered documentation and code search for GitHub repositories"
 )
 
 TOOL_IDS=()
 
 for i in "${!TOOL_NAMES[@]}"; do
   name="${TOOL_NAMES[$i]}"
-  existing_id=$(echo "$EXISTING_TOOLS_JSON" | jq -r --arg n "$name" '(.tools // [])[] | select(.name == $n) | .id // empty')
+  existing_id=$(echo "$EXISTING_TOOLS_JSON" | jq -r --arg n "$name" '[(.tools // [])[] | select(.name == $n) | .id] | first // empty')
   if [[ -n "$existing_id" ]]; then
     TOOL_IDS+=("$existing_id")
     echo "    $name (exists: ${existing_id:0:8}...)"
     continue
   fi
 
+  transport="${TOOL_TRANSPORTS[$i]}"
   body=$(jq -n \
     --arg name "$name" \
     --arg endpoint "${TOOL_ENDPOINTS[$i]}" \
@@ -262,10 +283,12 @@ for i in "${!TOOL_NAMES[@]}"; do
     --argjson pricing_amount "${TOOL_PRICING_AMOUNTS[$i]}" \
     --argjson rate_limit "${TOOL_RATE_LIMITS[$i]}" \
     --arg description "${TOOL_DESCRIPTIONS[$i]}" \
+    --arg transport "$transport" \
     '{name:$name, description:$description, mode:$mode, endpoint:$endpoint,
       auth_type:$auth_type, auth_config:$auth_config, variables:$variables,
       pricing_model:$pricing_model, pricing_amount:$pricing_amount, pricing_currency:"USD",
-      rate_limit:$rate_limit, budget_limit:100000, budget_window:"monthly"}')
+      rate_limit:$rate_limit, budget_limit:100000, budget_window:"monthly"}
+      + (if $transport != "" then {transport:$transport, enabled:true} else {} end)')
 
   resp=$(api POST "/api/v1/admin/tools" "$body")
   if check_error "$resp" "create tool $name"; then
@@ -410,7 +433,7 @@ T_BIGQUERY=0  T_KAFKA=1     T_PROMETHEUS=2  T_LOKI=3
 T_ELASTIC=4   T_REDIS=5     T_PGANALYTICS=6 T_S3=7
 T_VAULT=8     T_PAGERDUTY=9 T_GITHUB=10     T_JIRA=11
 T_SLACK=12    T_SENTRY=13   T_DATADOG=14    T_ARGOCD=15
-T_REGISTRY=16 T_RPC=17
+T_REGISTRY=16 T_RPC=17      T_BRAVE=18    T_DEEPWIKI=19
 
 # Build a weighted (agent, tool) pair table. Each entry is "agent_idx tool_idx".
 # The number of times a pair appears determines its probability.
@@ -428,46 +451,46 @@ add_pairs() {
 }
 
 # Agent 0: backend-dev — writes code, reviews PRs, files bugs (medium volume)
-add_pairs 0   $T_GITHUB 5  $T_JIRA 3  $T_SENTRY 4  $T_ELASTIC 3  $T_REDIS 2  $T_SLACK 1
+add_pairs 0   $T_GITHUB 5  $T_JIRA 3  $T_SENTRY 4  $T_ELASTIC 3  $T_REDIS 2  $T_SLACK 1  $T_BRAVE 5  $T_DEEPWIKI 6
 # Agent 1: backend-ops — runs services, watches metrics (high volume)
-add_pairs 1   $T_KAFKA 8  $T_PROMETHEUS 6  $T_LOKI 5  $T_REDIS 5  $T_ELASTIC 4  $T_DATADOG 4  $T_PAGERDUTY 2  $T_SLACK 1
+add_pairs 1   $T_KAFKA 8  $T_PROMETHEUS 6  $T_LOKI 5  $T_REDIS 5  $T_ELASTIC 4  $T_DATADOG 4  $T_PAGERDUTY 2  $T_SLACK 1  $T_BRAVE 3
 # Agent 2: backend-incidents — firefighting, alerts (high volume, bursty)
-add_pairs 2   $T_PAGERDUTY 7  $T_SLACK 6  $T_PROMETHEUS 5  $T_LOKI 5  $T_SENTRY 4  $T_DATADOG 3  $T_ELASTIC 2
+add_pairs 2   $T_PAGERDUTY 7  $T_SLACK 6  $T_PROMETHEUS 5  $T_LOKI 5  $T_SENTRY 4  $T_DATADOG 3  $T_ELASTIC 2  $T_BRAVE 4  $T_DEEPWIKI 3
 
 # Agent 3: frontend-dev — builds UI, tracks bugs (medium volume)
-add_pairs 3   $T_GITHUB 5  $T_JIRA 3  $T_SENTRY 5  $T_S3 2  $T_SLACK 1
+add_pairs 3   $T_GITHUB 5  $T_JIRA 3  $T_SENTRY 5  $T_S3 2  $T_SLACK 1  $T_BRAVE 4  $T_DEEPWIKI 5
 # Agent 4: frontend-deploy — ships builds (lower volume)
-add_pairs 4   $T_ARGOCD 5  $T_REGISTRY 5  $T_GITHUB 3  $T_S3 3  $T_SLACK 1
+add_pairs 4   $T_ARGOCD 5  $T_REGISTRY 5  $T_GITHUB 3  $T_S3 3  $T_SLACK 1  $T_DEEPWIKI 3
 # Agent 5: frontend-perf — performance monitoring (lower volume)
-add_pairs 5   $T_DATADOG 6  $T_PROMETHEUS 4  $T_ELASTIC 3  $T_SENTRY 3
+add_pairs 5   $T_DATADOG 6  $T_PROMETHEUS 4  $T_ELASTIC 3  $T_SENTRY 3  $T_BRAVE 3
 
 # Agent 6: infra-provision — spins up infra (low volume)
-add_pairs 6   $T_S3 4  $T_VAULT 5  $T_ARGOCD 4  $T_REGISTRY 3  $T_GITHUB 2
+add_pairs 6   $T_S3 4  $T_VAULT 5  $T_ARGOCD 4  $T_REGISTRY 3  $T_GITHUB 2  $T_DEEPWIKI 3
 # Agent 7: infra-monitor — watches everything (high volume)
-add_pairs 7   $T_PROMETHEUS 8  $T_LOKI 6  $T_DATADOG 6  $T_ELASTIC 4  $T_REDIS 2
+add_pairs 7   $T_PROMETHEUS 8  $T_LOKI 6  $T_DATADOG 6  $T_ELASTIC 4  $T_REDIS 2  $T_BRAVE 3
 # Agent 8: infra-incidents — infra fires (high volume)
-add_pairs 8   $T_PAGERDUTY 6  $T_SLACK 5  $T_PROMETHEUS 5  $T_LOKI 4  $T_DATADOG 4  $T_VAULT 2
+add_pairs 8   $T_PAGERDUTY 6  $T_SLACK 5  $T_PROMETHEUS 5  $T_LOKI 4  $T_DATADOG 4  $T_VAULT 2  $T_BRAVE 4  $T_DEEPWIKI 2
 
 # Agent 9: security-audit — compliance checks (low volume)
-add_pairs 9   $T_VAULT 5  $T_GITHUB 4  $T_ELASTIC 3  $T_BIGQUERY 2
+add_pairs 9   $T_VAULT 5  $T_GITHUB 4  $T_ELASTIC 3  $T_BIGQUERY 2  $T_BRAVE 5  $T_DEEPWIKI 4
 # Agent 10: security-scan — vulnerability scanning (medium volume)
-add_pairs 10  $T_ELASTIC 5  $T_GITHUB 4  $T_REGISTRY 4  $T_VAULT 3  $T_SENTRY 2  $T_DATADOG 2
+add_pairs 10  $T_ELASTIC 5  $T_GITHUB 4  $T_REGISTRY 4  $T_VAULT 3  $T_SENTRY 2  $T_DATADOG 2  $T_BRAVE 3  $T_DEEPWIKI 3
 # Agent 11: security-incidents — security response (medium volume)
-add_pairs 11  $T_PAGERDUTY 5  $T_SLACK 5  $T_VAULT 4  $T_ELASTIC 3  $T_LOKI 3
+add_pairs 11  $T_PAGERDUTY 5  $T_SLACK 5  $T_VAULT 4  $T_ELASTIC 3  $T_LOKI 3  $T_BRAVE 3
 
 # Agent 12: data-pipeline — ETL and streaming (very high volume)
-add_pairs 12  $T_KAFKA 10  $T_BIGQUERY 6  $T_S3 5  $T_PGANALYTICS 5  $T_REDIS 3  $T_RPC 3
+add_pairs 12  $T_KAFKA 10  $T_BIGQUERY 6  $T_S3 5  $T_PGANALYTICS 5  $T_REDIS 3  $T_RPC 3  $T_DEEPWIKI 3
 # Agent 13: data-analytics — queries and reports (medium volume)
-add_pairs 13  $T_BIGQUERY 7  $T_PGANALYTICS 5  $T_ELASTIC 4  $T_S3 2  $T_REDIS 2
+add_pairs 13  $T_BIGQUERY 7  $T_PGANALYTICS 5  $T_ELASTIC 4  $T_S3 2  $T_REDIS 2  $T_BRAVE 5  $T_DEEPWIKI 3
 # Agent 14: data-etl — batch transforms (high volume)
-add_pairs 14  $T_KAFKA 7  $T_BIGQUERY 5  $T_S3 5  $T_PGANALYTICS 5  $T_REDIS 3
+add_pairs 14  $T_KAFKA 7  $T_BIGQUERY 5  $T_S3 5  $T_PGANALYTICS 5  $T_REDIS 3  $T_BRAVE 2
 
 # Agent 15: platform-deploy — ships platform services (medium volume)
-add_pairs 15  $T_ARGOCD 6  $T_REGISTRY 5  $T_GITHUB 4  $T_S3 3  $T_SLACK 1
+add_pairs 15  $T_ARGOCD 6  $T_REGISTRY 5  $T_GITHUB 4  $T_S3 3  $T_SLACK 1  $T_DEEPWIKI 5
 # Agent 16: platform-ops — keeps platform running (high volume)
-add_pairs 16  $T_KAFKA 6  $T_PROMETHEUS 6  $T_LOKI 5  $T_REDIS 4  $T_REGISTRY 3  $T_DATADOG 3  $T_RPC 5
+add_pairs 16  $T_KAFKA 6  $T_PROMETHEUS 6  $T_LOKI 5  $T_REDIS 4  $T_REGISTRY 3  $T_DATADOG 3  $T_RPC 5  $T_BRAVE 3  $T_DEEPWIKI 2
 # Agent 17: platform-ci — build pipelines (medium volume)
-add_pairs 17  $T_GITHUB 6  $T_REGISTRY 5  $T_ARGOCD 4  $T_S3 3  $T_SENTRY 2
+add_pairs 17  $T_GITHUB 6  $T_REGISTRY 5  $T_ARGOCD 4  $T_S3 3  $T_SENTRY 2  $T_DEEPWIKI 4  $T_BRAVE 2
 
 NUM_TRAFFIC=${#TRAFFIC[@]}
 
@@ -574,9 +597,11 @@ fi
 # that returns HTTP 200 so the proxy can complete the round-trip.
 
 MOCK_PORT=19876
+MOCK_MCP_PORT=19877
 
+# --- Mock REST upstream ---
 python3 -c "
-import socketserver, time, random, math
+import socketserver, time, random
 from http.server import HTTPServer, BaseHTTPRequestHandler
 socketserver.TCPServer.allow_reuse_address = True
 class H(BaseHTTPRequestHandler):
@@ -584,12 +609,9 @@ class H(BaseHTTPRequestHandler):
         time.sleep(random.uniform(0.01, 1.5))
         self.send_response(200)
         self.send_header('Content-Type','application/json')
-        # ~50% of requests report variable cost via X-Octroi-Cost.
-        # Uses a log-normal distribution so most costs are small with
-        # occasional expensive queries (realistic for BigQuery, LLM APIs, etc).
         if random.random() < 0.5:
-            cost = random.lognormvariate(-4.0, 1.5)  # median ~0.018, long tail
-            cost = min(cost, 2.0)  # cap at \$2
+            cost = random.lognormvariate(-4.0, 1.5)
+            cost = min(cost, 2.0)
             self.send_header('X-Octroi-Cost', f'{cost:.6f}')
         self.end_headers()
         self.wfile.write(b'{\"ok\":true}')
@@ -598,19 +620,116 @@ class H(BaseHTTPRequestHandler):
 HTTPServer(('0.0.0.0',$MOCK_PORT),H).serve_forever()
 " &
 MOCK_PID=$!
+
+# --- Mock MCP upstream (streamable-http, path-based routing) ---
+python3 -c "
+import json, socketserver, time, random
+from http.server import HTTPServer, BaseHTTPRequestHandler
+
+SERVERS = {
+    '/brave': {
+        'name': 'BraveSearch',
+        'tools': [
+            {'name':'brave_web_search','description':'Search the web using Brave Search','inputSchema':{'type':'object','properties':{'query':{'type':'string'},'count':{'type':'integer'}}}},
+            {'name':'brave_local_search','description':'Search for local businesses and places','inputSchema':{'type':'object','properties':{'query':{'type':'string'},'count':{'type':'integer'}}}},
+            {'name':'brave_news_search','description':'Search for recent news articles','inputSchema':{'type':'object','properties':{'query':{'type':'string'},'freshness':{'type':'string'}}}},
+        ],
+    },
+    '/deepwiki': {
+        'name': 'DeepWiki',
+        'tools': [
+            {'name':'read_wiki_structure','description':'Get documentation topics for a GitHub repo','inputSchema':{'type':'object','properties':{'repoName':{'type':'string'}}}},
+            {'name':'read_wiki_contents','description':'View full documentation page for a repo topic','inputSchema':{'type':'object','properties':{'repoName':{'type':'string'},'topic':{'type':'string'}}}},
+            {'name':'ask_question','description':'Ask a natural-language question about a repository','inputSchema':{'type':'object','properties':{'repoName':{'type':'string'},'question':{'type':'string'}}}},
+        ],
+    },
+}
+
+socketserver.TCPServer.allow_reuse_address = True
+class H(BaseHTTPRequestHandler):
+    def do_POST(self):
+        # Route by path prefix.
+        server = None
+        for prefix, s in SERVERS.items():
+            if self.path.startswith(prefix):
+                server = s
+                break
+        if not server:
+            self.send_response(404)
+            self.end_headers()
+            return
+
+        length = int(self.headers.get('Content-Length', 0))
+        body = json.loads(self.rfile.read(length)) if length else {}
+        method = body.get('method', '')
+        req_id = body.get('id')
+
+        if method == 'initialize':
+            result = {'protocolVersion':'2025-03-26','capabilities':{'tools':{'listChanged':False}},'serverInfo':{'name':server['name'],'version':'1.0.0'}}
+        elif method == 'notifications/initialized':
+            self.send_response(200)
+            self.end_headers()
+            return
+        elif method == 'tools/list':
+            result = {'tools': server['tools']}
+        elif method == 'tools/call':
+            time.sleep(random.uniform(0.01, 0.5))
+            result = {'content':[{'type':'text','text':json.dumps({'ok':True,'tool':body.get('params',{}).get('name','?')})}]}
+        else:
+            self.send_response(200)
+            self.end_headers()
+            return
+
+        resp = json.dumps({'jsonrpc':'2.0','id':req_id,'result':result})
+        self.send_response(200)
+        self.send_header('Content-Type','text/event-stream')
+        self.end_headers()
+        self.wfile.write(f'event: message\ndata: {resp}\n\n'.encode())
+
+    def log_message(self, *a): pass
+HTTPServer(('0.0.0.0',$MOCK_MCP_PORT),H).serve_forever()
+" &
+MOCK_MCP_PID=$!
+
 sleep 0.3
-echo "    Mock upstream listening on :${MOCK_PORT} (pid $MOCK_PID)"
-trap 'kill $MOCK_PID 2>/dev/null; exit' EXIT INT TERM
+echo "    Mock REST upstream listening on :${MOCK_PORT} (pid $MOCK_PID)"
+echo "    Mock MCP  upstream listening on :${MOCK_MCP_PORT} (pid $MOCK_MCP_PID)"
+trap 'kill $MOCK_PID $MOCK_MCP_PID 2>/dev/null; exit' EXIT INT TERM
 
-# --- Point all tools at the mock upstream ---------------------------------
+# --- Point all tools at the mock upstreams --------------------------------
 
-echo "==> Updating tool endpoints to mock upstream (and raising budget limits)"
+echo "==> Updating tool endpoints to mock upstreams (and raising budget limits)"
 for i in "${!TOOL_IDS[@]}"; do
   tid="${TOOL_IDS[$i]}"
   if [[ -z "$tid" ]]; then continue; fi
-  api PUT "/api/v1/admin/tools/${tid}" \
-    "{\"endpoint\":\"http://localhost:${MOCK_PORT}\",\"budget_limit\":100000}" >/dev/null
-  echo "    ${TOOL_NAMES[$i]} -> http://localhost:${MOCK_PORT}"
+  if [[ "${TOOL_MODES[$i]}" == "mcp" ]]; then
+    # Map tool name to mock MCP path.
+    case "${TOOL_NAMES[$i]}" in
+      "Brave Search") mcp_path="/brave" ;;
+      "DeepWiki")     mcp_path="/deepwiki" ;;
+      *)              mcp_path="/mcp" ;;
+    esac
+    api PUT "/api/v1/admin/tools/${tid}" \
+      "{\"endpoint\":\"http://localhost:${MOCK_MCP_PORT}${mcp_path}\",\"transport\":\"streamable-http\",\"budget_limit\":100000}" >/dev/null
+    echo "    ${TOOL_NAMES[$i]} -> http://localhost:${MOCK_MCP_PORT}${mcp_path} (MCP)"
+  else
+    api PUT "/api/v1/admin/tools/${tid}" \
+      "{\"endpoint\":\"http://localhost:${MOCK_PORT}\",\"budget_limit\":100000}" >/dev/null
+    echo "    ${TOOL_NAMES[$i]} -> http://localhost:${MOCK_PORT}"
+  fi
+done
+
+# --- Connect MCP upstreams and discover sub-tools -------------------------
+
+echo "==> Connecting MCP upstreams"
+for i in "${!TOOL_IDS[@]}"; do
+  if [[ "${TOOL_MODES[$i]}" != "mcp" ]]; then continue; fi
+  tid="${TOOL_IDS[$i]}"
+  if [[ -z "$tid" ]]; then continue; fi
+  resp=$(api POST "/api/v1/admin/tools/${tid}/refresh-mcp")
+  if check_error "$resp" "refresh MCP ${TOOL_NAMES[$i]}"; then
+    echo "    ${TOOL_NAMES[$i]}: connected and tools discovered"
+  fi
 done
 
 # --- Generate live proxy traffic ------------------------------------------
@@ -625,21 +744,40 @@ while true; do
   rng; pair="${TRAFFIC[$(( (RNG & 0x7FFFFFFF) % NUM_TRAFFIC ))]}"
   agent_idx="${pair% *}"
   tool_idx="${pair#* }"
-  rng; method_idx=$(( (RNG & 0x7FFFFFFF) % NUM_METHODS ))
-  rng; path_idx=$(( (RNG & 0x7FFFFFFF) % NUM_PATHS ))
 
   agent_key="${AGENT_KEYS[$agent_idx]}"
   tool_id="${TOOL_IDS[$tool_idx]}"
   agent_name="${AGENT_NAMES[$agent_idx]}"
   tool_name="${TOOL_NAMES[$tool_idx]}"
-  method="${METHODS[$method_idx]}"
-  path="${PATHS[$path_idx]}"
 
-  # Send request through the proxy pipeline (auth -> rate limit -> budget -> metering).
-  http_code=$(curl -s -o /dev/null -w "%{http_code}" \
-    -H "Authorization: Bearer $agent_key" \
-    -X "$method" \
-    "${BASE}/proxy/${tool_id}${path}")
+  if [[ "${TOOL_MODES[$tool_idx]}" == "mcp" ]]; then
+    # MCP tools: POST to /proxy/{toolID}/{subTool} with JSON body.
+    case "${TOOL_NAMES[$tool_idx]}" in
+      "Brave Search") MCP_TOOLS=(brave_web_search brave_local_search brave_news_search) ;;
+      "DeepWiki")     MCP_TOOLS=(read_wiki_structure read_wiki_contents ask_question) ;;
+      *)              MCP_TOOLS=(unknown_tool) ;;
+    esac
+    rng; mcp_idx=$(( (RNG & 0x7FFFFFFF) % ${#MCP_TOOLS[@]} ))
+    sub_tool="${MCP_TOOLS[$mcp_idx]}"
+    http_code=$(curl -s -o /dev/null -w "%{http_code}" \
+      -H "Authorization: Bearer $agent_key" \
+      -H "Content-Type: application/json" \
+      -d '{"query":"test","repoName":"octroi"}' \
+      -X POST \
+      "${BASE}/proxy/${tool_id}/${sub_tool}")
+    method="POST"
+    path="/${sub_tool}"
+  else
+    rng; method_idx=$(( (RNG & 0x7FFFFFFF) % NUM_METHODS ))
+    rng; path_idx=$(( (RNG & 0x7FFFFFFF) % NUM_PATHS ))
+    method="${METHODS[$method_idx]}"
+    path="${PATHS[$path_idx]}"
+    # REST tools: standard proxy request.
+    http_code=$(curl -s -o /dev/null -w "%{http_code}" \
+      -H "Authorization: Bearer $agent_key" \
+      -X "$method" \
+      "${BASE}/proxy/${tool_id}${path}")
+  fi
 
   count=$(( count + 1 ))
   if (( http_code >= 400 )); then

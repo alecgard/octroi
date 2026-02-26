@@ -16,7 +16,13 @@ import (
 	"github.com/alecgard/octroi/internal/metering"
 	"github.com/alecgard/octroi/internal/registry"
 	"github.com/go-chi/chi/v5"
+	"github.com/mark3labs/mcp-go/mcp"
 )
+
+// MCPCaller calls an MCP upstream tool by upstream ID and tool name.
+type MCPCaller interface {
+	Call(ctx context.Context, upstreamID string, toolName string, arguments map[string]any) (*mcp.CallToolResult, error)
+}
 
 // ToolStore is the interface for looking up tools by ID.
 type ToolStore interface {
@@ -59,6 +65,7 @@ type Handler struct {
 	client         *http.Client
 	maxRequestSize int64
 	metrics        MetricsRecorder
+	mcpCaller      MCPCaller
 }
 
 // NewHandler creates a new proxy handler.
@@ -80,6 +87,11 @@ func (h *Handler) SetToolRateLimitChecker(checker ToolRateLimitChecker) {
 // SetMetrics sets the optional metrics recorder.
 func (h *Handler) SetMetrics(m MetricsRecorder) {
 	h.metrics = m
+}
+
+// SetMCPCaller sets the optional MCP upstream caller for proxying MCP tools.
+func (h *Handler) SetMCPCaller(c MCPCaller) {
+	h.mcpCaller = c
 }
 
 // ServeHTTP handles proxy requests.
@@ -146,6 +158,12 @@ func (h *Handler) ServeHTTP(w http.ResponseWriter, r *http.Request) {
 			h.metrics.IncBudgetRejection("global")
 		}
 		writeError(w, http.StatusForbidden, "budget_exceeded", "global tool budget exceeded")
+		return
+	}
+
+	// Handle MCP mode: forward to upstream MCP server.
+	if tool.Mode == "mcp" {
+		h.serveMCP(w, r, tool, agent)
 		return
 	}
 
@@ -327,6 +345,77 @@ func classifyUpstreamError(err error) string {
 		return "dns"
 	}
 	return "other"
+}
+
+// serveMCP handles proxy requests for MCP mode tools. The path after /proxy/{toolID}/
+// is treated as the MCP tool name, and the JSON body becomes the tool arguments.
+func (h *Handler) serveMCP(w http.ResponseWriter, r *http.Request, tool *registry.Tool, agent *auth.Agent) {
+	if h.mcpCaller == nil {
+		writeError(w, http.StatusBadGateway, "proxy_error", "MCP proxy not configured")
+		return
+	}
+
+	// Extract sub-tool name from path.
+	proxyPrefix := fmt.Sprintf("/proxy/%s", tool.ID)
+	subTool := strings.TrimPrefix(r.URL.Path, proxyPrefix)
+	subTool = strings.TrimPrefix(subTool, "/")
+	if subTool == "" {
+		writeError(w, http.StatusBadRequest, "bad_request", "missing MCP tool name in path")
+		return
+	}
+
+	// Parse arguments from body.
+	var arguments map[string]any
+	if r.Body != nil {
+		body := io.LimitReader(r.Body, h.maxRequestSize+1)
+		data, err := io.ReadAll(body)
+		if err != nil {
+			writeError(w, http.StatusBadRequest, "bad_request", "failed to read request body")
+			return
+		}
+		if len(data) > 0 {
+			if err := json.Unmarshal(data, &arguments); err != nil {
+				writeError(w, http.StatusBadRequest, "bad_request", "invalid JSON body")
+				return
+			}
+		}
+	}
+
+	start := time.Now()
+	result, err := h.mcpCaller.Call(r.Context(), tool.ID, subTool, arguments)
+	latency := time.Since(start)
+
+	if h.metrics != nil {
+		h.metrics.ObserveUpstreamDuration(tool.ID, tool.Name, latency.Seconds())
+	}
+
+	if err != nil {
+		if h.metrics != nil {
+			h.metrics.IncProxyRequests(tool.ID, tool.Name, agent.ID, r.Method, 502)
+			h.metrics.IncUpstreamError("mcp_call", tool.ID, tool.Name)
+		}
+		h.recordTransaction(agent.ID, tool, r, 502, latency, 0, 0, false, "")
+		writeError(w, http.StatusBadGateway, "proxy_error", "MCP upstream call failed")
+		return
+	}
+
+	success := result == nil || !result.IsError
+	statusCode := 200
+	if !success {
+		statusCode = 500
+	}
+
+	if h.metrics != nil {
+		h.metrics.IncProxyRequests(tool.ID, tool.Name, agent.ID, r.Method, statusCode)
+	}
+
+	// Serialize result as JSON response.
+	respBytes, _ := json.Marshal(result)
+	w.Header().Set("Content-Type", "application/json")
+	w.WriteHeader(statusCode)
+	w.Write(respBytes)
+
+	h.recordTransaction(agent.ID, tool, r, statusCode, latency, 0, int64(len(respBytes)), success, "")
 }
 
 func writeError(w http.ResponseWriter, status int, code, message string) {
