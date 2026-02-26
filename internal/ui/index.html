@@ -1165,6 +1165,10 @@ let shiftHeld = false;
 let pendingFilters = { teams: new Set(), agents: new Set(), tools: new Set(), paths: new Set() };
 
 document.addEventListener('keydown', e => {
+  if (e.key === 'Escape') {
+    const open = document.querySelector('.modal-overlay.open');
+    if (open) { open.classList.remove('open'); e.preventDefault(); }
+  }
   if (e.key === 'Shift' && !shiftHeld) {
     shiftHeld = true;
     document.body.classList.add('shift-held');

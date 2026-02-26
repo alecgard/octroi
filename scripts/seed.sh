@@ -297,7 +297,7 @@ for i in "${!TOOL_NAMES[@]}"; do
     '{name:$name, description:$description, mode:$mode, endpoint:$endpoint,
       auth_type:$auth_type, auth_config:$auth_config, variables:$variables,
       pricing_model:$pricing_model, pricing_amount:$pricing_amount, pricing_currency:"USD",
-      rate_limit:$rate_limit, budget_limit:100000, budget_window:"monthly"}
+      rate_limit:$rate_limit, budget_limit:100000, budget_window:"monthly", log_bodies:true}
       + (if $transport != "" then {transport:$transport, enabled:true} else {} end)')
 
   resp=$(api POST "/api/v1/admin/tools" "$body")
