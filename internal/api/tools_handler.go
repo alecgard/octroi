@@ -215,8 +215,14 @@ func (h *toolsHandler) RefreshMCPTools(agg *mcp.Aggregator) http.HandlerFunc {
 		// If the upstream isn't connected yet (e.g. endpoint changed after
 		// server startup), create a new client and register it.
 		if !agg.HasUpstream(id) {
-			slog.Info("connecting to MCP upstream", "tool", tool.Name, "endpoint", tool.Endpoint)
-			c, err := mcp.NewClient(tool.Endpoint, tool.AuthType, tool.AuthConfig, 30*time.Second)
+			// Re-read from DB to get the latest endpoint (may have been updated).
+			fresh, err := h.service.GetByID(r.Context(), id)
+			if err != nil {
+				writeError(w, http.StatusInternalServerError, "internal_error", "failed to reload tool")
+				return
+			}
+			slog.Info("connecting to MCP upstream", "tool", fresh.Name, "endpoint", fresh.Endpoint)
+			c, err := mcp.NewClient(fresh.Endpoint, fresh.AuthType, fresh.AuthConfig, 30*time.Second)
 			if err != nil {
 				writeError(w, http.StatusBadGateway, "connect_failed", "failed to create MCP client: "+err.Error())
 				return
@@ -225,7 +231,7 @@ func (h *toolsHandler) RefreshMCPTools(agg *mcp.Aggregator) http.HandlerFunc {
 				writeError(w, http.StatusBadGateway, "connect_failed", "failed to initialize MCP client: "+err.Error())
 				return
 			}
-			agg.AddUpstream(id, tool.Name, c)
+			agg.AddUpstream(id, fresh.Name, c)
 		}
 
 		if err := agg.RefreshUpstream(r.Context(), id); err != nil {
