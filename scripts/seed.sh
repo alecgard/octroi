@@ -451,46 +451,46 @@ add_pairs() {
 }
 
 # Agent 0: backend-dev — writes code, reviews PRs, files bugs (medium volume)
-add_pairs 0   $T_GITHUB 5  $T_JIRA 3  $T_SENTRY 4  $T_ELASTIC 3  $T_REDIS 2  $T_SLACK 1  $T_BRAVE 2  $T_DEEPWIKI 2
+add_pairs 0   $T_GITHUB 5  $T_JIRA 3  $T_SENTRY 4  $T_ELASTIC 3  $T_REDIS 2  $T_SLACK 1  $T_BRAVE 5  $T_DEEPWIKI 6
 # Agent 1: backend-ops — runs services, watches metrics (high volume)
-add_pairs 1   $T_KAFKA 8  $T_PROMETHEUS 6  $T_LOKI 5  $T_REDIS 5  $T_ELASTIC 4  $T_DATADOG 4  $T_PAGERDUTY 2  $T_SLACK 1
+add_pairs 1   $T_KAFKA 8  $T_PROMETHEUS 6  $T_LOKI 5  $T_REDIS 5  $T_ELASTIC 4  $T_DATADOG 4  $T_PAGERDUTY 2  $T_SLACK 1  $T_BRAVE 3
 # Agent 2: backend-incidents — firefighting, alerts (high volume, bursty)
-add_pairs 2   $T_PAGERDUTY 7  $T_SLACK 6  $T_PROMETHEUS 5  $T_LOKI 5  $T_SENTRY 4  $T_DATADOG 3  $T_ELASTIC 2
+add_pairs 2   $T_PAGERDUTY 7  $T_SLACK 6  $T_PROMETHEUS 5  $T_LOKI 5  $T_SENTRY 4  $T_DATADOG 3  $T_ELASTIC 2  $T_BRAVE 4  $T_DEEPWIKI 3
 
 # Agent 3: frontend-dev — builds UI, tracks bugs (medium volume)
-add_pairs 3   $T_GITHUB 5  $T_JIRA 3  $T_SENTRY 5  $T_S3 2  $T_SLACK 1
+add_pairs 3   $T_GITHUB 5  $T_JIRA 3  $T_SENTRY 5  $T_S3 2  $T_SLACK 1  $T_BRAVE 4  $T_DEEPWIKI 5
 # Agent 4: frontend-deploy — ships builds (lower volume)
-add_pairs 4   $T_ARGOCD 5  $T_REGISTRY 5  $T_GITHUB 3  $T_S3 3  $T_SLACK 1
+add_pairs 4   $T_ARGOCD 5  $T_REGISTRY 5  $T_GITHUB 3  $T_S3 3  $T_SLACK 1  $T_DEEPWIKI 3
 # Agent 5: frontend-perf — performance monitoring (lower volume)
-add_pairs 5   $T_DATADOG 6  $T_PROMETHEUS 4  $T_ELASTIC 3  $T_SENTRY 3
+add_pairs 5   $T_DATADOG 6  $T_PROMETHEUS 4  $T_ELASTIC 3  $T_SENTRY 3  $T_BRAVE 3
 
 # Agent 6: infra-provision — spins up infra (low volume)
-add_pairs 6   $T_S3 4  $T_VAULT 5  $T_ARGOCD 4  $T_REGISTRY 3  $T_GITHUB 2
+add_pairs 6   $T_S3 4  $T_VAULT 5  $T_ARGOCD 4  $T_REGISTRY 3  $T_GITHUB 2  $T_DEEPWIKI 3
 # Agent 7: infra-monitor — watches everything (high volume)
-add_pairs 7   $T_PROMETHEUS 8  $T_LOKI 6  $T_DATADOG 6  $T_ELASTIC 4  $T_REDIS 2
+add_pairs 7   $T_PROMETHEUS 8  $T_LOKI 6  $T_DATADOG 6  $T_ELASTIC 4  $T_REDIS 2  $T_BRAVE 3
 # Agent 8: infra-incidents — infra fires (high volume)
-add_pairs 8   $T_PAGERDUTY 6  $T_SLACK 5  $T_PROMETHEUS 5  $T_LOKI 4  $T_DATADOG 4  $T_VAULT 2
+add_pairs 8   $T_PAGERDUTY 6  $T_SLACK 5  $T_PROMETHEUS 5  $T_LOKI 4  $T_DATADOG 4  $T_VAULT 2  $T_BRAVE 4  $T_DEEPWIKI 2
 
 # Agent 9: security-audit — compliance checks (low volume)
-add_pairs 9   $T_VAULT 5  $T_GITHUB 4  $T_ELASTIC 3  $T_BIGQUERY 2  $T_BRAVE 2  $T_DEEPWIKI 1
+add_pairs 9   $T_VAULT 5  $T_GITHUB 4  $T_ELASTIC 3  $T_BIGQUERY 2  $T_BRAVE 5  $T_DEEPWIKI 4
 # Agent 10: security-scan — vulnerability scanning (medium volume)
-add_pairs 10  $T_ELASTIC 5  $T_GITHUB 4  $T_REGISTRY 4  $T_VAULT 3  $T_SENTRY 2  $T_DATADOG 2
+add_pairs 10  $T_ELASTIC 5  $T_GITHUB 4  $T_REGISTRY 4  $T_VAULT 3  $T_SENTRY 2  $T_DATADOG 2  $T_BRAVE 3  $T_DEEPWIKI 3
 # Agent 11: security-incidents — security response (medium volume)
-add_pairs 11  $T_PAGERDUTY 5  $T_SLACK 5  $T_VAULT 4  $T_ELASTIC 3  $T_LOKI 3
+add_pairs 11  $T_PAGERDUTY 5  $T_SLACK 5  $T_VAULT 4  $T_ELASTIC 3  $T_LOKI 3  $T_BRAVE 3
 
 # Agent 12: data-pipeline — ETL and streaming (very high volume)
-add_pairs 12  $T_KAFKA 10  $T_BIGQUERY 6  $T_S3 5  $T_PGANALYTICS 5  $T_REDIS 3  $T_RPC 3
+add_pairs 12  $T_KAFKA 10  $T_BIGQUERY 6  $T_S3 5  $T_PGANALYTICS 5  $T_REDIS 3  $T_RPC 3  $T_DEEPWIKI 3
 # Agent 13: data-analytics — queries and reports (medium volume)
-add_pairs 13  $T_BIGQUERY 7  $T_PGANALYTICS 5  $T_ELASTIC 4  $T_S3 2  $T_REDIS 2  $T_BRAVE 2
+add_pairs 13  $T_BIGQUERY 7  $T_PGANALYTICS 5  $T_ELASTIC 4  $T_S3 2  $T_REDIS 2  $T_BRAVE 5  $T_DEEPWIKI 3
 # Agent 14: data-etl — batch transforms (high volume)
-add_pairs 14  $T_KAFKA 7  $T_BIGQUERY 5  $T_S3 5  $T_PGANALYTICS 5  $T_REDIS 3
+add_pairs 14  $T_KAFKA 7  $T_BIGQUERY 5  $T_S3 5  $T_PGANALYTICS 5  $T_REDIS 3  $T_BRAVE 2
 
 # Agent 15: platform-deploy — ships platform services (medium volume)
-add_pairs 15  $T_ARGOCD 6  $T_REGISTRY 5  $T_GITHUB 4  $T_S3 3  $T_SLACK 1  $T_DEEPWIKI 2
+add_pairs 15  $T_ARGOCD 6  $T_REGISTRY 5  $T_GITHUB 4  $T_S3 3  $T_SLACK 1  $T_DEEPWIKI 5
 # Agent 16: platform-ops — keeps platform running (high volume)
-add_pairs 16  $T_KAFKA 6  $T_PROMETHEUS 6  $T_LOKI 5  $T_REDIS 4  $T_REGISTRY 3  $T_DATADOG 3  $T_RPC 5
+add_pairs 16  $T_KAFKA 6  $T_PROMETHEUS 6  $T_LOKI 5  $T_REDIS 4  $T_REGISTRY 3  $T_DATADOG 3  $T_RPC 5  $T_BRAVE 3  $T_DEEPWIKI 2
 # Agent 17: platform-ci — build pipelines (medium volume)
-add_pairs 17  $T_GITHUB 6  $T_REGISTRY 5  $T_ARGOCD 4  $T_S3 3  $T_SENTRY 2
+add_pairs 17  $T_GITHUB 6  $T_REGISTRY 5  $T_ARGOCD 4  $T_S3 3  $T_SENTRY 2  $T_DEEPWIKI 4  $T_BRAVE 2
 
 NUM_TRAFFIC=${#TRAFFIC[@]}
 
