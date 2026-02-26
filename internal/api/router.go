@@ -263,6 +263,7 @@ func NewRouter(deps RouterDeps) http.Handler {
 		ar.Get("/usage", usage.GetUsageAdmin)
 		ar.Get("/usage/agents/{agentID}", usage.GetUsageByAgent)
 		ar.Get("/usage/tools/calls", usage.GetToolCallCounts)
+		ar.Get("/usage/tools/{id}/calls", usage.GetSubToolCallCounts)
 		ar.Get("/usage/tools/{toolID}", usage.GetUsageByTool)
 		ar.Get("/usage/agents/{agentID}/tools/{toolID}", usage.GetUsageByAgentTool)
 		ar.Get("/usage/transactions", func(w http.ResponseWriter, r *http.Request) {

@@ -121,6 +121,33 @@ func (s *Store) GetToolCallCounts(ctx context.Context) (map[string]int64, error)
 	return counts, rows.Err()
 }
 
+// GetSubToolCallCounts returns call counts grouped by path suffix for a specific tool.
+// The returned map keys are the sub-tool names extracted from the path (e.g. "brave_web_search").
+func (s *Store) GetSubToolCallCounts(ctx context.Context, toolID string) (map[string]int64, error) {
+	prefix := "/proxy/" + toolID + "/"
+	rows, err := s.pool.Query(ctx,
+		`SELECT SUBSTRING(path FROM $1) AS sub_tool, COUNT(*)
+		 FROM transactions
+		 WHERE tool_id = $2 AND path LIKE $3
+		 GROUP BY sub_tool`,
+		len(prefix)+1, toolID, prefix+"%")
+	if err != nil {
+		return nil, fmt.Errorf("querying sub-tool call counts: %w", err)
+	}
+	defer rows.Close()
+
+	counts := make(map[string]int64)
+	for rows.Next() {
+		var name string
+		var count int64
+		if err := rows.Scan(&name, &count); err != nil {
+			return nil, fmt.Errorf("scanning sub-tool call count: %w", err)
+		}
+		counts[name] = count
+	}
+	return counts, rows.Err()
+}
+
 // ListTransactions returns a page of transactions matching the query filters,
 // ordered by timestamp DESC, id DESC. It uses cursor-based pagination and
 // returns the next cursor (empty string if no more results).

@@ -1420,7 +1420,7 @@ function renderTools() {
   const chevron = id => `<span class="mcp-chevron" id="mcp-chev-${id}" onclick="toggleMcpSubTools('${id}')" title="Show sub-tools">&#x25B6;</span>`;
   tbody.innerHTML = filtered.map(t => {
     const isMcp = isAdmin && t.mode === 'mcp';
-    const mcpBtns = isMcp ? `<button class="btn-ghost btn-sm" onclick="refreshMcpTools('${t.id}')">Refresh</button> ` : '';
+    const mcpBtns = isMcp ? `<button class="btn-ghost btn-sm" onclick="refreshMcpTools('${t.id}')">Rediscover</button> ` : '';
     const enabledBadge = t.mode === 'mcp' ? (t.enabled !== false ? '' : ' <span style="color:var(--text2);font-size:10px">(disabled)</span>') : '';
     const namePrefix = isMcp ? chevron(t.id) + ' ' : '';
     return `<tr>
@@ -2379,8 +2379,12 @@ async function toggleMcpSubTools(toolId) {
   loadingRow.innerHTML = '<td colspan="6" style="padding:4px 0 4px 26px"><span style="color:var(--text2);font-size:11px">Loading sub-tools\u2026</span></td>';
   parentRow.after(loadingRow);
   try {
-    const data = await api('GET', '/api/v1/admin/tools/' + toolId + '/mcp-tools');
-    const tools = data.tools || [];
+    const [toolsData, countsData] = await Promise.all([
+      api('GET', '/api/v1/admin/tools/' + toolId + '/mcp-tools'),
+      api('GET', '/api/v1/admin/usage/tools/' + toolId + '/calls'),
+    ]);
+    const tools = toolsData.tools || [];
+    const counts = countsData.counts || {};
     loadingRow.remove();
     if (!tools.length) {
       const emptyRow = document.createElement('tr');
@@ -2392,9 +2396,10 @@ async function toggleMcpSubTools(toolId) {
     // Insert sub-tool rows in reverse so they appear in order after parentRow.
     for (let i = tools.length - 1; i >= 0; i--) {
       const st = tools[i];
+      const callCount = counts[st.name] != null ? Number(counts[st.name]).toLocaleString() : '\u2014';
       const subRow = document.createElement('tr');
       subRow.className = 'mcp-subrow mcp-subrow-' + toolId;
-      subRow.innerHTML = `<td style="padding-left:26px"><span style="font-size:12px;font-weight:600">${esc(st.name)}</span><br><span style="color:var(--text2);font-size:11px;margin-left:0">${esc(st.description || '')}</span></td><td colspan="5"></td>`;
+      subRow.innerHTML = `<td style="padding-left:26px"><span style="font-size:12px;font-weight:600">${esc(st.name)}</span><br><span style="color:var(--text2);font-size:11px">${esc(st.description || '')}</span></td><td colspan="3"></td><td>${callCount}</td><td></td>`;
       parentRow.after(subRow);
     }
   } catch (e) {
@@ -2405,7 +2410,7 @@ async function toggleMcpSubTools(toolId) {
 async function refreshMcpTools(toolId) {
   try {
     await api('POST', '/api/v1/admin/tools/' + toolId + '/refresh-mcp');
-    toast('MCP tools refreshed');
+    toast('Sub-tools rediscovered');
     // Reload sub-tools if currently expanded.
     const existing = document.querySelectorAll('.mcp-subrow-' + toolId);
     if (existing.length) {

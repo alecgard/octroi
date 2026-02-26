@@ -339,3 +339,18 @@ func (h *usageHandler) GetToolCallCounts(w http.ResponseWriter, r *http.Request)
 	}
 	writeJSON(w, http.StatusOK, map[string]interface{}{"counts": counts})
 }
+
+// GetSubToolCallCounts handles GET /api/v1/admin/usage/tools/{id}/calls (admin).
+func (h *usageHandler) GetSubToolCallCounts(w http.ResponseWriter, r *http.Request) {
+	id := chi.URLParam(r, "id")
+	if id == "" {
+		writeError(w, http.StatusBadRequest, "invalid_id", "tool id is required")
+		return
+	}
+	counts, err := h.store.GetSubToolCallCounts(r.Context(), id)
+	if err != nil {
+		writeError(w, http.StatusInternalServerError, "internal_error", "failed to get sub-tool call counts")
+		return
+	}
+	writeJSON(w, http.StatusOK, map[string]interface{}{"counts": counts})
+}
