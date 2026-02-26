@@ -809,6 +809,12 @@ body.shift-held .txn-filter-pending { background: var(--surface2); }
     <h3 id="tool-modal-title">Create Tool</h3>
     <div class="modal-body">
     <input type="hidden" id="tool-edit-id">
+    <div id="tool-enabled-section" style="display:none;margin-bottom:10px">
+      <label style="display:inline-flex;align-items:center;gap:6px;text-transform:uppercase;font-size:10px;font-weight:600;letter-spacing:0.5px;color:var(--text2);cursor:pointer">
+        <input type="checkbox" id="tool-enabled" checked style="width:auto"> Enabled
+      </label>
+      <div style="font-size:11px;color:var(--text2);margin-top:2px">Disabled tools are skipped during MCP tool discovery</div>
+    </div>
     <div class="form-group" id="tool-id-group" style="display:none">
       <label>Tool ID</label>
       <code id="tool-id-display" style="display:block;padding:6px 8px;background:var(--surface);border:1px solid var(--border);border-radius:4px;font-size:12px;color:var(--text2);user-select:all"></code>
@@ -845,75 +851,98 @@ body.shift-held .txn-filter-pending { background: var(--surface2); }
         <option value="sse">sse</option>
       </select>
     </div>
-    <div class="form-group" id="tool-enabled-section" style="display:none">
-      <label style="display:inline-flex;align-items:center;gap:6px;text-transform:uppercase;font-size:10px;font-weight:600;letter-spacing:0.5px;color:var(--text2);cursor:pointer">
-        <input type="checkbox" id="tool-enabled" checked> Enabled
-      </label>
-      <div style="font-size:11px;color:var(--text2);margin-top:2px">Disabled tools are skipped during MCP tool discovery</div>
-    </div>
-    <div class="form-group" id="tool-log-bodies-section" style="display:none">
+    <div id="tool-log-bodies-section" style="display:none;margin-bottom:10px">
       <label style="display:inline-flex;align-items:center;gap:6px;text-transform:uppercase;font-size:10px;font-weight:600;letter-spacing:0.5px;color:var(--text2);cursor:pointer" title="Store request and response payloads for each proxied call. Auth credentials are automatically redacted.">
-        <input type="checkbox" id="tool-log-bodies"> Log Request/Response Bodies
+        <input type="checkbox" id="tool-log-bodies" style="width:auto"> Log Request/Response Bodies
       </label>
       <div style="font-size:11px;color:var(--text2);margin-top:2px">Capture and store request/response bodies (sensitive data is redacted)</div>
     </div>
-    <div class="form-row">
-      <div class="form-group">
-        <label>Auth Type *</label>
-        <select id="tool-auth-type">
-          <option value="none">none</option>
-          <option value="bearer">bearer</option>
-          <option value="header">header</option>
-          <option value="query">query</option>
-        </select>
-      </div>
-      <div class="form-group">
-        <label title="Max requests per minute across ALL agents combined. A shared ceiling for this tool.">Global Rate Limit (req/min)</label>
-        <input type="number" id="tool-rate-limit" placeholder="0">
-      </div>
-    </div>
-    <div class="form-group" id="tool-rate-overrides-section" style="display:none">
-      <label title="Max requests per minute shared by all agents on a team. Must also stay within the global limit.">Team Rate Limit Overrides</label>
-      <div id="tool-team-overrides"></div>
-      <button type="button" class="btn-ghost" onclick="addToolRateOverrideRow('team')" style="font-size:12px;margin-top:4px">+ Add Team Override</button>
-      <label style="margin-top:8px" title="Max requests per minute for a single agent. Must also stay within team and global limits.">Agent Rate Limit Overrides</label>
-      <div id="tool-agent-overrides"></div>
-      <button type="button" class="btn-ghost" onclick="addToolRateOverrideRow('agent')" style="font-size:12px;margin-top:4px">+ Add Agent Override</button>
+    <div class="form-group">
+      <label>Auth Type *</label>
+      <select id="tool-auth-type">
+        <option value="none">none</option>
+        <option value="bearer">bearer</option>
+        <option value="header">header</option>
+        <option value="query">query</option>
+      </select>
     </div>
     <div class="form-group">
       <label>Auth Config (JSON)</label>
       <textarea id="tool-auth-config" placeholder='{"token": "sk-..."}'></textarea>
     </div>
-    <div class="form-row">
-      <div class="form-group">
-        <label title="How each request is priced. per_request charges a flat amount per call. Upstreams can override via the X-Octroi-Cost header.">Pricing Model</label>
-        <select id="tool-pricing-model">
-          <option value="">none</option>
-          <option value="per_request">per_request</option>
-        </select>
-      </div>
-      <div class="form-group">
-        <label title="Cost charged per request (in the selected currency). Used for budget enforcement and usage reporting.">Pricing Amount</label>
-        <input type="number" step="any" id="tool-pricing-amount" placeholder="0.00">
-      </div>
-    </div>
-    <div class="form-row">
-      <div class="form-group">
-        <label title="Currency code for pricing and budget display (e.g. USD, EUR).">Pricing Currency</label>
-        <input type="text" id="tool-pricing-currency" placeholder="USD">
-      </div>
-      <div class="form-group">
-        <label title="Global spending cap for this tool across all agents. Requests are rejected with 403 when exceeded.">Budget Limit</label>
-        <input type="number" step="any" id="tool-budget-limit" placeholder="0.00">
+    <div id="tool-ratelimit-section" style="display:none">
+      <label style="display:inline-flex;align-items:center;gap:6px;text-transform:uppercase;font-size:10px;font-weight:600;letter-spacing:0.5px;color:var(--text2);cursor:pointer;margin:12px 0 10px">
+        <input type="checkbox" id="tool-ratelimit-enabled" onchange="toggleToolSection('ratelimit')" style="width:auto"> Rate Limit
+      </label>
+      <div id="tool-ratelimit-fields" style="display:none">
+        <div class="form-group">
+          <label title="Max requests per minute across ALL agents combined. A shared ceiling for this tool.">Global Rate Limit (req/min)</label>
+          <input type="number" id="tool-rate-limit" placeholder="0">
+        </div>
+        <div class="form-group" id="tool-rate-overrides-section" style="display:none">
+          <label title="Max requests per minute shared by all agents on a team. Must also stay within the global limit.">Team Rate Limit Overrides</label>
+          <div id="tool-team-overrides"></div>
+          <button type="button" class="btn-ghost" onclick="addToolRateOverrideRow('team')" style="font-size:12px;margin-top:4px">+ Add Team Override</button>
+          <label style="margin-top:8px" title="Max requests per minute for a single agent. Must also stay within team and global limits.">Agent Rate Limit Overrides</label>
+          <div id="tool-agent-overrides"></div>
+          <button type="button" class="btn-ghost" onclick="addToolRateOverrideRow('agent')" style="font-size:12px;margin-top:4px">+ Add Agent Override</button>
+        </div>
       </div>
     </div>
-    <div class="form-group">
-      <label title="Time period for the budget limit. Daily resets at midnight UTC, monthly on the 1st.">Budget Window</label>
-      <select id="tool-budget-window">
-        <option value="">none</option>
-        <option value="daily">daily</option>
-        <option value="monthly">monthly</option>
-      </select>
+    <div id="tool-pricing-section" style="display:none">
+      <label style="display:inline-flex;align-items:center;gap:6px;text-transform:uppercase;font-size:10px;font-weight:600;letter-spacing:0.5px;color:var(--text2);cursor:pointer;margin:12px 0 10px">
+        <input type="checkbox" id="tool-pricing-enabled" onchange="toggleToolSection('pricing')" style="width:auto"> Pricing
+      </label>
+      <div id="tool-pricing-fields" style="display:none">
+        <div class="form-row">
+          <div class="form-group">
+            <label title="How each request is priced. per_request charges a flat amount per call. Upstreams can override via the X-Octroi-Cost header.">Pricing Model</label>
+            <select id="tool-pricing-model">
+              <option value="">none</option>
+              <option value="per_request">per_request</option>
+            </select>
+          </div>
+          <div class="form-group">
+            <label title="Cost charged per request (in the selected currency). Used for budget enforcement and usage reporting.">Pricing Amount</label>
+            <input type="number" step="any" id="tool-pricing-amount" placeholder="0.00">
+          </div>
+        </div>
+        <div class="form-group">
+          <label title="Currency code for pricing and budget display (e.g. USD, EUR).">Pricing Currency</label>
+          <input type="text" id="tool-pricing-currency" placeholder="USD">
+        </div>
+      </div>
+    </div>
+    <div id="tool-budget-section" style="display:none">
+      <label style="display:inline-flex;align-items:center;gap:6px;text-transform:uppercase;font-size:10px;font-weight:600;letter-spacing:0.5px;color:var(--text2);cursor:pointer;margin:12px 0 10px">
+        <input type="checkbox" id="tool-budget-enabled" onchange="toggleToolSection('budget')" style="width:auto"> Budget
+      </label>
+      <div id="tool-budget-fields" style="display:none">
+        <div class="form-row">
+          <div class="form-group">
+            <label title="Global spending cap for this tool across all agents. Requests are rejected with 403 when exceeded.">Budget Limit</label>
+            <input type="number" step="any" id="tool-budget-limit" placeholder="0.00">
+          </div>
+          <div class="form-group">
+            <label title="Time period for the budget limit. Daily resets at midnight UTC, monthly on the 1st.">Budget Window</label>
+            <select id="tool-budget-window">
+              <option value="">none</option>
+              <option value="daily">daily</option>
+              <option value="monthly">monthly</option>
+            </select>
+          </div>
+        </div>
+        <div class="form-row">
+          <div class="form-group">
+            <label title="URL to POST a JSON payload when budget usage crosses the threshold">Webhook URL</label>
+            <input type="url" id="tool-webhook-url" placeholder="https://hooks.example.com/budget-alert">
+          </div>
+          <div class="form-group">
+            <label class="has-tooltip">Threshold (%)<span class="tip" style="white-space:normal;max-width:240px;text-align:left">Fire the webhook when budget usage reaches this percentage of the limit. Fires once per hour per threshold.</span></label>
+            <input type="number" id="tool-webhook-threshold-pct" placeholder="80" min="1" max="100">
+          </div>
+        </div>
+      </div>
     </div>
     <div id="tool-resilience-section" style="display:none">
       <label class="has-tooltip" style="display:block;text-transform:uppercase;font-size:10px;font-weight:600;letter-spacing:0.5px;color:var(--text2);margin:12px 0 6px">Resilience<span class="tip" style="white-space:normal;max-width:260px;text-align:left">Configure per-tool timeout and automatic retries. Failed requests (5xx/timeout) are retried with exponential backoff.</span></label>
@@ -933,36 +962,24 @@ body.shift-held .txn-filter-pending { background: var(--surface2); }
       </div>
     </div>
     <div id="tool-cb-section" style="display:none">
-      <label class="has-tooltip" style="display:block;text-transform:uppercase;font-size:10px;font-weight:600;letter-spacing:0.5px;color:var(--text2);margin:12px 0 6px">Circuit Breaker<span class="tip" style="white-space:normal;max-width:280px;text-align:left">Automatically stops sending requests to a failing upstream. Opens when error rate exceeds the threshold (min 10 requests), then probes with a single request after cooldown.</span></label>
-      <div class="form-group">
-        <label style="display:inline-flex;align-items:center;gap:6px;text-transform:uppercase;font-size:10px;font-weight:600;letter-spacing:0.5px;color:var(--text2);cursor:pointer">
-          <input type="checkbox" id="tool-cb-enabled"> Enable Circuit Breaker
-        </label>
-      </div>
-      <div class="form-row">
-        <div class="form-group">
-          <label title="Open circuit when error % exceeds this threshold (needs >= 10 requests)">Error Threshold (%)</label>
-          <input type="number" id="tool-cb-error-threshold-pct" placeholder="90" min="1" max="100">
+      <label class="has-tooltip" style="display:inline-flex;align-items:center;gap:6px;text-transform:uppercase;font-size:10px;font-weight:600;letter-spacing:0.5px;color:var(--text2);cursor:pointer;margin:12px 0 10px">
+        <input type="checkbox" id="tool-cb-enabled" style="width:auto" onchange="toggleToolSection('cb')"> Circuit Breaker<span class="tip" style="white-space:normal;max-width:280px;text-align:left">Automatically stops sending requests to a failing upstream. Opens when error rate exceeds the threshold (min 10 requests), then probes with a single request after cooldown.</span>
+      </label>
+      <div id="tool-cb-fields">
+        <div class="form-row">
+          <div class="form-group">
+            <label title="Open circuit when error % exceeds this threshold (needs >= 10 requests)">Error Threshold (%)</label>
+            <input type="number" id="tool-cb-error-threshold-pct" placeholder="90" min="1" max="100">
+          </div>
+          <div class="form-group">
+            <label title="Sliding window duration for error rate calculation">Window (seconds)</label>
+            <input type="number" id="tool-cb-window-seconds" placeholder="120" min="10" max="600">
+          </div>
         </div>
         <div class="form-group">
-          <label title="Sliding window duration for error rate calculation">Window (seconds)</label>
-          <input type="number" id="tool-cb-window-seconds" placeholder="120" min="10" max="600">
+          <label title="Wait this long before attempting a half-open probe">Cooldown (seconds)</label>
+          <input type="number" id="tool-cb-cooldown-seconds" placeholder="60" min="5" max="300">
         </div>
-      </div>
-      <div class="form-group">
-        <label title="Wait this long before attempting a half-open probe">Cooldown (seconds)</label>
-        <input type="number" id="tool-cb-cooldown-seconds" placeholder="60" min="5" max="300">
-      </div>
-    </div>
-    <div id="tool-webhook-section" style="display:none">
-      <label style="display:block;text-transform:uppercase;font-size:10px;font-weight:600;letter-spacing:0.5px;color:var(--text2);margin:12px 0 6px">Webhooks</label>
-      <div class="form-group">
-        <label title="URL to POST a JSON payload when budget usage crosses the threshold">Webhook URL</label>
-        <input type="url" id="tool-webhook-url" placeholder="https://hooks.example.com/budget-alert">
-      </div>
-      <div class="form-group">
-        <label class="has-tooltip">Threshold (%)<span class="tip" style="white-space:normal;max-width:240px;text-align:left">Fire the webhook when budget usage reaches this percentage of the limit. Fires once per hour per threshold.</span></label>
-        <input type="number" id="tool-webhook-threshold-pct" placeholder="80" min="1" max="100">
       </div>
     </div>
     </div>
@@ -997,9 +1014,9 @@ body.shift-held .txn-filter-pending { background: var(--surface2); }
         <input type="number" id="agent-rate-limit" placeholder="0">
       </div>
     </div>
-    <div class="form-group" id="agent-allowlist-section" style="display:none">
+    <div id="agent-allowlist-section" style="display:none;margin-bottom:10px">
       <label style="display:inline-flex;align-items:center;gap:6px;text-transform:uppercase;font-size:10px;font-weight:600;letter-spacing:0.5px;color:var(--text2);cursor:pointer">
-        <input type="checkbox" id="agent-allowlist-mode"> Tool Allowlist Mode
+        <input type="checkbox" id="agent-allowlist-mode" style="width:auto"> Tool Allowlist
       </label>
       <div style="font-size:11px;color:var(--text2);margin-top:2px">When enabled, agent can only access explicitly permitted tools</div>
     </div>
@@ -1727,6 +1744,18 @@ function toggleToolMode() {
   }
 }
 
+function toggleToolSection(name) {
+  const checked = document.getElementById('tool-' + name + '-enabled').checked;
+  const fields = document.getElementById('tool-' + name + '-fields');
+  fields.style.display = checked ? '' : 'none';
+  if (checked) {
+    requestAnimationFrame(() => {
+      const last = fields.lastElementChild;
+      if (last) last.scrollIntoView({ behavior: 'smooth', block: 'nearest' });
+    });
+  }
+}
+
 function openToolModal(tool) {
   document.getElementById('tool-edit-id').value = tool ? tool.id : '';
   document.getElementById('tool-id-group').style.display = tool ? '' : 'none';
@@ -1742,27 +1771,42 @@ function openToolModal(tool) {
   document.getElementById('tool-transport').value = tool ? tool.transport || 'streamable-http' : 'streamable-http';
   document.getElementById('tool-enabled').checked = tool ? (tool.enabled !== false) : true;
   document.getElementById('tool-log-bodies').checked = tool ? !!tool.log_bodies : true;
-  document.getElementById('tool-log-bodies-section').style.display = tool ? '' : 'none';
+  document.getElementById('tool-log-bodies-section').style.display = '';
   document.getElementById('tool-timeout-ms').value = tool ? (tool.timeout_ms || 30000) : 30000;
   document.getElementById('tool-max-retries').value = tool ? (tool.max_retries || 0) : 0;
   document.getElementById('tool-retry-backoff-ms').value = tool ? (tool.retry_backoff_ms || 1000) : 1000;
   document.getElementById('tool-resilience-section').style.display = tool ? '' : 'none';
-  document.getElementById('tool-webhook-url').value = tool ? (tool.webhook_url || '') : '';
-  document.getElementById('tool-webhook-threshold-pct').value = tool ? (tool.webhook_threshold_pct || 80) : 80;
-  document.getElementById('tool-webhook-section').style.display = tool ? '' : 'none';
+  document.getElementById('tool-cb-section').style.display = tool ? '' : 'none';
   document.getElementById('tool-cb-enabled').checked = tool ? !!tool.cb_enabled : false;
   document.getElementById('tool-cb-error-threshold-pct').value = tool ? (tool.cb_error_threshold_pct || 90) : 90;
   document.getElementById('tool-cb-window-seconds').value = tool ? (tool.cb_window_seconds || 120) : 120;
   document.getElementById('tool-cb-cooldown-seconds').value = tool ? (tool.cb_cooldown_seconds || 60) : 60;
-  document.getElementById('tool-cb-section').style.display = tool ? '' : 'none';
+  toggleToolSection('cb');
   toggleToolMode();
-  document.getElementById('tool-rate-limit').value = tool ? tool.rate_limit || '' : '';
   document.getElementById('tool-auth-config').value = tool && tool.auth_config ? JSON.stringify(tool.auth_config) : '';
+
+  // Rate Limit toggle section
+  document.getElementById('tool-ratelimit-section').style.display = '';
+  document.getElementById('tool-rate-limit').value = tool ? tool.rate_limit || '' : '';
+  document.getElementById('tool-ratelimit-enabled').checked = tool ? (tool.rate_limit > 0) : false;
+  toggleToolSection('ratelimit');
+
+  // Pricing toggle section
+  document.getElementById('tool-pricing-section').style.display = '';
   document.getElementById('tool-pricing-model').value = tool ? tool.pricing_model || '' : '';
   document.getElementById('tool-pricing-amount').value = tool ? tool.pricing_amount || '' : '';
   document.getElementById('tool-pricing-currency').value = tool ? tool.pricing_currency || '' : '';
+  document.getElementById('tool-pricing-enabled').checked = tool ? !!tool.pricing_model : false;
+  toggleToolSection('pricing');
+
+  // Budget toggle section
+  document.getElementById('tool-budget-section').style.display = '';
   document.getElementById('tool-budget-limit').value = tool ? tool.budget_limit || '' : '';
   document.getElementById('tool-budget-window').value = tool ? tool.budget_window || '' : '';
+  document.getElementById('tool-webhook-url').value = tool ? (tool.webhook_url || '') : '';
+  document.getElementById('tool-webhook-threshold-pct').value = tool ? (tool.webhook_threshold_pct || 80) : 80;
+  document.getElementById('tool-budget-enabled').checked = tool ? (tool.budget_limit > 0) : false;
+  toggleToolSection('budget');
 
   // Rate limit overrides.
   document.getElementById('tool-team-overrides').innerHTML = '';
@@ -1838,20 +1882,20 @@ async function submitTool() {
     auth_type: document.getElementById('tool-auth-type').value,
     auth_config: authConfig,
     variables: variables,
-    pricing_model: document.getElementById('tool-pricing-model').value,
-    pricing_amount: parseFloat(document.getElementById('tool-pricing-amount').value) || 0,
-    pricing_currency: document.getElementById('tool-pricing-currency').value.trim(),
-    rate_limit: parseInt(document.getElementById('tool-rate-limit').value) || 0,
-    budget_limit: parseFloat(document.getElementById('tool-budget-limit').value) || 0,
-    budget_window: document.getElementById('tool-budget-window').value.trim(),
+    pricing_model: document.getElementById('tool-pricing-enabled').checked ? document.getElementById('tool-pricing-model').value : '',
+    pricing_amount: document.getElementById('tool-pricing-enabled').checked ? (parseFloat(document.getElementById('tool-pricing-amount').value) || 0) : 0,
+    pricing_currency: document.getElementById('tool-pricing-enabled').checked ? document.getElementById('tool-pricing-currency').value.trim() : '',
+    rate_limit: document.getElementById('tool-ratelimit-enabled').checked ? (parseInt(document.getElementById('tool-rate-limit').value) || 0) : 0,
+    budget_limit: document.getElementById('tool-budget-enabled').checked ? (parseFloat(document.getElementById('tool-budget-limit').value) || 0) : 0,
+    budget_window: document.getElementById('tool-budget-enabled').checked ? document.getElementById('tool-budget-window').value.trim() : '',
     transport: mode === 'mcp' ? document.getElementById('tool-transport').value : '',
     enabled: mode === 'mcp' ? document.getElementById('tool-enabled').checked : true,
     log_bodies: document.getElementById('tool-log-bodies').checked,
     timeout_ms: parseInt(document.getElementById('tool-timeout-ms').value) || 30000,
     max_retries: parseInt(document.getElementById('tool-max-retries').value) || 0,
     retry_backoff_ms: parseInt(document.getElementById('tool-retry-backoff-ms').value) || 1000,
-    webhook_url: document.getElementById('tool-webhook-url').value.trim(),
-    webhook_threshold_pct: parseInt(document.getElementById('tool-webhook-threshold-pct').value) || 80,
+    webhook_url: document.getElementById('tool-budget-enabled').checked ? document.getElementById('tool-webhook-url').value.trim() : '',
+    webhook_threshold_pct: document.getElementById('tool-budget-enabled').checked ? (parseInt(document.getElementById('tool-webhook-threshold-pct').value) || 80) : 80,
     cb_enabled: document.getElementById('tool-cb-enabled').checked,
     cb_error_threshold_pct: parseInt(document.getElementById('tool-cb-error-threshold-pct').value) || 90,
     cb_window_seconds: parseInt(document.getElementById('tool-cb-window-seconds').value) || 120,
