@@ -12,6 +12,7 @@ import (
 
 	"github.com/alecgard/octroi/internal/agent"
 	"github.com/alecgard/octroi/internal/api"
+	"github.com/alecgard/octroi/internal/audit"
 	"github.com/alecgard/octroi/internal/auth"
 	"github.com/alecgard/octroi/internal/config"
 	"github.com/alecgard/octroi/internal/crypto"
@@ -230,6 +231,7 @@ func runServe(cmd *cobra.Command, args []string) error {
 		Metrics:            m,
 		MCPServer:          mcpServer,
 		MCPAggregator:      aggregator,
+		AuditStore:         audit.NewStore(pool),
 	})
 
 	srv := &http.Server{

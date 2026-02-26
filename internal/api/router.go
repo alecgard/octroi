@@ -10,6 +10,7 @@ import (
 	"time"
 
 	"github.com/alecgard/octroi/internal/agent"
+	"github.com/alecgard/octroi/internal/audit"
 	"github.com/alecgard/octroi/internal/auth"
 	"github.com/alecgard/octroi/internal/mcp"
 	"github.com/alecgard/octroi/internal/metering"
@@ -125,6 +126,7 @@ type RouterDeps struct {
 	Metrics            *metrics.Metrics
 	MCPServer          *mcp.Server
 	MCPAggregator      *mcp.Aggregator
+	AuditStore         *audit.Store
 }
 
 // NewRouter builds the chi router with all routes and middleware.
@@ -140,6 +142,11 @@ func NewRouter(deps RouterDeps) http.Handler {
 		r.Use(metricsMiddleware(deps.Metrics))
 	}
 	r.Use(slogRequestLogger)
+
+	// Wire audit DB store for dual-write.
+	if deps.AuditStore != nil {
+		SetAuditStore(deps.AuditStore)
+	}
 
 	// Handlers.
 	tools := newToolsHandler(deps.ToolService)
@@ -313,6 +320,12 @@ func NewRouter(deps RouterDeps) http.Handler {
 		if deps.UserStore != nil {
 			teams := newTeamsHandler(deps.AgentStore, deps.UserStore)
 			ar.Get("/teams", teams.AdminListTeams)
+		}
+
+		// Audit log (admin).
+		if deps.AuditStore != nil {
+			auditH := newAuditHandler(deps.AuditStore)
+			ar.Get("/audit-log", auditH.ListAuditLog)
 		}
 	})
 

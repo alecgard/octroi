@@ -549,6 +549,7 @@ body.shift-held .txn-filter-pending { background: var(--surface2); }
   <button class="tab-btn" data-tab="teams">Teams</button>
   <button class="tab-btn" data-tab="users">Users</button>
   <button class="tab-btn" data-tab="metrics" id="metrics-tab-btn">Metrics</button>
+  <button class="tab-btn" data-tab="audit">Audit Log</button>
 </div>
 
 <!-- Content -->
@@ -754,6 +755,43 @@ body.shift-held .txn-filter-pending { background: var(--surface2); }
     <div style="font-size:11px;color:var(--text2);margin-bottom:8px">In-memory counters for this instance — resets on restart.</div>
     <div id="metrics-cards">
       <div class="empty">Loading metrics...</div>
+    </div>
+  </div>
+
+  <!-- Audit Log Tab -->
+  <div class="tab-panel" id="tab-audit">
+    <div style="display:flex;align-items:center;margin-bottom:8px;gap:8px">
+      <h2 class="toolbar-title">Audit Log</h2>
+      <select class="styled-select" id="audit-resource-type" onchange="loadAuditLog()">
+        <option value="">All types</option>
+        <option value="tool">tool</option>
+        <option value="agent">agent</option>
+        <option value="user">user</option>
+        <option value="team">team</option>
+        <option value="agent_budget">agent_budget</option>
+        <option value="agent_tool_permission">agent_tool_permission</option>
+      </select>
+      <input type="date" id="audit-from" onchange="loadAuditLog()" style="padding:4px 6px;border:1px solid var(--border);border-radius:4px;font-family:var(--font);font-size:11px">
+      <input type="date" id="audit-to" onchange="loadAuditLog()" style="padding:4px 6px;border:1px solid var(--border);border-radius:4px;font-family:var(--font);font-size:11px">
+    </div>
+    <table>
+      <thead>
+        <tr>
+          <th>Timestamp</th>
+          <th>Action</th>
+          <th>Resource</th>
+          <th>Resource ID</th>
+          <th>User</th>
+          <th>IP</th>
+          <th>Details</th>
+        </tr>
+      </thead>
+      <tbody id="audit-table-body">
+        <tr><td colspan="7" class="empty">Select a tab to load data</td></tr>
+      </tbody>
+    </table>
+    <div style="text-align:center;margin-top:8px">
+      <button class="btn-ghost" id="audit-load-more" style="display:none" onclick="loadAuditLog(true)">Load More</button>
     </div>
   </div>
 </div>
@@ -1440,6 +1478,7 @@ function switchTab(tab) {
     loadMetrics();
     startMetricsPoll();
   }
+  else if (tab === 'audit') loadAuditLog();
 }
 
 function navigateTo(hash) {
@@ -3096,6 +3135,43 @@ function startMetricsPoll() {
 
 function stopMetricsPoll() {
   if (metricsPollTimer) { clearTimeout(metricsPollTimer); metricsPollTimer = null; }
+}
+
+// --- Audit Log ---
+let auditCursor = '';
+async function loadAuditLog(more) {
+  if (!currentUser || !isAdmin) return;
+  if (!more) auditCursor = '';
+  const params = new URLSearchParams();
+  const rt = document.getElementById('audit-resource-type').value;
+  if (rt) params.set('resource_type', rt);
+  const from = document.getElementById('audit-from').value;
+  if (from) params.set('from', from + 'T00:00:00Z');
+  const to = document.getElementById('audit-to').value;
+  if (to) params.set('to', to + 'T23:59:59Z');
+  if (auditCursor) params.set('cursor', auditCursor);
+  params.set('limit', '50');
+  try {
+    const data = await api('GET', '/api/v1/admin/audit-log?' + params.toString());
+    const entries = data.entries || [];
+    auditCursor = data.next_cursor || '';
+    const tbody = document.getElementById('audit-table-body');
+    if (!more) tbody.innerHTML = '';
+    if (entries.length === 0 && !more) {
+      tbody.innerHTML = '<tr><td colspan="7" class="empty">No audit log entries</td></tr>';
+    } else {
+      entries.forEach(e => {
+        const tr = document.createElement('tr');
+        const ts = new Date(e.timestamp).toLocaleString();
+        const detailStr = e.details && Object.keys(e.details).length ? JSON.stringify(e.details) : '';
+        tr.innerHTML = '<td>' + ts + '</td><td>' + esc(e.action) + '</td><td>' + esc(e.resource_type) + '</td><td style="font-size:10px">' + esc(e.resource_id) + '</td><td style="font-size:10px">' + esc(e.user_id || '-') + '</td><td>' + esc(e.ip) + '</td><td style="font-size:10px;max-width:200px;overflow:hidden;text-overflow:ellipsis" title="' + esc(detailStr) + '">' + esc(detailStr) + '</td>';
+        tbody.appendChild(tr);
+      });
+    }
+    document.getElementById('audit-load-more').style.display = auditCursor ? '' : 'none';
+  } catch (err) {
+    toast('Failed to load audit log: ' + err.message);
+  }
 }
 
 function loadMetrics() {
