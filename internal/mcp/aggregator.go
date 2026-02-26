@@ -61,6 +61,7 @@ func (a *Aggregator) HasUpstream(id string) bool {
 	return ok
 }
 
+
 // RemoveUpstream removes an upstream by id and closes its client.
 func (a *Aggregator) RemoveUpstream(id string) {
 	a.mu.Lock()

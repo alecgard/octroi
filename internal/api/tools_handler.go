@@ -234,6 +234,7 @@ func (h *toolsHandler) RefreshMCPTools(agg *mcp.Aggregator) http.HandlerFunc {
 			agg.AddUpstream(id, fresh.Name, c)
 		}
 
+
 		if err := agg.RefreshUpstream(r.Context(), id); err != nil {
 			writeError(w, http.StatusBadGateway, "refresh_failed", "failed to refresh MCP tools: "+err.Error())
 			return
