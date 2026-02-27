@@ -24,7 +24,7 @@ func (s *BudgetStore) Set(ctx context.Context, tenantID string, in CreateBudgetI
 	err := s.pool.QueryRow(ctx,
 		`INSERT INTO agent_tool_budgets (agent_id, tool_id, daily_limit, monthly_limit, tenant_id)
 		 VALUES ($1, $2, $3, $4, $5)
-		 ON CONFLICT (agent_id, tool_id)
+		 ON CONFLICT (agent_id, tool_id, tenant_id)
 		 DO UPDATE SET daily_limit = EXCLUDED.daily_limit, monthly_limit = EXCLUDED.monthly_limit
 		 RETURNING id, agent_id, tool_id, daily_limit, monthly_limit`,
 		in.AgentID, in.ToolID, in.DailyLimit, in.MonthlyLimit, tenantID,

@@ -106,7 +106,7 @@ func (s *PermissionStore) SetWithSubTools(ctx context.Context, tenantID string, 
 	_, err := s.pool.Exec(ctx,
 		`INSERT INTO agent_tool_permissions (agent_id, tool_id, allowed, sub_tools, tenant_id)
 		 VALUES ($1, $2, $3, $4, $5)
-		 ON CONFLICT (agent_id, tool_id) DO UPDATE SET allowed = $3, sub_tools = $4`,
+		 ON CONFLICT (agent_id, tool_id, tenant_id) DO UPDATE SET allowed = $3, sub_tools = $4`,
 		agentID, toolID, allowed, subTools, tenantID,
 	)
 	if err != nil {
@@ -165,7 +165,7 @@ func (s *PermissionStore) SetBulk(ctx context.Context, tenantID string, agentID 
 		_, err := tx.Exec(ctx,
 			`INSERT INTO agent_tool_permissions (agent_id, tool_id, allowed, tenant_id)
 			 VALUES ($1, $2, $3, $4)
-			 ON CONFLICT (agent_id, tool_id) DO UPDATE SET allowed = $3`,
+			 ON CONFLICT (agent_id, tool_id, tenant_id) DO UPDATE SET allowed = $3`,
 			agentID, toolID, allowed, tenantID,
 		)
 		if err != nil {
@@ -192,7 +192,7 @@ func (s *PermissionStore) SetBulkWithSubTools(ctx context.Context, tenantID stri
 		_, err := tx.Exec(ctx,
 			`INSERT INTO agent_tool_permissions (agent_id, tool_id, allowed, sub_tools, tenant_id)
 			 VALUES ($1, $2, $3, $4, $5)
-			 ON CONFLICT (agent_id, tool_id) DO UPDATE SET allowed = $3, sub_tools = $4`,
+			 ON CONFLICT (agent_id, tool_id, tenant_id) DO UPDATE SET allowed = $3, sub_tools = $4`,
 			agentID, toolID, perm.Allowed, perm.SubTools, tenantID,
 		)
 		if err != nil {

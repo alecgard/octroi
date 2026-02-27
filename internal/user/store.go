@@ -217,7 +217,7 @@ func CheckPassword(u *User, password string) bool {
 
 // CreateSession creates a new session for the given user. It returns the
 // opaque plaintext token (to be sent to the client) and the stored session.
-func (s *Store) CreateSession(ctx context.Context, userID string) (string, *Session, error) {
+func (s *Store) CreateSession(ctx context.Context, tenantID, userID string) (string, *Session, error) {
 	b := make([]byte, 32)
 	if _, err := rand.Read(b); err != nil {
 		return "", nil, fmt.Errorf("generating session token: %w", err)
@@ -230,10 +230,10 @@ func (s *Store) CreateSession(ctx context.Context, userID string) (string, *Sess
 
 	sess := &Session{}
 	err := s.pool.QueryRow(ctx,
-		`INSERT INTO sessions (token_hash, user_id, created_at, expires_at)
-		 VALUES ($1, $2, $3, $4)
+		`INSERT INTO sessions (token_hash, user_id, tenant_id, created_at, expires_at)
+		 VALUES ($1, $2, $3, $4, $5)
 		 RETURNING token_hash, user_id, created_at, expires_at`,
-		tokenHash, userID, now, expiresAt,
+		tokenHash, userID, tenantID, now, expiresAt,
 	).Scan(&sess.TokenHash, &sess.UserID, &sess.CreatedAt, &sess.ExpiresAt)
 	if err != nil {
 		return "", nil, fmt.Errorf("creating session: %w", err)
@@ -244,15 +244,15 @@ func (s *Store) CreateSession(ctx context.Context, userID string) (string, *Sess
 
 // GetSessionUser looks up a session by its plaintext token and returns the
 // associated user. Returns nil if the session is expired or not found.
-func (s *Store) GetSessionUser(ctx context.Context, plaintext string) (*User, error) {
+func (s *Store) GetSessionUser(ctx context.Context, tenantID, plaintext string) (*User, error) {
 	tokenHash := hashToken(plaintext)
 
 	u, err := scanUser(func(dest ...any) error {
 		return s.pool.QueryRow(ctx,
 			`SELECT u.id, u.email, u.password_hash, u.name, u.teams, u.role, u.tenant_id, u.created_at
 			 FROM sessions s JOIN users u ON s.user_id = u.id
-			 WHERE s.token_hash = $1 AND s.expires_at > now()`,
-			tokenHash,
+			 WHERE s.token_hash = $1 AND s.tenant_id = $2 AND s.expires_at > now()`,
+			tokenHash, tenantID,
 		).Scan(dest...)
 	})
 	if err != nil {
@@ -262,9 +262,9 @@ func (s *Store) GetSessionUser(ctx context.Context, plaintext string) (*User, er
 }
 
 // DeleteSession removes a session by its plaintext token.
-func (s *Store) DeleteSession(ctx context.Context, plaintext string) error {
+func (s *Store) DeleteSession(ctx context.Context, tenantID, plaintext string) error {
 	tokenHash := hashToken(plaintext)
-	_, err := s.pool.Exec(ctx, `DELETE FROM sessions WHERE token_hash = $1`, tokenHash)
+	_, err := s.pool.Exec(ctx, `DELETE FROM sessions WHERE token_hash = $1 AND tenant_id = $2`, tokenHash, tenantID)
 	if err != nil {
 		return fmt.Errorf("deleting session: %w", err)
 	}

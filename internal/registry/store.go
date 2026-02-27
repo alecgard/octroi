@@ -224,9 +224,9 @@ func (s *Store) GetByID(ctx context.Context, tenantID string, id string) (*Tool,
 
 // GetByIDIncludeArchived retrieves a tool by its ID regardless of archived status.
 // Used for resolving names in historical transaction data.
-func (s *Store) GetByIDIncludeArchived(ctx context.Context, id string) (*Tool, error) {
-	query := fmt.Sprintf(`SELECT %s FROM tools WHERE id = $1`, toolColumns)
-	row := s.pool.QueryRow(ctx, query, id)
+func (s *Store) GetByIDIncludeArchived(ctx context.Context, tenantID, id string) (*Tool, error) {
+	query := fmt.Sprintf(`SELECT %s FROM tools WHERE id = $1 AND tenant_id = $2`, toolColumns)
+	row := s.pool.QueryRow(ctx, query, id, tenantID)
 	return s.scanTool(row)
 }
 
@@ -526,7 +526,8 @@ func (s *Store) ListEnabled(ctx context.Context, tenantID string) ([]*Tool, erro
 }
 
 // ListAllEnabled returns all enabled (non-archived) tools across all tenants.
-// Used at startup for global MCP upstream initialization.
+// Intentionally cross-tenant: the MCP aggregator needs all tools to initialize
+// upstreams. The proxy enforces tenant-scoped access at request time.
 func (s *Store) ListAllEnabled(ctx context.Context) ([]*Tool, error) {
 	query := fmt.Sprintf(`SELECT %s FROM tools WHERE enabled = true AND archived_at IS NULL ORDER BY created_at DESC, id DESC`, toolColumns)
 	rows, err := s.pool.Query(ctx, query)

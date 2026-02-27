@@ -86,7 +86,7 @@ type AgentLookup interface {
 
 // SessionLookup is the interface for resolving session tokens to users.
 type SessionLookup interface {
-	LookupSession(ctx context.Context, token string) (*User, error)
+	LookupSession(ctx context.Context, tenantID, token string) (*User, error)
 }
 
 // Service provides authentication operations backed by an agent store.

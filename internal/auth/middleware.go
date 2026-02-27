@@ -111,7 +111,12 @@ func AdminSessionMiddleware(sessions SessionLookup, callbacks ...func()) func(ht
 				return
 			}
 
-			user, err := sessions.LookupSession(r.Context(), token)
+			t := TenantFromContext(r.Context())
+			tenantID := ""
+			if t != nil {
+				tenantID = t.ID
+			}
+			user, err := sessions.LookupSession(r.Context(), tenantID, token)
 			if err != nil || user == nil {
 				if onFailure != nil {
 					onFailure()
@@ -120,7 +125,7 @@ func AdminSessionMiddleware(sessions SessionLookup, callbacks ...func()) func(ht
 				return
 			}
 			// Verify tenant match if subdomain tenant is present.
-			if t := TenantFromContext(r.Context()); t != nil && user.TenantID != t.ID {
+			if t != nil && user.TenantID != t.ID {
 				if onFailure != nil {
 					onFailure()
 				}
@@ -192,7 +197,12 @@ func MemberAuthMiddleware(sessions SessionLookup, callbacks ...func()) func(http
 				return
 			}
 
-			user, err := sessions.LookupSession(r.Context(), token)
+			t := TenantFromContext(r.Context())
+			tenantID := ""
+			if t != nil {
+				tenantID = t.ID
+			}
+			user, err := sessions.LookupSession(r.Context(), tenantID, token)
 			if err != nil || user == nil {
 				if onFailure != nil {
 					onFailure()
@@ -201,7 +211,7 @@ func MemberAuthMiddleware(sessions SessionLookup, callbacks ...func()) func(http
 				return
 			}
 			// Verify tenant match if subdomain tenant is present.
-			if t := TenantFromContext(r.Context()); t != nil && user.TenantID != t.ID {
+			if t != nil && user.TenantID != t.ID {
 				if onFailure != nil {
 					onFailure()
 				}

@@ -34,7 +34,7 @@ func (f *fakeToolStore) GetByID(_ context.Context, _, id string) (*registry.Tool
 	return t, nil
 }
 
-func (f *fakeToolStore) GetByIDIncludeArchived(_ context.Context, id string) (*registry.Tool, error) {
+func (f *fakeToolStore) GetByIDIncludeArchived(_ context.Context, _, id string) (*registry.Tool, error) {
 	t, ok := f.tools[id]
 	if !ok {
 		return nil, fmt.Errorf("tool not found: %s", id)

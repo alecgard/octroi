@@ -38,7 +38,7 @@ type MCPToolLister interface {
 type ToolStore interface {
 	GetByID(ctx context.Context, tenantID, id string) (*registry.Tool, error)
 	// GetByIDIncludeArchived returns a tool even if it's archived (for recording failed txns).
-	GetByIDIncludeArchived(ctx context.Context, id string) (*registry.Tool, error)
+	GetByIDIncludeArchived(ctx context.Context, tenantID, id string) (*registry.Tool, error)
 }
 
 // BudgetChecker is the interface for checking agent and global tool budgets.
@@ -188,7 +188,7 @@ func (h *Handler) ServeHTTP(w http.ResponseWriter, r *http.Request) {
 	if err != nil {
 		// Check if the tool exists but is archived — if so, record the failed transaction.
 		// No tool_name is stored: post-deletion failures show just the tool ID in usage.
-		if archived, archErr := h.tools.GetByIDIncludeArchived(r.Context(), toolID); archErr == nil {
+		if archived, archErr := h.tools.GetByIDIncludeArchived(r.Context(), tenantID, toolID); archErr == nil {
 			h.collector.Record(metering.Transaction{
 				TenantID:   tenantID,
 				AgentID:    agent.ID,

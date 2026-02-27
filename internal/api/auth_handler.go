@@ -12,8 +12,8 @@ import (
 // authUserStore is the subset of user.Store methods used by authHandler.
 type authUserStore interface {
 	GetByEmail(ctx context.Context, tenantID, email string) (*user.User, error)
-	CreateSession(ctx context.Context, userID string) (string, *user.Session, error)
-	DeleteSession(ctx context.Context, plaintext string) error
+	CreateSession(ctx context.Context, tenantID, userID string) (string, *user.Session, error)
+	DeleteSession(ctx context.Context, tenantID, plaintext string) error
 }
 
 // authHandler groups authentication HTTP handlers.
@@ -58,7 +58,7 @@ func (h *authHandler) Login(w http.ResponseWriter, r *http.Request) {
 		return
 	}
 
-	token, _, err := h.store.CreateSession(r.Context(), u.ID)
+	token, _, err := h.store.CreateSession(r.Context(), tenant.ID, u.ID)
 	if err != nil {
 		writeError(w, http.StatusInternalServerError, "internal_error", "failed to create session")
 		return
@@ -130,7 +130,11 @@ func (h *authHandler) Logout(w http.ResponseWriter, r *http.Request) {
 
 	caller := auth.UserFromContext(r.Context())
 
-	_ = h.store.DeleteSession(r.Context(), token)
+	tenantID := ""
+	if t := auth.TenantFromContext(r.Context()); t != nil {
+		tenantID = t.ID
+	}
+	_ = h.store.DeleteSession(r.Context(), tenantID, token)
 
 	if caller != nil {
 		auditLog(r, "logout", "user", caller.ID)

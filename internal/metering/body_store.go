@@ -59,6 +59,7 @@ func (s *BodyStore) GetByTransactionID(ctx context.Context, tenantID string, tra
 }
 
 // PurgeOlderThan deletes request body records older than the given retention duration.
+// Intentionally operates across all tenants as a global retention policy.
 func (s *BodyStore) PurgeOlderThan(ctx context.Context, retention time.Duration) (int64, error) {
 	cutoff := time.Now().Add(-retention)
 	tag, err := s.pool.Exec(ctx,

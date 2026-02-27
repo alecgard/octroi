@@ -58,7 +58,7 @@ func (f *fakeAuthUserStore) GetByEmail(_ context.Context, _, email string) (*use
 	return u, nil
 }
 
-func (f *fakeAuthUserStore) CreateSession(_ context.Context, userID string) (string, *user.Session, error) {
+func (f *fakeAuthUserStore) CreateSession(_ context.Context, _, userID string) (string, *user.Session, error) {
 	tok := f.nextTok
 	f.sessions[tok] = userID
 	sess := &user.Session{
@@ -69,7 +69,7 @@ func (f *fakeAuthUserStore) CreateSession(_ context.Context, userID string) (str
 	return tok, sess, nil
 }
 
-func (f *fakeAuthUserStore) DeleteSession(_ context.Context, token string) error {
+func (f *fakeAuthUserStore) DeleteSession(_ context.Context, _, token string) error {
 	delete(f.sessions, token)
 	return nil
 }
