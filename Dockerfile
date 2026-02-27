@@ -13,4 +13,4 @@ COPY migrations/ /migrations/
 EXPOSE 8080
 ENTRYPOINT ["sh", "-c"]
 ENV OCTROI_DEFAULT_TENANT=local
-CMD ["octroi migrate --config /dev/null && octroi ensure-admin --config /dev/null && octroi serve --config /dev/null"]
+CMD ["for i in $(seq 1 30); do octroi migrate --config /dev/null && break; echo 'Waiting for database...'; sleep 2; done && octroi ensure-admin --config /dev/null && octroi serve --config /dev/null"]
