@@ -56,9 +56,6 @@ jobs:
           echo "Timed out waiting for deploy"
           exit 1
 
-      - name: Create admin user
-        run: railway run -s $SERVICE_ID -- octroi ensure-admin --config /dev/null
-
       - name: Seed data
         run: |
           timeout 30 sh scripts/seed.sh ${{ steps.domain.outputs.url }} || true
