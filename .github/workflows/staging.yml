@@ -5,10 +5,10 @@ on:
     types: [opened, synchronize, reopened, closed]
 
 env:
-  RAILWAY_API_TOKEN: ${{ secrets.RAILWAY_API_TOKEN }}
-  RAILWAY_PROJECT_ID: ${{ vars.RAILWAY_PROJECT_ID }}
-  RAILWAY_SERVICE_ID: ${{ vars.RAILWAY_SERVICE_ID }}
-  RAILWAY_SOURCE_ENV_ID: ${{ vars.RAILWAY_SOURCE_ENV_ID }}
+  RAILWAY_TOKEN: ${{ secrets.RAILWAY_TOKEN }}
+  PROJECT_ID: ${{ vars.RAILWAY_PROJECT_ID }}
+  SERVICE_ID: ${{ vars.RAILWAY_SERVICE_ID }}
+  SOURCE_ENV_ID: ${{ vars.RAILWAY_SOURCE_ENV_ID }}
 
 jobs:
   deploy:
@@ -20,28 +20,15 @@ jobs:
       pull-requests: write
 
     steps:
-      - name: Link to project
-        run: railway link --project $RAILWAY_PROJECT_ID --environment $RAILWAY_SOURCE_ENV_ID
-
       - name: Create or update environment
         run: |
-          railway environment new pr-${{ github.event.number }} \
-            --copy $RAILWAY_SOURCE_ENV_ID \
-            --service-config $RAILWAY_SERVICE_ID "source.branch" "${{ github.head_ref }}" \
+          railway environment --project $PROJECT_ID new pr-${{ github.event.number }} \
+            --copy $SOURCE_ENV_ID \
+            --service-config $SERVICE_ID "source.branch" "${{ github.head_ref }}" \
             2>/dev/null || true
-          railway environment use pr-${{ github.event.number }}
 
-      - name: Trigger deploy
-        run: railway up --service $RAILWAY_SERVICE_ID --detach
-
-      - name: Get deployment URL
-        id: url
-        run: |
-          DOMAIN=$(railway domain --json 2>/dev/null | jq -r '.[0]' || echo "")
-          if [ -z "$DOMAIN" ] || [ "$DOMAIN" = "null" ]; then
-            DOMAIN="pr-${{ github.event.number }}-octroi.up.railway.app"
-          fi
-          echo "url=https://$DOMAIN" >> "$GITHUB_OUTPUT"
+      - name: Deploy
+        run: railway up --project $PROJECT_ID --environment pr-${{ github.event.number }} --service $SERVICE_ID --detach
 
       - name: Comment on PR
         uses: marocchino/sticky-pull-request-comment@v2
@@ -50,7 +37,7 @@ jobs:
           message: |
             **Staging deployed** :rocket:
 
-            ${{ steps.url.outputs.url }}/ui
+            https://pr-${{ github.event.number }}-octroi.up.railway.app/ui
 
             Login: `admin@octroi.dev` / `octroi`
 
@@ -60,8 +47,5 @@ jobs:
     container: ghcr.io/railwayapp/cli:latest
 
     steps:
-      - name: Link to project
-        run: railway link --project $RAILWAY_PROJECT_ID --environment $RAILWAY_SOURCE_ENV_ID
-
       - name: Delete PR environment
-        run: railway environment delete pr-${{ github.event.number }} --yes || true
+        run: railway environment --project $PROJECT_ID delete pr-${{ github.event.number }} --yes || true
