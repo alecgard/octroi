@@ -43,6 +43,26 @@ jobs:
           DOMAIN=$(railway domain | sed -n 's/.*\(https:\/\/[^ ]*\).*/\1/p')
           echo "url=$DOMAIN" >> "$GITHUB_OUTPUT"
 
+      - name: Wait for deploy to be live
+        run: |
+          for i in $(seq 1 30); do
+            if wget -q --spider "${{ steps.domain.outputs.url }}/health" 2>/dev/null; then
+              echo "App is live"
+              exit 0
+            fi
+            echo "Waiting for deploy... ($i/30)"
+            sleep 10
+          done
+          echo "Timed out waiting for deploy"
+          exit 1
+
+      - name: Create admin user
+        run: railway run -s $SERVICE_ID -- octroi ensure-admin --config /dev/null
+
+      - name: Seed data
+        run: |
+          timeout 30 sh scripts/seed.sh ${{ steps.domain.outputs.url }} || true
+
       - name: Comment on PR
         uses: marocchino/sticky-pull-request-comment@v2
         with:
