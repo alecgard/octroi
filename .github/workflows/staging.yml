@@ -40,7 +40,7 @@ jobs:
       - name: Generate domain
         id: domain
         run: |
-          DOMAIN=$(railway domain)
+          DOMAIN=$(railway domain | grep -oP 'https://\S+')
           echo "url=$DOMAIN" >> "$GITHUB_OUTPUT"
 
       - name: Comment on PR
