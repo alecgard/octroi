@@ -35,7 +35,7 @@ jobs:
         run: railway link -p $PROJECT_ID -e $ENV_NAME -s $SERVICE_ID
 
       - name: Deploy
-        run: railway up --detach
+        run: railway up -s $SERVICE_ID --detach
 
       - name: Generate domain
         id: domain
@@ -50,7 +50,7 @@ jobs:
           message: |
             **Staging deployed** :rocket:
 
-            https://${{ steps.domain.outputs.url }}/ui
+            ${{ steps.domain.outputs.url }}/ui
 
             Login: `admin@octroi.dev` / `octroi`
 
