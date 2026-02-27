@@ -34,6 +34,12 @@ jobs:
       - name: Deploy PR code to environment
         run: railway up -e $ENV_NAME -s $SERVICE_ID --detach
 
+      - name: Generate domain
+        id: domain
+        run: |
+          DOMAIN=$(railway domain -e $ENV_NAME -s $SERVICE_ID 2>&1 || true)
+          echo "url=$DOMAIN" >> "$GITHUB_OUTPUT"
+
       - name: Comment on PR
         uses: marocchino/sticky-pull-request-comment@v2
         with:
@@ -41,7 +47,7 @@ jobs:
           message: |
             **Staging deployed** :rocket:
 
-            https://${{ env.ENV_NAME }}-octroi.up.railway.app/ui
+            https://${{ steps.domain.outputs.url }}/ui
 
             Login: `admin@octroi.dev` / `octroi`
 
