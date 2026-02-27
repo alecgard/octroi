@@ -96,6 +96,9 @@ jobs:
       - name: Create admin user
         run: ./octroi ensure-admin --config configs/octroi.e2e.yaml 2>/dev/null || true
 
+      - name: Create rival tenant (for cross-tenant tests)
+        run: OCTROI_TENANT_NAME=rival OCTROI_TENANT_SLUG=rival ./octroi ensure-admin --config configs/octroi.e2e.yaml 2>/dev/null || true
+
       - name: Start server
         run: |
           OCTROI_DEV=1 ./octroi serve --config configs/octroi.e2e.yaml &
