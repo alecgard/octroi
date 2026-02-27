@@ -58,7 +58,7 @@ fi
 
 # Seed the e2e database.
 echo "Seeding e2e data..."
-timeout 30 scripts/seed.sh http://localhost:9091 2>/dev/null || true
+timeout 30 scripts/seed.sh http://local.localhost:9091 2>/dev/null || true
 
 echo "Running Playwright e2e tests..."
 (cd e2e && BASE_URL="http://local.localhost:9091" npm test)

@@ -43,6 +43,7 @@ body {
   z-index: 100;
 }
 .topbar h1 { font-size: 12px; font-weight: 700; text-transform: uppercase; letter-spacing: 1px; }
+.tenant-name { font-size: 11px; color: var(--text2); border-left: 1px solid var(--border); padding-left: 12px; }
 .topbar .spacer { flex: 1; }
 .user-info { display: flex; align-items: center; gap: 8px; font-size: 11px; }
 .user-info .user-name { font-weight: 600; }
@@ -519,6 +520,7 @@ body.shift-held .txn-filter-pending { background: var(--surface2); }
 <!-- Top Bar -->
 <div class="topbar">
   <h1>octroi</h1>
+  <span class="tenant-name" id="topbar-tenant-name"></span>
   <div class="spacer"></div>
   <div class="user-info" id="user-info" style="display:none">
     <span class="user-name" id="topbar-user-name"></span>
@@ -1563,6 +1565,9 @@ function enterApp() {
     const roleLabel = currentUser.role === 'org_admin' ? 'org admin' : currentUser.role;
     badgeEl.textContent = roleLabel;
     badgeEl.className = 'role-badge' + (currentUser.role === 'org_admin' ? ' admin' : '');
+    if (currentUser.tenant) {
+      document.getElementById('topbar-tenant-name').textContent = currentUser.tenant.name;
+    }
   }
 
   // Permission-based UI: disable (not hide) actions the user can't perform.

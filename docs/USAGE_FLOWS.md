@@ -2,7 +2,7 @@
 
 Step-by-step workflows for every operation in the system. Each flow shows exact API calls with minimum required fields. See [API.md](API.md) for full request/response schemas.
 
-All examples use `$BASE` for the server URL (e.g. `http://localhost:8080`).
+All examples use `$BASE` for the server URL (e.g. `http://local.localhost:8080`).
 
 ---
 

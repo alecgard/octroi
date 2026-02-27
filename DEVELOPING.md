@@ -53,7 +53,7 @@ Dev and prod use separate ports and Docker volumes so they can run simultaneousl
 
 | | Dev | Prod |
 |---|---|---|
-| Server | localhost:8080 | localhost:9080 |
+| Server | local.localhost:8080 | local.localhost:9080 |
 | Postgres | localhost:5433 | localhost:5434 |
 | Config | `configs/octroi.dev.yaml` | `configs/octroi.prod.yaml` |
 
@@ -343,7 +343,7 @@ See `configs/octroi.dev.yaml` for a complete example.
 
 Octroi includes a built-in dashboard at `/ui` — a single embedded HTML page with no build step or external dependencies.
 
-Navigate to `http://localhost:8080/ui` and log in with your email and password.
+Navigate to `http://local.localhost:8080/ui` and log in with your email and password.
 
 The dashboard has seven tabs:
 

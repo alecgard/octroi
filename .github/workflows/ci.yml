@@ -102,7 +102,7 @@ jobs:
           sleep 3
 
       - name: Seed data
-        run: timeout 30 scripts/seed.sh http://localhost:9091 || true
+        run: timeout 30 scripts/seed.sh http://local.localhost:9091 || true
 
       - name: Install Playwright
         working-directory: e2e

@@ -15,7 +15,7 @@
 set -euo pipefail
 
 BACKFILL=false
-BASE="http://localhost:8080"
+BASE="http://local.localhost:8080"
 for arg in "$@"; do
   case "$arg" in
     --backfill) BACKFILL=true ;;

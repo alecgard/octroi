@@ -42,7 +42,7 @@ e2e:
 		(go run ./cmd/octroi ensure-admin --config $(E2E_CONFIG) 2>/dev/null || true) && \
 		(OCTROI_DEV=1 go run ./cmd/octroi serve --config $(E2E_CONFIG) &) && \
 		sleep 3 && \
-		(timeout 30 scripts/seed.sh http://localhost:9091 2>/dev/null || true) && \
+		(timeout 30 scripts/seed.sh http://local.localhost:9091 2>/dev/null || true) && \
 		cd e2e && BASE_URL=http://local.localhost:9091 npm test; \
 		STATUS=$$?; \
 		kill %1 2>/dev/null || true; \
@@ -56,7 +56,7 @@ e2e\:stack:
 		(go run ./cmd/octroi ensure-admin --config $(E2E_CONFIG) 2>/dev/null || true) && \
 		(OCTROI_DEV=1 go run ./cmd/octroi serve --config $(E2E_CONFIG) &) && \
 		sleep 3 && \
-		(timeout 30 scripts/seed.sh http://localhost:9091 2>/dev/null || true) && \
+		(timeout 30 scripts/seed.sh http://local.localhost:9091 2>/dev/null || true) && \
 		echo "" && \
 		echo "E2E stack ready (Postgres :5435, server :9091)" && \
 		echo "Run tests:  cd e2e && BASE_URL=http://local.localhost:9091 npx playwright test" && \
@@ -74,7 +74,7 @@ e2e\:ui:
 		(go run ./cmd/octroi ensure-admin --config $(E2E_CONFIG) 2>/dev/null || true) && \
 		(OCTROI_DEV=1 go run ./cmd/octroi serve --config $(E2E_CONFIG) &) && \
 		sleep 3 && \
-		(timeout 30 scripts/seed.sh http://localhost:9091 2>/dev/null || true) && \
+		(timeout 30 scripts/seed.sh http://local.localhost:9091 2>/dev/null || true) && \
 		cd e2e && BASE_URL=http://local.localhost:9091 npx playwright test --ui; \
 		STATUS=$$?; \
 		kill %1 2>/dev/null || true; \

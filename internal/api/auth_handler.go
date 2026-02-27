@@ -73,15 +73,24 @@ func (h *authHandler) Login(w http.ResponseWriter, r *http.Request) {
 		"request_id", RequestIDFromContext(r.Context()),
 	)
 
+	userResp := map[string]interface{}{
+		"id":    u.ID,
+		"email": u.Email,
+		"name":  u.Name,
+		"teams": u.Teams,
+		"role":  u.Role,
+	}
+	if t := auth.TenantFromContext(r.Context()); t != nil {
+		userResp["tenant"] = map[string]string{
+			"id":   t.ID,
+			"name": t.Name,
+			"slug": t.Slug,
+			"plan": t.Plan,
+		}
+	}
 	writeJSON(w, http.StatusOK, map[string]interface{}{
 		"token": token,
-		"user": map[string]interface{}{
-			"id":    u.ID,
-			"email": u.Email,
-			"name":  u.Name,
-			"teams": u.Teams,
-			"role":  u.Role,
-		},
+		"user":  userResp,
 	})
 }
 
@@ -93,13 +102,22 @@ func (h *authHandler) Me(w http.ResponseWriter, r *http.Request) {
 		return
 	}
 
-	writeJSON(w, http.StatusOK, map[string]interface{}{
+	resp := map[string]interface{}{
 		"id":    u.ID,
 		"email": u.Email,
 		"name":  u.Name,
 		"teams": u.Teams,
 		"role":  u.Role,
-	})
+	}
+	if t := auth.TenantFromContext(r.Context()); t != nil {
+		resp["tenant"] = map[string]string{
+			"id":   t.ID,
+			"name": t.Name,
+			"slug": t.Slug,
+			"plan": t.Plan,
+		}
+	}
+	writeJSON(w, http.StatusOK, resp)
 }
 
 // Logout handles POST /api/v1/auth/logout.
