@@ -21,13 +21,11 @@ jobs:
       pull-requests: write
 
     steps:
-      - name: Check CLI
+      - name: Debug auth
         run: |
           railway --version
-          railway --help
-
-      - name: Link project
-        run: railway link --project $PROJECT_ID --environment $SOURCE_ENV_ID --service $SERVICE_ID
+          railway whoami
+          railway link --help 2>&1 || true
 
       - name: Create environment (skip if exists)
         run: |
