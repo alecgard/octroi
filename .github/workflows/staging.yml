@@ -21,11 +21,8 @@ jobs:
       pull-requests: write
 
     steps:
-      - name: Debug auth
-        run: |
-          railway --version
-          railway whoami
-          railway link --help 2>&1 || true
+      - name: Link project
+        run: railway link -p $PROJECT_ID -e $SOURCE_ENV_ID -s $SERVICE_ID
 
       - name: Create environment (skip if exists)
         run: |
@@ -55,7 +52,7 @@ jobs:
 
     steps:
       - name: Link project
-        run: railway link --project $PROJECT_ID --environment $SOURCE_ENV_ID --service $SERVICE_ID
+        run: railway link -p $PROJECT_ID -e $SOURCE_ENV_ID -s $SERVICE_ID
 
       - name: Delete PR environment
         run: railway environment delete $ENV_NAME --yes || true
