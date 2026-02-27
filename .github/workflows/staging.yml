@@ -28,12 +28,10 @@ jobs:
 
       - name: Create environment (skip if exists)
         run: |
-          railway environment new $ENV_NAME \
-            --copy $SOURCE_ENV_ID \
-            --service-config $SERVICE_ID "source.branch" "${{ github.head_ref }}" \
+          railway environment new $ENV_NAME --copy $SOURCE_ENV_ID \
             || echo "Environment may already exist, continuing"
 
-      - name: Deploy to PR environment
+      - name: Deploy PR code to environment
         run: railway up -e $ENV_NAME -s $SERVICE_ID --detach
 
       - name: Comment on PR
