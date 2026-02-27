@@ -21,8 +21,13 @@ jobs:
       pull-requests: write
 
     steps:
+      - name: Check CLI version and link help
+        run: |
+          railway version
+          railway link --help
+
       - name: Link project
-        run: railway link $PROJECT_ID $SOURCE_ENV_ID $SERVICE_ID
+        run: railway link --project $PROJECT_ID --environment $SOURCE_ENV_ID --service $SERVICE_ID
 
       - name: Create environment (skip if exists)
         run: |
@@ -31,11 +36,8 @@ jobs:
             --service-config $SERVICE_ID "source.branch" "${{ github.head_ref }}" \
             || echo "Environment may already exist, continuing"
 
-      - name: Switch to PR environment
-        run: railway link $PROJECT_ID $ENV_NAME $SERVICE_ID
-
-      - name: Deploy
-        run: railway up --detach
+      - name: Deploy to PR environment
+        run: railway up -e $ENV_NAME -s $SERVICE_ID --detach
 
       - name: Comment on PR
         uses: marocchino/sticky-pull-request-comment@v2
@@ -55,7 +57,7 @@ jobs:
 
     steps:
       - name: Link project
-        run: railway link $PROJECT_ID $SOURCE_ENV_ID $SERVICE_ID
+        run: railway link --project $PROJECT_ID --environment $SOURCE_ENV_ID --service $SERVICE_ID
 
       - name: Delete PR environment
         run: railway environment delete $ENV_NAME --yes || true
