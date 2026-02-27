@@ -27,12 +27,12 @@ ADMIN_EMAIL="admin@octroi.dev"
 ADMIN_PASS="octroi"
 TOKEN=""
 DB_URL="${OCTROI_DB_URL:-postgres://octroi:octroi@localhost:5433/octroi?sslmode=disable}"
-TENANT_SLUG="${OCTROI_TENANT_SLUG:-local}"
 
-# Derive Host header for subdomain-based tenant routing.
-# e.g. BASE=http://localhost:8080, TENANT_SLUG=local -> Host: local.localhost:8080
+# Derive tenant slug and Host header from the BASE URL.
+# e.g. http://local2.localhost:8080 -> TENANT_SLUG=local2, HOST_HEADER=local2.localhost:8080
 BASE_HOST=$(echo "$BASE" | sed -E 's|https?://||; s|/$||')
-HOST_HEADER="${TENANT_SLUG}.${BASE_HOST}"
+TENANT_SLUG=$(echo "$BASE_HOST" | sed -E 's/\..*//')
+HOST_HEADER="$BASE_HOST"
 
 # --- helpers ---------------------------------------------------------------
 

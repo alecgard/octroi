@@ -1,4 +1,4 @@
-.PHONY: dev prod-local db\:dev clean\:dev clean\:prod-local e2e e2e\:stack e2e\:install e2e\:ui clean\:e2e setup hooks
+.PHONY: dev prod-local db\:dev clean\:dev clean\:prod-local tenant\:dev e2e e2e\:stack e2e\:install e2e\:ui clean\:e2e setup hooks
 
 DEV_CONFIG := configs/octroi.dev.yaml
 E2E_CONFIG := configs/octroi.e2e.yaml
@@ -24,6 +24,18 @@ db\:dev:
 # --- dev: tear down Postgres and volumes ---
 clean\:dev:
 	docker compose -p $(DEV_PROJECT) down -v
+
+# --- dev: create a new tenant + admin in the dev DB (port 5433) ---
+#   Usage: make tenant:dev slug=acme
+tenant\:dev:
+ifndef slug
+	$(error slug is required – usage: make tenant:dev slug=acme)
+endif
+	@echo "Creating tenant '$(slug)' in dev DB (localhost:5433/octroi)..."
+	@set -a && . ./$(DEV_ENV) && set +a && \
+		OCTROI_TENANT_NAME=$(slug) OCTROI_TENANT_SLUG=$(slug) \
+		go run ./cmd/octroi ensure-admin --config $(DEV_CONFIG)
+	@echo "Done. Seed with: scripts/seed.sh http://$(slug).localhost:8080"
 
 # --- prod-local: everything in Docker (port 9080) ---
 prod-local:

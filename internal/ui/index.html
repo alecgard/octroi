@@ -43,7 +43,7 @@ body {
   z-index: 100;
 }
 .topbar h1 { font-size: 12px; font-weight: 700; text-transform: uppercase; letter-spacing: 1px; }
-.tenant-name { font-size: 11px; color: var(--text2); border-left: 1px solid var(--border); padding-left: 12px; }
+.tenant-name { font-size: 11px; color: var(--text2); border-left: 1px solid var(--border); padding-left: 12px; text-transform: uppercase; letter-spacing: 1px; }
 .topbar .spacer { flex: 1; }
 .user-info { display: flex; align-items: center; gap: 8px; font-size: 11px; }
 .user-info .user-name { font-weight: 600; }
@@ -1603,6 +1603,14 @@ async function logout() {
   clearSession();
   location.reload();
 }
+
+// Show tenant slug in topbar (before login, from URL subdomain).
+(function() {
+  const parts = window.location.hostname.split('.');
+  if (parts.length > 1) {
+    document.getElementById('topbar-tenant-name').textContent = parts[0];
+  }
+})();
 
 // Handle Enter key in login fields
 document.getElementById('login-password').addEventListener('keydown', e => { if (e.key === 'Enter') doLogin(); });
