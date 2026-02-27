@@ -30,7 +30,7 @@ func newFakeMemberAgentStore() *fakeMemberAgentStore {
 	return &fakeMemberAgentStore{agents: make(map[string]*agent.Agent)}
 }
 
-func (f *fakeMemberAgentStore) ListByTeams(_ context.Context, teams []string, _ agent.AgentListParams) ([]*agent.Agent, string, error) {
+func (f *fakeMemberAgentStore) ListByTeams(_ context.Context, _ string, teams []string, _ agent.AgentListParams) ([]*agent.Agent, string, error) {
 	teamSet := make(map[string]bool, len(teams))
 	for _, t := range teams {
 		teamSet[t] = true
@@ -44,7 +44,7 @@ func (f *fakeMemberAgentStore) ListByTeams(_ context.Context, teams []string, _ 
 	return list, "", nil
 }
 
-func (f *fakeMemberAgentStore) GetByID(_ context.Context, id string) (*agent.Agent, error) {
+func (f *fakeMemberAgentStore) GetByID(_ context.Context, _ string, id string) (*agent.Agent, error) {
 	a, ok := f.agents[id]
 	if !ok {
 		return nil, pgx.ErrNoRows
@@ -67,7 +67,7 @@ func (f *fakeMemberAgentStore) Create(_ context.Context, in agent.CreateAgentInp
 	return a, nil
 }
 
-func (f *fakeMemberAgentStore) Update(_ context.Context, id string, in agent.UpdateAgentInput) (*agent.Agent, error) {
+func (f *fakeMemberAgentStore) Update(_ context.Context, _ string, id string, in agent.UpdateAgentInput) (*agent.Agent, error) {
 	a, ok := f.agents[id]
 	if !ok {
 		return nil, pgx.ErrNoRows
@@ -87,7 +87,7 @@ func (f *fakeMemberAgentStore) Update(_ context.Context, id string, in agent.Upd
 	return a, nil
 }
 
-func (f *fakeMemberAgentStore) Archive(_ context.Context, id string) error {
+func (f *fakeMemberAgentStore) Archive(_ context.Context, _ string, id string) error {
 	if _, ok := f.agents[id]; !ok {
 		return fmt.Errorf("agent not found")
 	}
@@ -95,7 +95,7 @@ func (f *fakeMemberAgentStore) Archive(_ context.Context, id string) error {
 	return nil
 }
 
-func (f *fakeMemberAgentStore) RegenerateKey(_ context.Context, id, newHash, newPrefix string) (*agent.Agent, error) {
+func (f *fakeMemberAgentStore) RegenerateKey(_ context.Context, _, id, newHash, newPrefix string) (*agent.Agent, error) {
 	a, ok := f.agents[id]
 	if !ok {
 		return nil, pgx.ErrNoRows
@@ -105,7 +105,7 @@ func (f *fakeMemberAgentStore) RegenerateKey(_ context.Context, id, newHash, new
 	return a, nil
 }
 
-func (f *fakeMemberAgentStore) ListIDsByTeams(_ context.Context, teams []string) ([]string, error) {
+func (f *fakeMemberAgentStore) ListIDsByTeams(_ context.Context, _ string, teams []string) ([]string, error) {
 	teamSet := make(map[string]bool, len(teams))
 	for _, t := range teams {
 		teamSet[t] = true
@@ -128,14 +128,14 @@ type fakeMemberMeterStore struct {
 	txns    []*metering.Transaction
 }
 
-func (f *fakeMemberMeterStore) GetSummary(_ context.Context, _ metering.UsageQuery) (*metering.UsageSummary, error) {
+func (f *fakeMemberMeterStore) GetSummary(_ context.Context, _ string, _ metering.UsageQuery) (*metering.UsageSummary, error) {
 	if f.summary != nil {
 		return f.summary, nil
 	}
 	return &metering.UsageSummary{}, nil
 }
 
-func (f *fakeMemberMeterStore) ListTransactions(_ context.Context, _ metering.UsageQuery) ([]*metering.Transaction, string, error) {
+func (f *fakeMemberMeterStore) ListTransactions(_ context.Context, _ string, _ metering.UsageQuery) ([]*metering.Transaction, string, error) {
 	return f.txns, "", nil
 }
 
@@ -149,17 +149,24 @@ func memberUser(teams ...string) *auth.User {
 		memberships[i] = auth.TeamMembership{Team: t, Role: "admin"}
 	}
 	return &auth.User{
-		ID:    "user-1",
-		Email: "test@test.com",
-		Name:  "Test User",
-		Role:  "member",
-		Teams: memberships,
+		ID:       "user-1",
+		TenantID: "t1",
+		Email:    "test@test.com",
+		Name:     "Test User",
+		Role:     "member",
+		Teams:    memberships,
 	}
 }
 
 func setupMemberRouter(agentStore *fakeMemberAgentStore, meterStore *fakeMemberMeterStore, user *auth.User) http.Handler {
 	h := newMemberHandler(agentStore, meterStore)
 	r := chi.NewRouter()
+	r.Use(func(next http.Handler) http.Handler {
+		return http.HandlerFunc(func(w http.ResponseWriter, req *http.Request) {
+			ctx := auth.ContextWithTenant(req.Context(), &auth.Tenant{ID: "t1"})
+			next.ServeHTTP(w, req.WithContext(ctx))
+		})
+	})
 	if user != nil {
 		r.Use(func(next http.Handler) http.Handler {
 			return http.HandlerFunc(func(w http.ResponseWriter, req *http.Request) {

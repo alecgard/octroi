@@ -26,11 +26,11 @@ type fakePermissionChecker struct {
 	subToolChecked bool
 }
 
-func (f *fakePermissionChecker) IsAllowed(_ context.Context, _, _ string) (bool, error) {
+func (f *fakePermissionChecker) IsAllowed(_ context.Context, _, _, _ string) (bool, error) {
 	return f.allowed, nil
 }
 
-func (f *fakePermissionChecker) IsSubToolAllowed(_ context.Context, _, _, _ string) (bool, error) {
+func (f *fakePermissionChecker) IsSubToolAllowed(_ context.Context, _, _, _, _ string) (bool, error) {
 	f.subToolChecked = true
 	return f.subToolAllowed, nil
 }
@@ -39,7 +39,7 @@ type fakeToolStore struct {
 	tools map[string]*registry.Tool
 }
 
-func (f *fakeToolStore) GetByID(_ context.Context, id string) (*registry.Tool, error) {
+func (f *fakeToolStore) GetByID(_ context.Context, _, id string) (*registry.Tool, error) {
 	tool, ok := f.tools[id]
 	if !ok {
 		return nil, fmt.Errorf("not found")
@@ -60,11 +60,11 @@ type fakeBudgetChecker struct {
 	globalAllowed bool
 }
 
-func (f *fakeBudgetChecker) CheckBudget(_ context.Context, _, _ string) (bool, float64, float64, error) {
+func (f *fakeBudgetChecker) CheckBudget(_ context.Context, _, _, _ string) (bool, float64, float64, error) {
 	return f.agentAllowed, 100, 1000, nil
 }
 
-func (f *fakeBudgetChecker) CheckToolGlobalBudget(_ context.Context, _ string) (bool, float64, error) {
+func (f *fakeBudgetChecker) CheckToolGlobalBudget(_ context.Context, _, _ string) (bool, float64, error) {
 	return f.globalAllowed, 500, nil
 }
 
@@ -80,8 +80,9 @@ func (f *fakeCollector) Record(tx metering.Transaction) {
 
 func newTestAgent() *auth.Agent {
 	return &auth.Agent{
-		ID:   "agent-1",
-		Name: "test-agent",
+		ID:       "agent-1",
+		Name:     "test-agent",
+		TenantID: "t1",
 	}
 }
 

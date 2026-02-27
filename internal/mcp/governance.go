@@ -77,14 +77,14 @@ func (g *GovernedCaller) CallTool(ctx context.Context, agent AgentInfo, name str
 }
 
 func (g *GovernedCaller) callREST(ctx context.Context, agent AgentInfo, name string, route ToolRoute, arguments map[string]any) (*mcp.CallToolResult, error) {
-	tool, err := g.toolStore.GetByID(ctx, route.ToolID)
+	tool, err := g.toolStore.GetByID(ctx, agent.TenantID, route.ToolID)
 	if err != nil {
 		return mcp.NewToolResultError(fmt.Sprintf("tool not found: %s", route.ToolID)), nil
 	}
 
 	// Check per-tool rate limits.
 	if g.rateLimits != nil {
-		allowed, _, _, _, rlErr := g.rateLimits.CheckToolRateLimit(ctx, tool.ID, agent.Team, agent.ID)
+		allowed, _, _, _, rlErr := g.rateLimits.CheckToolRateLimit(ctx, agent.TenantID, tool.ID, agent.Team, agent.ID)
 		if rlErr == nil && !allowed {
 			g.recordTransaction(agent, tool.ID, tool.Name, name, 429, 0, false, 0, "flat")
 			return mcp.NewToolResultError(fmt.Sprintf("rate limit exceeded for tool %s", tool.Name)), nil
@@ -92,14 +92,14 @@ func (g *GovernedCaller) callREST(ctx context.Context, agent AgentInfo, name str
 	}
 
 	// Check per-agent budget.
-	allowed, _, _, err := g.budgets.CheckBudget(ctx, agent.ID, tool.ID)
+	allowed, _, _, err := g.budgets.CheckBudget(ctx, agent.TenantID, agent.ID, tool.ID)
 	if err == nil && !allowed {
 		g.recordTransaction(agent, tool.ID, tool.Name, name, 403, 0, false, 0, "flat")
 		return mcp.NewToolResultError(fmt.Sprintf("agent budget exceeded for tool %s", tool.Name)), nil
 	}
 
 	// Check global tool budget.
-	globalAllowed, _, err := g.budgets.CheckToolGlobalBudget(ctx, tool.ID)
+	globalAllowed, _, err := g.budgets.CheckToolGlobalBudget(ctx, agent.TenantID, tool.ID)
 	if err == nil && !globalAllowed {
 		g.recordTransaction(agent, tool.ID, tool.Name, name, 403, 0, false, 0, "flat")
 		return mcp.NewToolResultError(fmt.Sprintf("global budget exceeded for tool %s", tool.Name)), nil
@@ -136,14 +136,14 @@ func (g *GovernedCaller) callMCP(ctx context.Context, agent AgentInfo, name stri
 	toolID := route.ToolID
 
 	// Look up the parent tool for governance.
-	tool, err := g.toolStore.GetByID(ctx, toolID)
+	tool, err := g.toolStore.GetByID(ctx, agent.TenantID, toolID)
 	if err != nil {
 		return mcp.NewToolResultError(fmt.Sprintf("tool not found: %s", toolID)), nil
 	}
 
 	// Check sub-tool permissions.
 	if g.permissions != nil {
-		allowed, permErr := g.permissions.IsSubToolAllowed(ctx, agent.ID, toolID, route.UpstreamToolName)
+		allowed, permErr := g.permissions.IsSubToolAllowed(ctx, agent.TenantID, agent.ID, toolID, route.UpstreamToolName)
 		if permErr == nil && !allowed {
 			g.recordTransaction(agent, toolID, tool.Name, name, 403, 0, false, 0, "flat")
 			return mcp.NewToolResultError(fmt.Sprintf("sub-tool %s not permitted for tool %s", route.UpstreamToolName, tool.Name)), nil
@@ -152,7 +152,7 @@ func (g *GovernedCaller) callMCP(ctx context.Context, agent AgentInfo, name stri
 
 	// Check per-tool rate limits.
 	if g.rateLimits != nil {
-		allowed, _, _, _, rlErr := g.rateLimits.CheckToolRateLimit(ctx, tool.ID, agent.Team, agent.ID)
+		allowed, _, _, _, rlErr := g.rateLimits.CheckToolRateLimit(ctx, agent.TenantID, tool.ID, agent.Team, agent.ID)
 		if rlErr == nil && !allowed {
 			g.recordTransaction(agent, toolID, tool.Name, name, 429, 0, false, 0, "flat")
 			return mcp.NewToolResultError(fmt.Sprintf("rate limit exceeded for tool %s", tool.Name)), nil
@@ -160,14 +160,14 @@ func (g *GovernedCaller) callMCP(ctx context.Context, agent AgentInfo, name stri
 	}
 
 	// Check per-agent budget.
-	allowed, _, _, err := g.budgets.CheckBudget(ctx, agent.ID, tool.ID)
+	allowed, _, _, err := g.budgets.CheckBudget(ctx, agent.TenantID, agent.ID, tool.ID)
 	if err == nil && !allowed {
 		g.recordTransaction(agent, toolID, tool.Name, name, 403, 0, false, 0, "flat")
 		return mcp.NewToolResultError(fmt.Sprintf("agent budget exceeded for tool %s", tool.Name)), nil
 	}
 
 	// Check global tool budget.
-	globalAllowed, _, err := g.budgets.CheckToolGlobalBudget(ctx, tool.ID)
+	globalAllowed, _, err := g.budgets.CheckToolGlobalBudget(ctx, agent.TenantID, tool.ID)
 	if err == nil && !globalAllowed {
 		g.recordTransaction(agent, toolID, tool.Name, name, 403, 0, false, 0, "flat")
 		return mcp.NewToolResultError(fmt.Sprintf("global budget exceeded for tool %s", tool.Name)), nil

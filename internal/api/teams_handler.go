@@ -13,14 +13,14 @@ import (
 
 // teamsAgentStore defines the agent store methods used by the teams handler.
 type teamsAgentStore interface {
-	List(ctx context.Context, params agent.AgentListParams) ([]*agent.Agent, string, error)
+	List(ctx context.Context, tenantID string, params agent.AgentListParams) ([]*agent.Agent, string, error)
 }
 
 // teamsUserStore defines the user store methods used by the teams handler.
 type teamsUserStore interface {
-	List(ctx context.Context) ([]*user.User, error)
-	GetByID(ctx context.Context, id string) (*user.User, error)
-	Update(ctx context.Context, id string, in user.UpdateUserInput) (*user.User, error)
+	List(ctx context.Context, tenantID string) ([]*user.User, error)
+	GetByID(ctx context.Context, tenantID, id string) (*user.User, error)
+	Update(ctx context.Context, tenantID, id string, in user.UpdateUserInput) (*user.User, error)
 }
 
 // teamsHandler groups team-related HTTP handlers.
@@ -88,13 +88,14 @@ func (h *teamsHandler) buildTeams(r *http.Request, filterTeams []string) ([]team
 	ctx := r.Context()
 
 	// Fetch all agents (up to a reasonable limit).
-	agents, _, err := h.agentStore.List(ctx, agent.AgentListParams{Limit: 1000})
+	tenant := auth.TenantFromContext(r.Context())
+	agents, _, err := h.agentStore.List(ctx, tenant.ID, agent.AgentListParams{Limit: 1000})
 	if err != nil {
 		return nil, err
 	}
 
 	// Fetch all users.
-	users, err := h.userStore.List(ctx)
+	users, err := h.userStore.List(ctx, tenant.ID)
 	if err != nil {
 		return nil, err
 	}
@@ -200,7 +201,7 @@ func (h *teamsHandler) AddTeamMember(w http.ResponseWriter, r *http.Request) {
 	}
 
 	// Load target user.
-	target, err := h.userStore.GetByID(r.Context(), userID)
+	target, err := h.userStore.GetByID(r.Context(), caller.TenantID, userID)
 	if err != nil {
 		writeError(w, http.StatusNotFound, "not_found", "user not found")
 		return
@@ -218,7 +219,7 @@ func (h *teamsHandler) AddTeamMember(w http.ResponseWriter, r *http.Request) {
 	copy(newTeams, target.Teams)
 	newTeams = append(newTeams, user.TeamMembership{Team: team, Role: req.Role})
 
-	updated, err := h.userStore.Update(r.Context(), userID, user.UpdateUserInput{
+	updated, err := h.userStore.Update(r.Context(), caller.TenantID, userID, user.UpdateUserInput{
 		Teams: &newTeams,
 	})
 	if err != nil {
@@ -248,7 +249,7 @@ func (h *teamsHandler) RemoveTeamMember(w http.ResponseWriter, r *http.Request) 
 	}
 
 	// Load target user.
-	target, err := h.userStore.GetByID(r.Context(), userID)
+	target, err := h.userStore.GetByID(r.Context(), caller.TenantID, userID)
 	if err != nil {
 		writeError(w, http.StatusNotFound, "not_found", "user not found")
 		return
@@ -272,7 +273,7 @@ func (h *teamsHandler) RemoveTeamMember(w http.ResponseWriter, r *http.Request) 
 	// Enforce at least one team admin constraint.
 	if removingRole == "admin" {
 		// Count admins for this team across all users.
-		allUsers, err := h.userStore.List(r.Context())
+		allUsers, err := h.userStore.List(r.Context(), caller.TenantID)
 		if err != nil {
 			writeError(w, http.StatusInternalServerError, "internal_error", "failed to list users")
 			return
@@ -299,7 +300,7 @@ func (h *teamsHandler) RemoveTeamMember(w http.ResponseWriter, r *http.Request) 
 		}
 	}
 
-	updated, err := h.userStore.Update(r.Context(), userID, user.UpdateUserInput{
+	updated, err := h.userStore.Update(r.Context(), caller.TenantID, userID, user.UpdateUserInput{
 		Teams: &newTeams,
 	})
 	if err != nil {

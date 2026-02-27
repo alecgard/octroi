@@ -15,6 +15,7 @@ type Agent struct {
 	Name      string
 	Team      string
 	RateLimit int
+	TenantID  string
 }
 
 // APIKey holds the hashed key and a short prefix for identification.
@@ -31,11 +32,12 @@ type TeamMembership struct {
 
 // User represents an authenticated UI user.
 type User struct {
-	ID    string
-	Email string
-	Name  string
-	Teams []TeamMembership
-	Role  string // "org_admin" or "member"
+	ID       string
+	Email    string
+	Name     string
+	Teams    []TeamMembership
+	Role     string // "org_admin" or "member"
+	TenantID string
 }
 
 // TeamNames returns the list of team names the user belongs to.

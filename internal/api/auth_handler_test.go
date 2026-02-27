@@ -50,7 +50,7 @@ func (f *fakeAuthUserStore) addUser(email, password, name, role string) *user.Us
 	return u
 }
 
-func (f *fakeAuthUserStore) GetByEmail(_ context.Context, email string) (*user.User, error) {
+func (f *fakeAuthUserStore) GetByEmail(_ context.Context, _, email string) (*user.User, error) {
 	u, ok := f.users[email]
 	if !ok {
 		return nil, fmt.Errorf("not found")
@@ -81,6 +81,12 @@ func (f *fakeAuthUserStore) DeleteSession(_ context.Context, token string) error
 func authTestRouter(store authUserStore) http.Handler {
 	h := newAuthHandler(store)
 	r := chi.NewRouter()
+	r.Use(func(next http.Handler) http.Handler {
+		return http.HandlerFunc(func(w http.ResponseWriter, req *http.Request) {
+			ctx := auth.ContextWithTenant(req.Context(), &auth.Tenant{ID: "t1"})
+			next.ServeHTTP(w, req.WithContext(ctx))
+		})
+	})
 	r.Post("/api/v1/auth/login", h.Login)
 	r.Get("/api/v1/auth/me", h.Me)
 	r.Post("/api/v1/auth/logout", h.Logout)

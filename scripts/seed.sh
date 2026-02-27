@@ -27,6 +27,12 @@ ADMIN_EMAIL="admin@octroi.dev"
 ADMIN_PASS="octroi"
 TOKEN=""
 DB_URL="${OCTROI_DB_URL:-postgres://octroi:octroi@localhost:5433/octroi?sslmode=disable}"
+TENANT_SLUG="${OCTROI_TENANT_SLUG:-local}"
+
+# Derive Host header for subdomain-based tenant routing.
+# e.g. BASE=http://localhost:8080, TENANT_SLUG=local -> Host: local.localhost:8080
+BASE_HOST=$(echo "$BASE" | sed -E 's|https?://||; s|/$||')
+HOST_HEADER="${TENANT_SLUG}.${BASE_HOST}"
 
 # --- helpers ---------------------------------------------------------------
 
@@ -45,7 +51,7 @@ retry() {
 
 api() {
   local method="$1" path="$2" body="${3:-}"
-  local args=(-s -H "Authorization: Bearer $TOKEN" -H "Content-Type: application/json")
+  local args=(-s -H "Authorization: Bearer $TOKEN" -H "Content-Type: application/json" -H "Host: $HOST_HEADER")
   if [[ -n "$body" ]]; then
     args+=(-d "$body")
   fi
@@ -68,6 +74,7 @@ DEADLINE=$((SECONDS + 30))
 while true; do
   LOGIN_RESP=$(curl -s -X POST "${BASE}/api/v1/auth/login" \
     -H "Content-Type: application/json" \
+    -H "Host: $HOST_HEADER" \
     -d "{\"email\":\"$ADMIN_EMAIL\",\"password\":\"$ADMIN_PASS\"}" 2>/dev/null || true)
 
   TOKEN=$(echo "$LOGIN_RESP" | jq -r '.token // empty' 2>/dev/null || true)
@@ -524,6 +531,13 @@ NUM_TRAFFIC=${#TRAFFIC[@]}
 if [[ "$BACKFILL" == "true" ]]; then
   echo "==> Generating historical transactions (last 7 days)"
 
+  # Look up tenant ID for backfill inserts.
+  BACKFILL_TENANT_ID=$(psql "$DB_URL" -tAc "SELECT id FROM tenants WHERE slug = '$TENANT_SLUG' LIMIT 1" 2>/dev/null)
+  if [[ -z "$BACKFILL_TENANT_ID" ]]; then
+    echo "ERROR: tenant '$TENANT_SLUG' not found in database. Run 'octroi ensure-admin' first."
+    exit 1
+  fi
+
   NUM_TXN=350000
   BATCH_SIZE=5000
 
@@ -540,7 +554,7 @@ if [[ "$BACKFILL" == "true" ]]; then
     batch_end=$(( inserted + BATCH_SIZE ))
     if (( batch_end > NUM_TXN )); then batch_end=$NUM_TXN; fi
 
-    SQL="INSERT INTO transactions (agent_id, tool_id, timestamp, method, path, status_code, latency_ms, request_size, response_size, success, cost, error, cost_source) VALUES"
+    SQL="INSERT INTO transactions (tenant_id, agent_id, tool_id, timestamp, method, path, status_code, latency_ms, request_size, response_size, success, cost, error, cost_source) VALUES"
     COMMA=""
 
     for (( i=inserted; i<batch_end; i++ )); do
@@ -576,7 +590,7 @@ if [[ "$BACKFILL" == "true" ]]; then
       fi
 
       SQL+="${COMMA}
-('${agent_id}','${tool_id}',NOW()-INTERVAL '${minutes_ago} minutes','${method}','${path}',${status},${latency},${req_size},${resp_size},${success},${cost},'','${cost_source}')"
+('${BACKFILL_TENANT_ID}','${agent_id}','${tool_id}',NOW()-INTERVAL '${minutes_ago} minutes','${method}','${path}',${status},${latency},${req_size},${resp_size},${success},${cost},'','${cost_source}')"
       COMMA=","
     done
     SQL+=";"
@@ -787,6 +801,7 @@ while true; do
     http_code=$(curl -s -o /dev/null -w "%{http_code}" \
       -H "Authorization: Bearer $agent_key" \
       -H "Content-Type: application/json" \
+      -H "Host: $HOST_HEADER" \
       -d '{"query":"test","repoName":"octroi"}' \
       -X POST \
       "${BASE}/proxy/${tool_id}/${sub_tool}" 2>/dev/null) || http_code="000"
@@ -798,7 +813,7 @@ while true; do
     method="${METHODS[$method_idx]}"
     path="${PATHS[$path_idx]}"
     # REST tools: standard proxy request (include body for POST/PUT).
-    rest_args=(-s -o /dev/null -w "%{http_code}" -H "Authorization: Bearer $agent_key" -X "$method")
+    rest_args=(-s -o /dev/null -w "%{http_code}" -H "Authorization: Bearer $agent_key" -H "Host: $HOST_HEADER" -X "$method")
     if [[ "$method" == "POST" || "$method" == "PUT" ]]; then
       rest_args+=(-H "Content-Type: application/json" -d '{"query":"test","limit":10}')
     fi

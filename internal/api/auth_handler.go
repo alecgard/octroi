@@ -11,7 +11,7 @@ import (
 
 // authUserStore is the subset of user.Store methods used by authHandler.
 type authUserStore interface {
-	GetByEmail(ctx context.Context, email string) (*user.User, error)
+	GetByEmail(ctx context.Context, tenantID, email string) (*user.User, error)
 	CreateSession(ctx context.Context, userID string) (string, *user.Session, error)
 	DeleteSession(ctx context.Context, plaintext string) error
 }
@@ -41,7 +41,13 @@ func (h *authHandler) Login(w http.ResponseWriter, r *http.Request) {
 		return
 	}
 
-	u, err := h.store.GetByEmail(r.Context(), req.Email)
+	tenant := auth.TenantFromContext(r.Context())
+	if tenant == nil {
+		writeError(w, http.StatusBadRequest, "tenant_required", "tenant required")
+		return
+	}
+
+	u, err := h.store.GetByEmail(r.Context(), tenant.ID, req.Email)
 	if err != nil {
 		writeError(w, http.StatusUnauthorized, "unauthorized", "invalid email or password")
 		return

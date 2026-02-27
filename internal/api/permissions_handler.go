@@ -6,22 +6,23 @@ import (
 	"net/http"
 
 	"github.com/alecgard/octroi/internal/agent"
+	"github.com/alecgard/octroi/internal/auth"
 	"github.com/go-chi/chi/v5"
 )
 
 // permissionStoreIface defines the permission store methods used by the handler.
 type permissionStoreIface interface {
-	ListByAgent(ctx context.Context, agentID string) ([]agent.Permission, error)
-	SetWithSubTools(ctx context.Context, agentID, toolID string, allowed bool, subTools []string) error
-	SetBulk(ctx context.Context, agentID string, permissions map[string]bool) error
-	SetBulkWithSubTools(ctx context.Context, agentID string, permissions map[string]agent.BulkPermission) error
-	Delete(ctx context.Context, agentID, toolID string) error
+	ListByAgent(ctx context.Context, tenantID string, agentID string) ([]agent.Permission, error)
+	SetWithSubTools(ctx context.Context, tenantID string, agentID, toolID string, allowed bool, subTools []string) error
+	SetBulk(ctx context.Context, tenantID string, agentID string, permissions map[string]bool) error
+	SetBulkWithSubTools(ctx context.Context, tenantID string, agentID string, permissions map[string]agent.BulkPermission) error
+	Delete(ctx context.Context, tenantID string, agentID, toolID string) error
 }
 
 // permissionAgentStoreIface defines the agent store methods used by the permissions handler.
 type permissionAgentStoreIface interface {
-	GetByID(ctx context.Context, id string) (*agent.Agent, error)
-	Update(ctx context.Context, id string, in agent.UpdateAgentInput) (*agent.Agent, error)
+	GetByID(ctx context.Context, tenantID, id string) (*agent.Agent, error)
+	Update(ctx context.Context, tenantID, id string, in agent.UpdateAgentInput) (*agent.Agent, error)
 }
 
 type permissionsHandler struct {
@@ -41,13 +42,15 @@ func (h *permissionsHandler) ListPermissions(w http.ResponseWriter, r *http.Requ
 		return
 	}
 
-	perms, err := h.store.ListByAgent(r.Context(), agentID)
+	tenant := auth.TenantFromContext(r.Context())
+
+	perms, err := h.store.ListByAgent(r.Context(), tenant.ID, agentID)
 	if err != nil {
 		writeError(w, http.StatusInternalServerError, "internal_error", "failed to list permissions")
 		return
 	}
 
-	a, err := h.agentStore.GetByID(r.Context(), agentID)
+	a, err := h.agentStore.GetByID(r.Context(), tenant.ID, agentID)
 	if err != nil {
 		writeError(w, http.StatusNotFound, "not_found", "agent not found")
 		return
@@ -68,6 +71,8 @@ func (h *permissionsHandler) SetPermission(w http.ResponseWriter, r *http.Reques
 		return
 	}
 
+	tenant := auth.TenantFromContext(r.Context())
+
 	var body struct {
 		Allowed  bool     `json:"allowed"`
 		SubTools []string `json:"sub_tools,omitempty"`
@@ -77,7 +82,7 @@ func (h *permissionsHandler) SetPermission(w http.ResponseWriter, r *http.Reques
 		return
 	}
 
-	if err := h.store.SetWithSubTools(r.Context(), agentID, toolID, body.Allowed, body.SubTools); err != nil {
+	if err := h.store.SetWithSubTools(r.Context(), tenant.ID, agentID, toolID, body.Allowed, body.SubTools); err != nil {
 		writeError(w, http.StatusInternalServerError, "internal_error", "failed to set permission")
 		return
 	}
@@ -110,9 +115,11 @@ func (h *permissionsHandler) BulkSetPermissions(w http.ResponseWriter, r *http.R
 		return
 	}
 
+	tenant := auth.TenantFromContext(r.Context())
+
 	// Update allowlist_mode if provided.
 	if body.AllowlistMode != nil {
-		_, err := h.agentStore.Update(r.Context(), agentID, agent.UpdateAgentInput{
+		_, err := h.agentStore.Update(r.Context(), tenant.ID, agentID, agent.UpdateAgentInput{
 			AllowlistMode: body.AllowlistMode,
 		})
 		if err != nil {
@@ -145,7 +152,7 @@ func (h *permissionsHandler) BulkSetPermissions(w http.ResponseWriter, r *http.R
 		}
 
 		if hasSubTools {
-			if err := h.store.SetBulkWithSubTools(r.Context(), agentID, bulkPerms); err != nil {
+			if err := h.store.SetBulkWithSubTools(r.Context(), tenant.ID, agentID, bulkPerms); err != nil {
 				writeError(w, http.StatusInternalServerError, "internal_error", "failed to set permissions")
 				return
 			}
@@ -155,7 +162,7 @@ func (h *permissionsHandler) BulkSetPermissions(w http.ResponseWriter, r *http.R
 			for toolID, p := range bulkPerms {
 				simple[toolID] = p.Allowed
 			}
-			if err := h.store.SetBulk(r.Context(), agentID, simple); err != nil {
+			if err := h.store.SetBulk(r.Context(), tenant.ID, agentID, simple); err != nil {
 				writeError(w, http.StatusInternalServerError, "internal_error", "failed to set permissions")
 				return
 			}
@@ -177,7 +184,9 @@ func (h *permissionsHandler) DeletePermission(w http.ResponseWriter, r *http.Req
 		return
 	}
 
-	if err := h.store.Delete(r.Context(), agentID, toolID); err != nil {
+	tenant := auth.TenantFromContext(r.Context())
+
+	if err := h.store.Delete(r.Context(), tenant.ID, agentID, toolID); err != nil {
 		writeError(w, http.StatusInternalServerError, "internal_error", "failed to delete permission")
 		return
 	}

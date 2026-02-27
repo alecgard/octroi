@@ -51,7 +51,7 @@ func NewService(store *Store) *Service {
 }
 
 // Create validates the input and creates the tool.
-func (s *Service) Create(ctx context.Context, input CreateToolInput) (*Tool, error) {
+func (s *Service) Create(ctx context.Context, tenantID string, input CreateToolInput) (*Tool, error) {
 	if input.Mode == "" {
 		input.Mode = "service"
 	}
@@ -67,28 +67,28 @@ func (s *Service) Create(ctx context.Context, input CreateToolInput) (*Tool, err
 	if err := validateCreate(input); err != nil {
 		return nil, err
 	}
-	return s.store.Create(ctx, input)
+	return s.store.Create(ctx, tenantID, input)
 }
 
 // GetByID retrieves a tool by its ID.
-func (s *Service) GetByID(ctx context.Context, id string) (*Tool, error) {
-	return s.store.GetByID(ctx, id)
+func (s *Service) GetByID(ctx context.Context, tenantID string, id string) (*Tool, error) {
+	return s.store.GetByID(ctx, tenantID, id)
 }
 
 // List returns a paginated list of tools.
-func (s *Service) List(ctx context.Context, params ToolListParams) ([]*Tool, string, error) {
-	return s.store.List(ctx, params)
+func (s *Service) List(ctx context.Context, tenantID string, params ToolListParams) ([]*Tool, string, error) {
+	return s.store.List(ctx, tenantID, params)
 }
 
 // Update validates the input and applies the update.
-func (s *Service) Update(ctx context.Context, id string, input UpdateToolInput) (*Tool, error) {
+func (s *Service) Update(ctx context.Context, tenantID string, id string, input UpdateToolInput) (*Tool, error) {
 	if err := validateUpdate(input); err != nil {
 		return nil, err
 	}
 	// Cross-field validation: when mode, endpoint, variables, or transport change,
 	// we need to validate the template / transport against the full set of fields.
 	if input.Mode != nil || input.Endpoint != nil || input.Variables != nil || input.Transport != nil {
-		existing, err := s.store.GetByID(ctx, id)
+		existing, err := s.store.GetByID(ctx, tenantID, id)
 		if err != nil {
 			return nil, err
 		}
@@ -119,12 +119,12 @@ func (s *Service) Update(ctx context.Context, id string, input UpdateToolInput) 
 			}
 		}
 	}
-	return s.store.Update(ctx, id, input)
+	return s.store.Update(ctx, tenantID, id, input)
 }
 
 // Delete soft-deletes (archives) a tool by its ID.
-func (s *Service) Delete(ctx context.Context, id string) error {
-	return s.store.Archive(ctx, id)
+func (s *Service) Delete(ctx context.Context, tenantID string, id string) error {
+	return s.store.Archive(ctx, tenantID, id)
 }
 
 // validateCreate checks that all required fields are present and valid.

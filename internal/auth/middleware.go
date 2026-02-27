@@ -69,6 +69,15 @@ func AgentAuthMiddleware(svc *Service, callbacks ...func()) func(http.Handler) h
 				return
 			}
 
+			// Verify tenant match if subdomain tenant is present.
+			if t := TenantFromContext(r.Context()); t != nil && agent.TenantID != t.ID {
+				if onFailure != nil {
+					onFailure()
+				}
+				writeForbidden(w, "tenant mismatch")
+				return
+			}
+
 			if onSuccess != nil {
 				onSuccess()
 			}
@@ -89,6 +98,10 @@ func AdminSessionMiddleware(sessions SessionLookup, callbacks ...func()) func(ht
 	}
 	return func(next http.Handler) http.Handler {
 		return http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
+			if sessions == nil {
+				writeUnauthorized(w, "session auth not configured")
+				return
+			}
 			token := ExtractBearerToken(r)
 			if token == "" {
 				if onFailure != nil {
@@ -104,6 +117,14 @@ func AdminSessionMiddleware(sessions SessionLookup, callbacks ...func()) func(ht
 					onFailure()
 				}
 				writeUnauthorized(w, "invalid or expired session")
+				return
+			}
+			// Verify tenant match if subdomain tenant is present.
+			if t := TenantFromContext(r.Context()); t != nil && user.TenantID != t.ID {
+				if onFailure != nil {
+					onFailure()
+				}
+				writeForbidden(w, "tenant mismatch")
 				return
 			}
 			if user.Role != "org_admin" {
@@ -158,6 +179,10 @@ func MemberAuthMiddleware(sessions SessionLookup, callbacks ...func()) func(http
 	}
 	return func(next http.Handler) http.Handler {
 		return http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
+			if sessions == nil {
+				writeUnauthorized(w, "session auth not configured")
+				return
+			}
 			token := ExtractBearerToken(r)
 			if token == "" {
 				if onFailure != nil {
@@ -173,6 +198,14 @@ func MemberAuthMiddleware(sessions SessionLookup, callbacks ...func()) func(http
 					onFailure()
 				}
 				writeUnauthorized(w, "invalid or expired session")
+				return
+			}
+			// Verify tenant match if subdomain tenant is present.
+			if t := TenantFromContext(r.Context()); t != nil && user.TenantID != t.ID {
+				if onFailure != nil {
+					onFailure()
+				}
+				writeForbidden(w, "tenant mismatch")
 				return
 			}
 

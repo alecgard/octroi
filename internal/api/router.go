@@ -20,6 +20,7 @@ import (
 	"github.com/alecgard/octroi/internal/proxy"
 	"github.com/alecgard/octroi/internal/ratelimit"
 	"github.com/alecgard/octroi/internal/registry"
+	"github.com/alecgard/octroi/internal/tenant"
 	"github.com/alecgard/octroi/internal/ui"
 	"github.com/alecgard/octroi/internal/user"
 	"github.com/go-chi/chi/v5"
@@ -111,6 +112,7 @@ func (l *loginRateLimiter) startCleanup(ctx context.Context, interval time.Durat
 // RouterDeps holds all dependencies for the API router.
 type RouterDeps struct {
 	DBPool             *pgxpool.Pool
+	TenantStore        *tenant.Store
 	ToolService        *registry.Service
 	ToolStore          *registry.Store
 	AgentStore         *agent.Store
@@ -141,6 +143,9 @@ func NewRouter(deps RouterDeps) http.Handler {
 	r.Use(secureHeaders)
 	r.Use(corsMiddleware(deps.AllowedOrigins))
 	r.Use(requestIDMiddleware)
+	if deps.TenantStore != nil {
+		r.Use(auth.TenantMiddleware(tenant.NewAuthAdapter(deps.TenantStore)))
+	}
 	if deps.Metrics != nil {
 		r.Use(metricsMiddleware(deps.Metrics))
 	}

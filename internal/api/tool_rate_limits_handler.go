@@ -5,6 +5,7 @@ import (
 	"errors"
 	"net/http"
 
+	"github.com/alecgard/octroi/internal/auth"
 	"github.com/alecgard/octroi/internal/ratelimit"
 	"github.com/alecgard/octroi/internal/registry"
 	"github.com/go-chi/chi/v5"
@@ -13,14 +14,14 @@ import (
 
 // rateLimitStore defines the rate limit store methods used by the handler.
 type rateLimitStore interface {
-	ListByTool(ctx context.Context, toolID string) ([]ratelimit.ToolRateOverride, error)
-	Set(ctx context.Context, toolID, scope, scopeID string, rate int) error
-	Delete(ctx context.Context, toolID, scope, scopeID string) error
+	ListByTool(ctx context.Context, tenantID, toolID string) ([]ratelimit.ToolRateOverride, error)
+	Set(ctx context.Context, tenantID, toolID, scope, scopeID string, rate int) error
+	Delete(ctx context.Context, tenantID, toolID, scope, scopeID string) error
 }
 
 // rateLimitToolStore defines the tool store methods used by the handler.
 type rateLimitToolStore interface {
-	GetByID(ctx context.Context, id string) (*registry.Tool, error)
+	GetByID(ctx context.Context, tenantID, id string) (*registry.Tool, error)
 }
 
 // toolRateLimitsHandler groups handlers for tool rate limit overrides.
@@ -41,7 +42,9 @@ func (h *toolRateLimitsHandler) ListToolRateLimits(w http.ResponseWriter, r *htt
 		return
 	}
 
-	tool, err := h.toolStore.GetByID(r.Context(), toolID)
+	tenant := auth.TenantFromContext(r.Context())
+
+	tool, err := h.toolStore.GetByID(r.Context(), tenant.ID, toolID)
 	if err != nil {
 		if errors.Is(err, pgx.ErrNoRows) {
 			writeError(w, http.StatusNotFound, "not_found", "tool not found")
@@ -51,7 +54,7 @@ func (h *toolRateLimitsHandler) ListToolRateLimits(w http.ResponseWriter, r *htt
 		return
 	}
 
-	overrides, err := h.store.ListByTool(r.Context(), toolID)
+	overrides, err := h.store.ListByTool(r.Context(), tenant.ID, toolID)
 	if err != nil {
 		writeError(w, http.StatusInternalServerError, "internal_error", "failed to list rate limit overrides")
 		return
@@ -97,8 +100,10 @@ func (h *toolRateLimitsHandler) SetToolRateLimit(w http.ResponseWriter, r *http.
 		return
 	}
 
+	tenant := auth.TenantFromContext(r.Context())
+
 	// Verify tool exists.
-	if _, err := h.toolStore.GetByID(r.Context(), toolID); err != nil {
+	if _, err := h.toolStore.GetByID(r.Context(), tenant.ID, toolID); err != nil {
 		if errors.Is(err, pgx.ErrNoRows) {
 			writeError(w, http.StatusNotFound, "not_found", "tool not found")
 			return
@@ -107,7 +112,7 @@ func (h *toolRateLimitsHandler) SetToolRateLimit(w http.ResponseWriter, r *http.
 		return
 	}
 
-	if err := h.store.Set(r.Context(), toolID, input.Scope, input.ScopeID, input.RateLimit); err != nil {
+	if err := h.store.Set(r.Context(), tenant.ID, toolID, input.Scope, input.ScopeID, input.RateLimit); err != nil {
 		writeError(w, http.StatusInternalServerError, "internal_error", "failed to set rate limit override")
 		return
 	}
@@ -131,7 +136,8 @@ func (h *toolRateLimitsHandler) DeleteToolRateLimit(w http.ResponseWriter, r *ht
 		return
 	}
 
-	err := h.store.Delete(r.Context(), toolID, scope, scopeID)
+	tenant := auth.TenantFromContext(r.Context())
+	err := h.store.Delete(r.Context(), tenant.ID, toolID, scope, scopeID)
 	if err != nil {
 		if errors.Is(err, pgx.ErrNoRows) {
 			writeError(w, http.StatusNotFound, "not_found", "rate limit override not found")

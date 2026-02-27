@@ -30,10 +30,11 @@ func (a *AuthAdapter) LookupSession(ctx context.Context, token string) (*auth.Us
 		}
 	}
 	return &auth.User{
-		ID:    u.ID,
-		Email: u.Email,
-		Name:  u.Name,
-		Teams: teams,
-		Role:  u.Role,
+		ID:       u.ID,
+		Email:    u.Email,
+		Name:     u.Name,
+		Teams:    teams,
+		Role:     u.Role,
+		TenantID: u.TenantID,
 	}, nil
 }

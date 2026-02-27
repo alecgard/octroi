@@ -15,21 +15,21 @@ import (
 
 // usageMeteringStore defines the metering store methods used by the usage handler.
 type usageMeteringStore interface {
-	GetSummary(ctx context.Context, q metering.UsageQuery) (*metering.UsageSummary, error)
-	ListTransactions(ctx context.Context, q metering.UsageQuery) ([]*metering.Transaction, string, error)
-	GetToolCallCounts(ctx context.Context) (map[string]int64, error)
-	GetSubToolCallCounts(ctx context.Context, toolID string) (map[string]int64, error)
-	GetByID(ctx context.Context, id string) (*metering.Transaction, error)
+	GetSummary(ctx context.Context, tenantID string, q metering.UsageQuery) (*metering.UsageSummary, error)
+	ListTransactions(ctx context.Context, tenantID string, q metering.UsageQuery) ([]*metering.Transaction, string, error)
+	GetToolCallCounts(ctx context.Context, tenantID string) (map[string]int64, error)
+	GetSubToolCallCounts(ctx context.Context, tenantID string, toolID string) (map[string]int64, error)
+	GetByID(ctx context.Context, tenantID string, id string) (*metering.Transaction, error)
 }
 
 // usageAgentStore defines the agent store methods used by the usage handler.
 type usageAgentStore interface {
-	ListIDsByTeam(ctx context.Context, team string) ([]string, error)
+	ListIDsByTeam(ctx context.Context, tenantID, team string) ([]string, error)
 }
 
 // usageBodyStore defines the body store methods used by the usage handler.
 type usageBodyStore interface {
-	GetByTransactionID(ctx context.Context, transactionID string) (*metering.RequestBody, error)
+	GetByTransactionID(ctx context.Context, tenantID, transactionID string) (*metering.RequestBody, error)
 }
 
 // usageHandler groups usage and transaction HTTP handlers.
@@ -49,13 +49,13 @@ func (h *usageHandler) setBodyStore(s usageBodyStore) {
 
 // agentIDLister is the subset of agent.Store needed to resolve team filters.
 type agentIDLister interface {
-	ListIDsByTeam(ctx context.Context, team string) ([]string, error)
+	ListIDsByTeam(ctx context.Context, tenantID, team string) ([]string, error)
 }
 
 // resolveTeamFilter resolves ?team= query param into agent IDs and
 // sets q.AgentIDs, intersecting with any existing agent filter.
 // It is a no-op if the team param is empty or q.AgentID is already set.
-func resolveTeamFilter(ctx context.Context, r *http.Request, q *metering.UsageQuery, store agentIDLister) error {
+func resolveTeamFilter(ctx context.Context, r *http.Request, tenantID string, q *metering.UsageQuery, store agentIDLister) error {
 	teamFilter := r.URL.Query().Get("team")
 	if teamFilter == "" || q.AgentID != "" {
 		return nil
@@ -67,7 +67,7 @@ func resolveTeamFilter(ctx context.Context, r *http.Request, q *metering.UsageQu
 		if t == "" {
 			continue
 		}
-		ids, err := store.ListIDsByTeam(ctx, t)
+		ids, err := store.ListIDsByTeam(ctx, tenantID, t)
 		if err != nil {
 			return err
 		}
@@ -206,7 +206,10 @@ func (h *usageHandler) GetUsage(w http.ResponseWriter, r *http.Request) {
 		return
 	}
 
-	summary, err := h.store.GetSummary(r.Context(), *q)
+	agentCtx := auth.AgentFromContext(r.Context())
+	tenantID := agentCtx.TenantID
+
+	summary, err := h.store.GetSummary(r.Context(), tenantID, *q)
 	if err != nil {
 		writeError(w, http.StatusInternalServerError, "internal_error", "failed to get usage summary")
 		return
@@ -223,12 +226,14 @@ func (h *usageHandler) GetUsageAdmin(w http.ResponseWriter, r *http.Request) {
 		return
 	}
 
-	if err := resolveTeamFilter(r.Context(), r, q, h.agentStore); err != nil {
+	tenant := auth.TenantFromContext(r.Context())
+
+	if err := resolveTeamFilter(r.Context(), r, tenant.ID, q, h.agentStore); err != nil {
 		writeError(w, http.StatusInternalServerError, "internal_error", "failed to list team agents")
 		return
 	}
 
-	summary, err := h.store.GetSummary(r.Context(), *q)
+	summary, err := h.store.GetSummary(r.Context(), tenant.ID, *q)
 	if err != nil {
 		writeError(w, http.StatusInternalServerError, "internal_error", "failed to get usage summary")
 		return
@@ -246,15 +251,20 @@ func (h *usageHandler) ListTransactions(w http.ResponseWriter, r *http.Request, 
 		return
 	}
 
-	// Team filter for admin.
+	var tenantID string
 	if isAdmin {
-		if err := resolveTeamFilter(r.Context(), r, q, h.agentStore); err != nil {
+		tenant := auth.TenantFromContext(r.Context())
+		tenantID = tenant.ID
+		if err := resolveTeamFilter(r.Context(), r, tenantID, q, h.agentStore); err != nil {
 			writeError(w, http.StatusInternalServerError, "internal_error", "failed to list team agents")
 			return
 		}
+	} else {
+		agentCtx := auth.AgentFromContext(r.Context())
+		tenantID = agentCtx.TenantID
 	}
 
-	txns, nextCursor, err := h.store.ListTransactions(r.Context(), *q)
+	txns, nextCursor, err := h.store.ListTransactions(r.Context(), tenantID, *q)
 	if err != nil {
 		writeError(w, http.StatusInternalServerError, "internal_error", "failed to list transactions")
 		return
@@ -271,7 +281,8 @@ func (h *usageHandler) ListTransactions(w http.ResponseWriter, r *http.Request, 
 
 // GetToolCallCounts handles GET /api/v1/admin/usage/tools/calls (admin).
 func (h *usageHandler) GetToolCallCounts(w http.ResponseWriter, r *http.Request) {
-	counts, err := h.store.GetToolCallCounts(r.Context())
+	tenant := auth.TenantFromContext(r.Context())
+	counts, err := h.store.GetToolCallCounts(r.Context(), tenant.ID)
 	if err != nil {
 		writeError(w, http.StatusInternalServerError, "internal_error", "failed to get tool call counts")
 		return
@@ -286,7 +297,8 @@ func (h *usageHandler) GetSubToolCallCounts(w http.ResponseWriter, r *http.Reque
 		writeError(w, http.StatusBadRequest, "invalid_id", "tool id is required")
 		return
 	}
-	counts, err := h.store.GetSubToolCallCounts(r.Context(), id)
+	tenant := auth.TenantFromContext(r.Context())
+	counts, err := h.store.GetSubToolCallCounts(r.Context(), tenant.ID, id)
 	if err != nil {
 		writeError(w, http.StatusInternalServerError, "internal_error", "failed to get sub-tool call counts")
 		return
@@ -302,8 +314,10 @@ func (h *usageHandler) GetTransactionDetail(w http.ResponseWriter, r *http.Reque
 		return
 	}
 
+	tenant := auth.TenantFromContext(r.Context())
+
 	// Get the transaction by ID.
-	found, err := h.store.GetByID(r.Context(), id)
+	found, err := h.store.GetByID(r.Context(), tenant.ID, id)
 	if err != nil {
 		writeError(w, http.StatusNotFound, "not_found", "transaction not found")
 		return
@@ -315,7 +329,7 @@ func (h *usageHandler) GetTransactionDetail(w http.ResponseWriter, r *http.Reque
 
 	// Include body if available.
 	if h.bodyStore != nil {
-		body, bErr := h.bodyStore.GetByTransactionID(r.Context(), id)
+		body, bErr := h.bodyStore.GetByTransactionID(r.Context(), tenant.ID, id)
 		if bErr == nil && body != nil {
 			bodyMap := map[string]interface{}{
 				"request_body":  tryParseJSON(body.RequestBody),

@@ -57,7 +57,7 @@ func (f *fakeUserStore) Create(_ context.Context, in user.CreateUserInput) (*use
 	return u, nil
 }
 
-func (f *fakeUserStore) List(_ context.Context) ([]*user.User, error) {
+func (f *fakeUserStore) List(_ context.Context, _ string) ([]*user.User, error) {
 	var out []*user.User
 	for _, u := range f.users {
 		if u.ArchivedAt == nil {
@@ -67,7 +67,7 @@ func (f *fakeUserStore) List(_ context.Context) ([]*user.User, error) {
 	return out, nil
 }
 
-func (f *fakeUserStore) GetByID(_ context.Context, id string) (*user.User, error) {
+func (f *fakeUserStore) GetByID(_ context.Context, _, id string) (*user.User, error) {
 	u, ok := f.users[id]
 	if !ok || u.ArchivedAt != nil {
 		return nil, pgx.ErrNoRows
@@ -75,7 +75,7 @@ func (f *fakeUserStore) GetByID(_ context.Context, id string) (*user.User, error
 	return u, nil
 }
 
-func (f *fakeUserStore) Update(_ context.Context, id string, in user.UpdateUserInput) (*user.User, error) {
+func (f *fakeUserStore) Update(_ context.Context, _, id string, in user.UpdateUserInput) (*user.User, error) {
 	u, ok := f.users[id]
 	if !ok || u.ArchivedAt != nil {
 		return nil, pgx.ErrNoRows
@@ -102,7 +102,7 @@ func (f *fakeUserStore) Update(_ context.Context, id string, in user.UpdateUserI
 	return u, nil
 }
 
-func (f *fakeUserStore) Archive(_ context.Context, id string) error {
+func (f *fakeUserStore) Archive(_ context.Context, _, id string) error {
 	u, ok := f.users[id]
 	if !ok || u.ArchivedAt != nil {
 		return fmt.Errorf("user not found")
@@ -133,7 +133,8 @@ func usersRouter(h *usersHandler) *chi.Mux {
 }
 
 func adminCtx() context.Context {
-	return auth.ContextWithUser(context.Background(), &auth.User{
+	ctx := auth.ContextWithTenant(context.Background(), &auth.Tenant{ID: "t1"})
+	return auth.ContextWithUser(ctx, &auth.User{
 		ID:    "admin-1",
 		Email: "admin@test.com",
 		Role:  "org_admin",
@@ -142,7 +143,8 @@ func adminCtx() context.Context {
 }
 
 func memberCtx(id string) context.Context {
-	return auth.ContextWithUser(context.Background(), &auth.User{
+	ctx := auth.ContextWithTenant(context.Background(), &auth.Tenant{ID: "t1"})
+	return auth.ContextWithUser(ctx, &auth.User{
 		ID:    id,
 		Email: "member@test.com",
 		Role:  "member",

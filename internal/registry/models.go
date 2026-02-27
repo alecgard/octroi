@@ -30,6 +30,7 @@ type Tool struct {
 	CBWindowSeconds     int           `json:"cb_window_seconds"`
 	CBCooldownSeconds   int           `json:"cb_cooldown_seconds"`
 	Enabled         bool              `json:"enabled"`
+	TenantID        string            `json:"-"`
 	CreatedAt       time.Time         `json:"created_at"`
 	UpdatedAt       time.Time         `json:"updated_at"`
 }

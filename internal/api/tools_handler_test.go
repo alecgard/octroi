@@ -37,7 +37,7 @@ func (f *fakeToolService) seed(tools ...*registry.Tool) {
 	}
 }
 
-func (f *fakeToolService) Create(_ context.Context, input registry.CreateToolInput) (*registry.Tool, error) {
+func (f *fakeToolService) Create(_ context.Context, _ string, input registry.CreateToolInput) (*registry.Tool, error) {
 	if f.createHook != nil {
 		if err := f.createHook(input); err != nil {
 			return nil, err
@@ -99,7 +99,7 @@ func (f *fakeToolService) Create(_ context.Context, input registry.CreateToolInp
 	return tool, nil
 }
 
-func (f *fakeToolService) GetByID(_ context.Context, id string) (*registry.Tool, error) {
+func (f *fakeToolService) GetByID(_ context.Context, _, id string) (*registry.Tool, error) {
 	t, ok := f.tools[id]
 	if !ok {
 		return nil, pgx.ErrNoRows
@@ -107,7 +107,7 @@ func (f *fakeToolService) GetByID(_ context.Context, id string) (*registry.Tool,
 	return t, nil
 }
 
-func (f *fakeToolService) List(_ context.Context, params registry.ToolListParams) ([]*registry.Tool, string, error) {
+func (f *fakeToolService) List(_ context.Context, _ string, params registry.ToolListParams) ([]*registry.Tool, string, error) {
 	limit := params.Limit
 	if limit <= 0 {
 		limit = 20
@@ -140,7 +140,7 @@ func (f *fakeToolService) List(_ context.Context, params registry.ToolListParams
 	return result, nextCursor, nil
 }
 
-func (f *fakeToolService) Update(_ context.Context, id string, input registry.UpdateToolInput) (*registry.Tool, error) {
+func (f *fakeToolService) Update(_ context.Context, _, id string, input registry.UpdateToolInput) (*registry.Tool, error) {
 	t, ok := f.tools[id]
 	if !ok {
 		return nil, pgx.ErrNoRows
@@ -167,7 +167,7 @@ func (f *fakeToolService) Update(_ context.Context, id string, input registry.Up
 	return t, nil
 }
 
-func (f *fakeToolService) Delete(_ context.Context, id string) error {
+func (f *fakeToolService) Delete(_ context.Context, _, id string) error {
 	if _, ok := f.tools[id]; !ok {
 		return pgx.ErrNoRows
 	}
@@ -194,6 +194,14 @@ func itoa(n int) string {
 func toolsRouter(svc toolServicer) chi.Router {
 	r := chi.NewRouter()
 	h := newToolsHandler(svc)
+
+	// Inject tenant context for all routes.
+	r.Use(func(next http.Handler) http.Handler {
+		return http.HandlerFunc(func(w http.ResponseWriter, req *http.Request) {
+			ctx := auth.ContextWithTenant(req.Context(), &auth.Tenant{ID: "t1"})
+			next.ServeHTTP(w, req.WithContext(ctx))
+		})
+	})
 
 	// Public routes.
 	r.Get("/api/v1/tools", h.ListTools)

@@ -36,15 +36,15 @@ type MCPToolLister interface {
 
 // ToolStore is the interface for looking up tools by ID.
 type ToolStore interface {
-	GetByID(ctx context.Context, id string) (*registry.Tool, error)
+	GetByID(ctx context.Context, tenantID, id string) (*registry.Tool, error)
 	// GetByIDIncludeArchived returns a tool even if it's archived (for recording failed txns).
 	GetByIDIncludeArchived(ctx context.Context, id string) (*registry.Tool, error)
 }
 
 // BudgetChecker is the interface for checking agent and global tool budgets.
 type BudgetChecker interface {
-	CheckBudget(ctx context.Context, agentID, toolID string) (allowed bool, remainingDaily float64, remainingMonthly float64, err error)
-	CheckToolGlobalBudget(ctx context.Context, toolID string) (allowed bool, remaining float64, err error)
+	CheckBudget(ctx context.Context, tenantID, agentID, toolID string) (allowed bool, remainingDaily float64, remainingMonthly float64, err error)
+	CheckToolGlobalBudget(ctx context.Context, tenantID, toolID string) (allowed bool, remaining float64, err error)
 }
 
 // MeteringRecorder is the interface for recording transactions.
@@ -54,18 +54,18 @@ type MeteringRecorder interface {
 
 // ToolRateLimitChecker is the interface for checking per-tool rate limits.
 type ToolRateLimitChecker interface {
-	CheckToolRateLimit(ctx context.Context, toolID, team, agentID string) (allowed bool, limit, remaining int, resetAt time.Time, err error)
+	CheckToolRateLimit(ctx context.Context, tenantID, toolID, team, agentID string) (allowed bool, limit, remaining int, resetAt time.Time, err error)
 }
 
 // BodyRecorder stores request/response bodies for a transaction.
 type BodyRecorder interface {
-	RecordBody(ctx context.Context, transactionID string, reqBody, respBody []byte)
+	RecordBody(ctx context.Context, tenantID, transactionID string, reqBody, respBody []byte)
 }
 
 // PermissionChecker checks if an agent is allowed to use a tool.
 type PermissionChecker interface {
-	IsAllowed(ctx context.Context, agentID, toolID string) (bool, error)
-	IsSubToolAllowed(ctx context.Context, agentID, toolID, subTool string) (bool, error)
+	IsAllowed(ctx context.Context, tenantID, agentID, toolID string) (bool, error)
+	IsSubToolAllowed(ctx context.Context, tenantID, agentID, toolID, subTool string) (bool, error)
 }
 
 // WebhookDispatcher dispatches budget threshold webhooks.
@@ -181,13 +181,16 @@ func (h *Handler) ServeHTTP(w http.ResponseWriter, r *http.Request) {
 		return
 	}
 
+	tenantID := agent.TenantID
+
 	// Look up tool (archived tools return not-found).
-	tool, err := h.tools.GetByID(r.Context(), toolID)
+	tool, err := h.tools.GetByID(r.Context(), tenantID, toolID)
 	if err != nil {
 		// Check if the tool exists but is archived — if so, record the failed transaction.
 		// No tool_name is stored: post-deletion failures show just the tool ID in usage.
 		if archived, archErr := h.tools.GetByIDIncludeArchived(r.Context(), toolID); archErr == nil {
 			h.collector.Record(metering.Transaction{
+				TenantID:   tenantID,
 				AgentID:    agent.ID,
 				AgentName:  agent.Name,
 				ToolID:     archived.ID,
@@ -206,7 +209,7 @@ func (h *Handler) ServeHTTP(w http.ResponseWriter, r *http.Request) {
 
 	// Check agent tool permissions.
 	if h.permissions != nil {
-		allowed, permErr := h.permissions.IsAllowed(r.Context(), agent.ID, tool.ID)
+		allowed, permErr := h.permissions.IsAllowed(r.Context(), tenantID, agent.ID, tool.ID)
 		if permErr == nil && !allowed {
 			writeError(w, http.StatusForbidden, "permission_denied", "agent not permitted to use this tool")
 			return
@@ -221,7 +224,7 @@ func (h *Handler) ServeHTTP(w http.ResponseWriter, r *http.Request) {
 
 	// Check per-tool rate limits (global / team / agent scopes).
 	if h.toolRateLimits != nil {
-		tlAllowed, tlLimit, tlRemaining, tlResetAt, tlErr := h.toolRateLimits.CheckToolRateLimit(r.Context(), tool.ID, agent.Team, agent.ID)
+		tlAllowed, tlLimit, tlRemaining, tlResetAt, tlErr := h.toolRateLimits.CheckToolRateLimit(r.Context(), tenantID, tool.ID, agent.Team, agent.ID)
 		if tlErr == nil {
 			if tlLimit > 0 {
 				w.Header().Set("X-Tool-RateLimit-Limit", fmt.Sprintf("%d", tlLimit))
@@ -239,7 +242,7 @@ func (h *Handler) ServeHTTP(w http.ResponseWriter, r *http.Request) {
 	}
 
 	// Check per-agent budget.
-	allowed, _, _, err := h.budgets.CheckBudget(r.Context(), agent.ID, tool.ID)
+	allowed, _, _, err := h.budgets.CheckBudget(r.Context(), tenantID, agent.ID, tool.ID)
 	if err == nil && !allowed {
 		if h.metrics != nil {
 			h.metrics.IncBudgetRejection("agent")
@@ -249,7 +252,7 @@ func (h *Handler) ServeHTTP(w http.ResponseWriter, r *http.Request) {
 	}
 
 	// Check global tool budget.
-	globalAllowed, globalRemaining, err := h.budgets.CheckToolGlobalBudget(r.Context(), tool.ID)
+	globalAllowed, globalRemaining, err := h.budgets.CheckToolGlobalBudget(r.Context(), tenantID, tool.ID)
 	if err == nil && !globalAllowed {
 		if h.metrics != nil {
 			h.metrics.IncBudgetRejection("global")
@@ -444,7 +447,7 @@ func (h *Handler) ServeHTTP(w http.ResponseWriter, r *http.Request) {
 			if h.circuitBreaker != nil && tool.CBEnabled {
 				h.circuitBreaker.RecordResult(tool.ID, cbCfg, 502)
 			}
-			h.recordTransactionWithID(attemptTxnID, agent.ID, agent.Name, tool, r, 502, latency, requestSize, 0, false, "")
+			h.recordTransactionWithID(attemptTxnID, tenantID, agent.ID, agent.Name, tool, r, 502, latency, requestSize, 0, false, "")
 			continue // retry
 		}
 
@@ -460,7 +463,7 @@ func (h *Handler) ServeHTTP(w http.ResponseWriter, r *http.Request) {
 			if h.circuitBreaker != nil && tool.CBEnabled {
 				h.circuitBreaker.RecordResult(tool.ID, cbCfg, resp.StatusCode)
 			}
-			h.recordTransactionWithID(attemptTxnID, agent.ID, agent.Name, tool, r, resp.StatusCode, latency, requestSize, 0, false, resp.Header.Get("X-Octroi-Cost"))
+			h.recordTransactionWithID(attemptTxnID, tenantID, agent.ID, agent.Name, tool, r, resp.StatusCode, latency, requestSize, 0, false, resp.Header.Get("X-Octroi-Cost"))
 			continue
 		}
 
@@ -493,14 +496,14 @@ func (h *Handler) ServeHTTP(w http.ResponseWriter, r *http.Request) {
 		}
 
 		success := resp.StatusCode >= 200 && resp.StatusCode < 300
-		h.recordTransactionWithID(attemptTxnID, agent.ID, agent.Name, tool, r, resp.StatusCode, latency, requestSize, responseSize, success, reportedCostHeader)
+		h.recordTransactionWithID(attemptTxnID, tenantID, agent.ID, agent.Name, tool, r, resp.StatusCode, latency, requestSize, responseSize, success, reportedCostHeader)
 
 		// Record bodies asynchronously if enabled.
 		if tool.LogBodies && h.bodyRecorder != nil && (len(capturedReqBody) > 0 || len(capturedRespBody) > 0) {
 			redactCfg := metering.RedactConfig{AuthType: tool.AuthType, AuthConfig: tool.AuthConfig}
 			reqRedacted := metering.RedactBody(capturedReqBody, redactCfg)
 			respRedacted := metering.RedactBody(capturedRespBody, redactCfg)
-			go h.bodyRecorder.RecordBody(context.Background(), attemptTxnID, reqRedacted, respRedacted)
+			go h.bodyRecorder.RecordBody(context.Background(), tenantID, attemptTxnID, reqRedacted, respRedacted)
 		}
 
 		// Check budget threshold webhooks.
@@ -515,7 +518,7 @@ func (h *Handler) ServeHTTP(w http.ResponseWriter, r *http.Request) {
 	writeError(w, http.StatusBadGateway, "proxy_error", "upstream request failed after retries")
 }
 
-func (h *Handler) recordTransactionWithID(txnID string, agentID, agentName string, tool *registry.Tool, r *http.Request, statusCode int, latency time.Duration, requestSize int64, responseSize int64, success bool, reportedCostHeader string) {
+func (h *Handler) recordTransactionWithID(txnID string, tenantID, agentID, agentName string, tool *registry.Tool, r *http.Request, statusCode int, latency time.Duration, requestSize int64, responseSize int64, success bool, reportedCostHeader string) {
 	cost := 0.0
 	costSource := "flat"
 
@@ -532,6 +535,7 @@ func (h *Handler) recordTransactionWithID(txnID string, agentID, agentName strin
 
 	h.collector.Record(metering.Transaction{
 		ID:           txnID,
+		TenantID:     tenantID,
 		AgentID:      agentID,
 		ToolID:       tool.ID,
 		Timestamp:    time.Now().UTC(),
@@ -600,7 +604,7 @@ func (h *Handler) serveMCP(w http.ResponseWriter, r *http.Request, tool *registr
 
 	// Check sub-tool permissions.
 	if h.permissions != nil {
-		allowed, permErr := h.permissions.IsSubToolAllowed(r.Context(), agent.ID, tool.ID, subTool)
+		allowed, permErr := h.permissions.IsSubToolAllowed(r.Context(), agent.TenantID, agent.ID, tool.ID, subTool)
 		if permErr == nil && !allowed {
 			writeError(w, http.StatusForbidden, "permission_denied", "agent not permitted to use this sub-tool")
 			return
@@ -644,7 +648,7 @@ func (h *Handler) serveMCP(w http.ResponseWriter, r *http.Request, tool *registr
 		if h.circuitBreaker != nil && tool.CBEnabled {
 			h.circuitBreaker.RecordResult(tool.ID, cbCfg, 502)
 		}
-		h.recordTransactionWithID(txnID, agent.ID, agent.Name, tool, r, 502, latency, 0, 0, false, "")
+		h.recordTransactionWithID(txnID, agent.TenantID, agent.ID, agent.Name, tool, r, 502, latency, 0, 0, false, "")
 		writeError(w, http.StatusBadGateway, "proxy_error", "MCP upstream call failed")
 		return
 	}
@@ -669,11 +673,11 @@ func (h *Handler) serveMCP(w http.ResponseWriter, r *http.Request, tool *registr
 		h.circuitBreaker.RecordResult(tool.ID, cbCfg, statusCode)
 	}
 
-	h.recordTransactionWithID(txnID, agent.ID, agent.Name, tool, r, statusCode, latency, 0, int64(len(respBytes)), success, "")
+	h.recordTransactionWithID(txnID, agent.TenantID, agent.ID, agent.Name, tool, r, statusCode, latency, 0, int64(len(respBytes)), success, "")
 
 	// Check budget threshold webhooks.
 	if h.webhooks != nil && tool.WebhookURL != "" && tool.BudgetLimit > 0 {
-		_, globalRemaining, budgetErr := h.budgets.CheckToolGlobalBudget(r.Context(), tool.ID)
+		_, globalRemaining, budgetErr := h.budgets.CheckToolGlobalBudget(r.Context(), agent.TenantID, tool.ID)
 		if budgetErr == nil {
 			currentUsage := tool.BudgetLimit - globalRemaining
 			h.webhooks.MaybeDispatch(tool.ID, tool.Name, tool.WebhookURL, tool.WebhookThresholdPct, tool.BudgetLimit, currentUsage)
@@ -682,7 +686,7 @@ func (h *Handler) serveMCP(w http.ResponseWriter, r *http.Request, tool *registr
 
 	// Record bodies asynchronously if enabled.
 	if tool.LogBodies && h.bodyRecorder != nil && (len(capturedReqBody) > 0 || len(respBytes) > 0) {
-		go h.bodyRecorder.RecordBody(context.Background(), txnID, capturedReqBody, respBytes)
+		go h.bodyRecorder.RecordBody(context.Background(), agent.TenantID, txnID, capturedReqBody, respBytes)
 	}
 }
 

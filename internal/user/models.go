@@ -16,6 +16,7 @@ type User struct {
 	Name         string           `json:"name"`
 	Teams        []TeamMembership `json:"teams"`
 	Role         string           `json:"role"` // "org_admin" or "member"
+	TenantID     string           `json:"tenant_id"`
 	CreatedAt    time.Time        `json:"created_at"`
 	ArchivedAt   *time.Time       `json:"archived_at,omitempty"`
 }
@@ -27,6 +28,7 @@ type CreateUserInput struct {
 	Name     string           `json:"name"`
 	Teams    []TeamMembership `json:"teams"`
 	Role     string           `json:"role"`
+	TenantID string           `json:"tenant_id"`
 }
 
 // UpdateUserInput holds optional fields for a partial user update.

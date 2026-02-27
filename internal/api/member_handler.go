@@ -17,19 +17,19 @@ import (
 
 // memberAgentStore defines the agent store methods used by member handlers.
 type memberAgentStore interface {
-	ListByTeams(ctx context.Context, teams []string, params agent.AgentListParams) ([]*agent.Agent, string, error)
-	GetByID(ctx context.Context, id string) (*agent.Agent, error)
+	ListByTeams(ctx context.Context, tenantID string, teams []string, params agent.AgentListParams) ([]*agent.Agent, string, error)
+	GetByID(ctx context.Context, tenantID, id string) (*agent.Agent, error)
 	Create(ctx context.Context, in agent.CreateAgentInput) (*agent.Agent, error)
-	Update(ctx context.Context, id string, in agent.UpdateAgentInput) (*agent.Agent, error)
-	Archive(ctx context.Context, id string) error
-	RegenerateKey(ctx context.Context, id, newHash, newPrefix string) (*agent.Agent, error)
-	ListIDsByTeams(ctx context.Context, teams []string) ([]string, error)
+	Update(ctx context.Context, tenantID, id string, in agent.UpdateAgentInput) (*agent.Agent, error)
+	Archive(ctx context.Context, tenantID, id string) error
+	RegenerateKey(ctx context.Context, tenantID, id, newHash, newPrefix string) (*agent.Agent, error)
+	ListIDsByTeams(ctx context.Context, tenantID string, teams []string) ([]string, error)
 }
 
 // memberMeterStore defines the metering store methods used by member handlers.
 type memberMeterStore interface {
-	GetSummary(ctx context.Context, q metering.UsageQuery) (*metering.UsageSummary, error)
-	ListTransactions(ctx context.Context, q metering.UsageQuery) ([]*metering.Transaction, string, error)
+	GetSummary(ctx context.Context, tenantID string, q metering.UsageQuery) (*metering.UsageSummary, error)
+	ListTransactions(ctx context.Context, tenantID string, q metering.UsageQuery) ([]*metering.Transaction, string, error)
 }
 
 // memberHandler groups member (team-scoped) HTTP handlers.
@@ -68,7 +68,7 @@ func resolveMemberTeamFilter(ctx context.Context, r *http.Request, u *auth.User,
 			teams = validTeams
 		}
 	}
-	return agentStore.ListIDsByTeams(ctx, teams)
+	return agentStore.ListIDsByTeams(ctx, u.TenantID, teams)
 }
 
 // ListAgents handles GET /api/v1/member/agents — agents in user's teams.
@@ -91,7 +91,7 @@ func (h *memberHandler) ListAgents(w http.ResponseWriter, r *http.Request) {
 		params.Limit = l
 	}
 
-	agents, nextCursor, err := h.agentStore.ListByTeams(r.Context(), u.TeamNames(), params)
+	agents, nextCursor, err := h.agentStore.ListByTeams(r.Context(), u.TenantID, u.TeamNames(), params)
 	if err != nil {
 		writeError(w, http.StatusInternalServerError, "internal_error", "failed to list agents")
 		return
@@ -158,6 +158,7 @@ func (h *memberHandler) CreateAgent(w http.ResponseWriter, r *http.Request) {
 		APIKeyPrefix: apiKey.Prefix,
 		Team:         team,
 		RateLimit:    req.RateLimit,
+		TenantID:     u.TenantID,
 	}
 
 	ag, err := h.agentStore.Create(r.Context(), input)
@@ -195,7 +196,7 @@ func (h *memberHandler) UpdateAgent(w http.ResponseWriter, r *http.Request) {
 	}
 
 	// Verify ownership.
-	existing, err := h.agentStore.GetByID(r.Context(), id)
+	existing, err := h.agentStore.GetByID(r.Context(), u.TenantID, id)
 	if err != nil {
 		if errors.Is(err, pgx.ErrNoRows) {
 			writeError(w, http.StatusNotFound, "not_found", "agent not found")
@@ -217,7 +218,7 @@ func (h *memberHandler) UpdateAgent(w http.ResponseWriter, r *http.Request) {
 	// Members cannot change team.
 	input.Team = nil
 
-	ag, err := h.agentStore.Update(r.Context(), id, input)
+	ag, err := h.agentStore.Update(r.Context(), u.TenantID, id, input)
 	if err != nil {
 		writeError(w, http.StatusInternalServerError, "internal_error", "failed to update agent")
 		return
@@ -243,7 +244,7 @@ func (h *memberHandler) DeleteAgent(w http.ResponseWriter, r *http.Request) {
 	}
 
 	// Verify ownership.
-	existing, err := h.agentStore.GetByID(r.Context(), id)
+	existing, err := h.agentStore.GetByID(r.Context(), u.TenantID, id)
 	if err != nil {
 		if errors.Is(err, pgx.ErrNoRows) {
 			writeError(w, http.StatusNotFound, "not_found", "agent not found")
@@ -257,7 +258,7 @@ func (h *memberHandler) DeleteAgent(w http.ResponseWriter, r *http.Request) {
 		return
 	}
 
-	if err := h.agentStore.Archive(r.Context(), id); err != nil {
+	if err := h.agentStore.Archive(r.Context(), u.TenantID, id); err != nil {
 		writeError(w, http.StatusInternalServerError, "internal_error", "failed to delete agent")
 		return
 	}
@@ -282,7 +283,7 @@ func (h *memberHandler) RegenerateKey(w http.ResponseWriter, r *http.Request) {
 	}
 
 	// Verify ownership.
-	existing, err := h.agentStore.GetByID(r.Context(), id)
+	existing, err := h.agentStore.GetByID(r.Context(), u.TenantID, id)
 	if err != nil {
 		if errors.Is(err, pgx.ErrNoRows) {
 			writeError(w, http.StatusNotFound, "not_found", "agent not found")
@@ -302,7 +303,7 @@ func (h *memberHandler) RegenerateKey(w http.ResponseWriter, r *http.Request) {
 		return
 	}
 
-	ag, err := h.agentStore.RegenerateKey(r.Context(), id, apiKey.Hash, apiKey.Prefix)
+	ag, err := h.agentStore.RegenerateKey(r.Context(), u.TenantID, id, apiKey.Hash, apiKey.Prefix)
 	if err != nil {
 		writeError(w, http.StatusInternalServerError, "internal_error", "failed to regenerate key")
 		return
@@ -342,7 +343,7 @@ func (h *memberHandler) GetUsage(w http.ResponseWriter, r *http.Request) {
 	}
 	q.AgentIDs = agentIDs
 
-	summary, err := h.meterStore.GetSummary(r.Context(), q)
+	summary, err := h.meterStore.GetSummary(r.Context(), u.TenantID, q)
 	if err != nil {
 		writeError(w, http.StatusInternalServerError, "internal_error", "failed to get usage summary")
 		return
@@ -372,7 +373,7 @@ func (h *memberHandler) ListTransactions(w http.ResponseWriter, r *http.Request)
 	}
 	q.AgentIDs = agentIDs
 
-	txns, nextCursor, err := h.meterStore.ListTransactions(r.Context(), q)
+	txns, nextCursor, err := h.meterStore.ListTransactions(r.Context(), u.TenantID, q)
 	if err != nil {
 		writeError(w, http.StatusInternalServerError, "internal_error", "failed to list transactions")
 		return

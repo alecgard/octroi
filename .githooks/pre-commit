@@ -11,19 +11,19 @@ ROOT="$(git rev-parse --show-toplevel)"
 E2E_CONFIG="configs/octroi.e2e.yaml"
 DEV_ENV="configs/.env.dev"
 E2E_PROJECT="octroi-e2e"
-SERVER_PID=""
 
 cleanup() {
-  if [ -n "$SERVER_PID" ]; then
-    kill "$SERVER_PID" 2>/dev/null || true
-    wait "$SERVER_PID" 2>/dev/null || true
-  fi
+  # Kill server by port (go run spawns a child that survives PID-based kill).
+  lsof -ti :9091 2>/dev/null | xargs kill -9 2>/dev/null || true
   # Tear down the ephemeral e2e Postgres (tmpfs, no persistent data).
   docker compose -p "$E2E_PROJECT" -f docker-compose.e2e.yml down 2>/dev/null || true
 }
 trap cleanup EXIT
 
 cd "$ROOT"
+
+# Kill any stale server from a previous interrupted run.
+lsof -ti :9091 2>/dev/null | xargs kill -9 2>/dev/null || true
 
 # --- Go unit & handler tests ---
 echo "Running Go tests..."
@@ -61,7 +61,7 @@ echo "Seeding e2e data..."
 timeout 30 scripts/seed.sh http://localhost:9091 2>/dev/null || true
 
 echo "Running Playwright e2e tests..."
-cd e2e && BASE_URL="http://localhost:9091" npm test
+(cd e2e && BASE_URL="http://local.localhost:9091" npm test)
 echo "E2E tests passed."
 
 echo "All tests passed."

@@ -23,7 +23,7 @@ func NewStore(pool *pgxpool.Pool) *Store {
 
 // BatchInsert writes a slice of transactions to the database in a single
 // multi-row INSERT statement. It is a no-op when txns is empty.
-func (s *Store) BatchInsert(ctx context.Context, txns []Transaction) error {
+func (s *Store) BatchInsert(ctx context.Context, tenantID string, txns []Transaction) error {
 	if len(txns) == 0 {
 		return nil
 	}
@@ -34,13 +34,13 @@ func (s *Store) BatchInsert(ctx context.Context, txns []Transaction) error {
 	var colsPerRow int
 	var insertCols string
 	if hasExplicitIDs {
-		colsPerRow = 17
+		colsPerRow = 18
 		insertCols = `(id, agent_id, tool_id, timestamp, method, path, status_code, latency_ms,
-		 request_size, response_size, success, cost, error, cost_source, agent_name, tool_name, channel)`
+		 request_size, response_size, success, cost, error, cost_source, agent_name, tool_name, channel, tenant_id)`
 	} else {
-		colsPerRow = 16
+		colsPerRow = 17
 		insertCols = `(agent_id, tool_id, timestamp, method, path, status_code, latency_ms,
-		 request_size, response_size, success, cost, error, cost_source, agent_name, tool_name, channel)`
+		 request_size, response_size, success, cost, error, cost_source, agent_name, tool_name, channel, tenant_id)`
 	}
 
 	args := make([]any, 0, len(txns)*colsPerRow)
@@ -60,10 +60,10 @@ func (s *Store) BatchInsert(ctx context.Context, txns []Transaction) error {
 
 		if hasExplicitIDs {
 			rows = append(rows, fmt.Sprintf(
-				"($%d, $%d, $%d, $%d, $%d, $%d, $%d, $%d, $%d, $%d, $%d, $%d, $%d, $%d, $%d, $%d, $%d)",
+				"($%d, $%d, $%d, $%d, $%d, $%d, $%d, $%d, $%d, $%d, $%d, $%d, $%d, $%d, $%d, $%d, $%d, $%d)",
 				base+1, base+2, base+3, base+4, base+5, base+6, base+7,
 				base+8, base+9, base+10, base+11, base+12, base+13, base+14,
-				base+15, base+16, base+17,
+				base+15, base+16, base+17, base+18,
 			))
 			args = append(args,
 				tx.ID,
@@ -83,12 +83,13 @@ func (s *Store) BatchInsert(ctx context.Context, txns []Transaction) error {
 				tx.AgentName,
 				tx.ToolName,
 				channel,
+				tenantID,
 			)
 		} else {
 			rows = append(rows, fmt.Sprintf(
-				"($%d, $%d, $%d, $%d, $%d, $%d, $%d, $%d, $%d, $%d, $%d, $%d, $%d, $%d, $%d, $%d)",
+				"($%d, $%d, $%d, $%d, $%d, $%d, $%d, $%d, $%d, $%d, $%d, $%d, $%d, $%d, $%d, $%d, $%d)",
 				base+1, base+2, base+3, base+4, base+5, base+6, base+7,
-				base+8, base+9, base+10, base+11, base+12, base+13, base+14, base+15, base+16,
+				base+8, base+9, base+10, base+11, base+12, base+13, base+14, base+15, base+16, base+17,
 			))
 			args = append(args,
 				tx.AgentID,
@@ -107,6 +108,7 @@ func (s *Store) BatchInsert(ctx context.Context, txns []Transaction) error {
 				tx.AgentName,
 				tx.ToolName,
 				channel,
+				tenantID,
 			)
 		}
 	}
@@ -123,19 +125,19 @@ func (s *Store) BatchInsert(ctx context.Context, txns []Transaction) error {
 }
 
 // GetByID retrieves a single transaction by its ID.
-func (s *Store) GetByID(ctx context.Context, id string) (*Transaction, error) {
+func (s *Store) GetByID(ctx context.Context, tenantID string, id string) (*Transaction, error) {
 	var tx Transaction
 	err := s.pool.QueryRow(ctx,
 		`SELECT id, agent_id, tool_id,
 			timestamp, method, path,
 			status_code, latency_ms, request_size, response_size, success, cost, cost_source, error,
-			agent_name, tool_name, channel
-		 FROM transactions WHERE id = $1`, id,
+			agent_name, tool_name, channel, tenant_id
+		 FROM transactions WHERE id = $1 AND tenant_id = $2`, id, tenantID,
 	).Scan(
 		&tx.ID, &tx.AgentID, &tx.ToolID, &tx.Timestamp,
 		&tx.Method, &tx.Path, &tx.StatusCode, &tx.LatencyMs,
 		&tx.RequestSize, &tx.ResponseSize, &tx.Success, &tx.Cost, &tx.CostSource, &tx.Error,
-		&tx.AgentName, &tx.ToolName, &tx.Channel,
+		&tx.AgentName, &tx.ToolName, &tx.Channel, &tx.TenantID,
 	)
 	if err != nil {
 		return nil, fmt.Errorf("getting transaction by id: %w", err)
@@ -144,8 +146,8 @@ func (s *Store) GetByID(ctx context.Context, id string) (*Transaction, error) {
 }
 
 // GetSummary returns aggregate usage metrics matching the given query filters.
-func (s *Store) GetSummary(ctx context.Context, q UsageQuery) (*UsageSummary, error) {
-	where, args := buildWhereClause(q)
+func (s *Store) GetSummary(ctx context.Context, tenantID string, q UsageQuery) (*UsageSummary, error) {
+	where, args := buildWhereClause(tenantID, q)
 
 	query := `SELECT
 		COUNT(*),
@@ -171,9 +173,9 @@ func (s *Store) GetSummary(ctx context.Context, q UsageQuery) (*UsageSummary, er
 }
 
 // GetToolCallCounts returns the total number of transactions per tool for all tools.
-func (s *Store) GetToolCallCounts(ctx context.Context) (map[string]int64, error) {
+func (s *Store) GetToolCallCounts(ctx context.Context, tenantID string) (map[string]int64, error) {
 	rows, err := s.pool.Query(ctx,
-		`SELECT tool_id, COUNT(*) FROM transactions GROUP BY tool_id`)
+		`SELECT tool_id, COUNT(*) FROM transactions WHERE tenant_id = $1 GROUP BY tool_id`, tenantID)
 	if err != nil {
 		return nil, fmt.Errorf("querying tool call counts: %w", err)
 	}
@@ -193,14 +195,14 @@ func (s *Store) GetToolCallCounts(ctx context.Context) (map[string]int64, error)
 
 // GetSubToolCallCounts returns call counts grouped by path suffix for a specific tool.
 // The returned map keys are the sub-tool names extracted from the path (e.g. "brave_web_search").
-func (s *Store) GetSubToolCallCounts(ctx context.Context, toolID string) (map[string]int64, error) {
+func (s *Store) GetSubToolCallCounts(ctx context.Context, tenantID string, toolID string) (map[string]int64, error) {
 	prefix := "/proxy/" + toolID + "/"
 	rows, err := s.pool.Query(ctx,
 		`SELECT SUBSTR(path, $1) AS sub_tool, COUNT(*)
 		 FROM transactions
-		 WHERE tool_id = $2 AND path LIKE $3
+		 WHERE tool_id = $2 AND path LIKE $3 AND tenant_id = $4
 		 GROUP BY sub_tool`,
-		len(prefix)+1, toolID, prefix+"%")
+		len(prefix)+1, toolID, prefix+"%", tenantID)
 	if err != nil {
 		return nil, fmt.Errorf("querying sub-tool call counts: %w", err)
 	}
@@ -221,13 +223,13 @@ func (s *Store) GetSubToolCallCounts(ctx context.Context, toolID string) (map[st
 // ListTransactions returns a page of transactions matching the query filters,
 // ordered by timestamp DESC, id DESC. It uses cursor-based pagination and
 // returns the next cursor (empty string if no more results).
-func (s *Store) ListTransactions(ctx context.Context, q UsageQuery) ([]*Transaction, string, error) {
+func (s *Store) ListTransactions(ctx context.Context, tenantID string, q UsageQuery) ([]*Transaction, string, error) {
 	limit := q.Limit
 	if limit <= 0 {
 		limit = 50
 	}
 
-	where, args := buildWhereClause(q)
+	where, args := buildWhereClause(tenantID, q)
 
 	// Apply cursor: the cursor encodes "timestamp|id".
 	if q.Cursor != "" {
@@ -248,7 +250,7 @@ func (s *Store) ListTransactions(ctx context.Context, q UsageQuery) ([]*Transact
 	query := `SELECT id, agent_id, tool_id,
 		timestamp, method, path,
 		status_code, latency_ms, request_size, response_size, success, cost, cost_source, error,
-		agent_name, tool_name, channel
+		agent_name, tool_name, channel, tenant_id
 	FROM transactions` + where +
 		` ORDER BY timestamp DESC, id DESC LIMIT $` + strconv.Itoa(len(args)+1)
 	args = append(args, limit+1) // fetch one extra to determine if there's a next page
@@ -266,7 +268,7 @@ func (s *Store) ListTransactions(ctx context.Context, q UsageQuery) ([]*Transact
 			&tx.ID, &tx.AgentID, &tx.ToolID, &tx.Timestamp,
 			&tx.Method, &tx.Path, &tx.StatusCode, &tx.LatencyMs,
 			&tx.RequestSize, &tx.ResponseSize, &tx.Success, &tx.Cost, &tx.CostSource, &tx.Error,
-			&tx.AgentName, &tx.ToolName, &tx.Channel,
+			&tx.AgentName, &tx.ToolName, &tx.Channel, &tx.TenantID,
 		); err != nil {
 			return nil, "", fmt.Errorf("scanning transaction row: %w", err)
 		}
@@ -288,9 +290,10 @@ func (s *Store) ListTransactions(ctx context.Context, q UsageQuery) ([]*Transact
 
 // buildWhereClause constructs a WHERE clause and positional arguments from a
 // UsageQuery. The returned string starts with " WHERE" or is empty.
-func buildWhereClause(q UsageQuery) (string, []any) {
+func buildWhereClause(tenantID string, q UsageQuery) (string, []any) {
 	var conditions []string
-	var args []any
+	args := []any{tenantID}
+	conditions = append(conditions, "tenant_id = $1")
 
 	if q.AgentID != "" {
 		args = append(args, q.AgentID)
@@ -341,10 +344,6 @@ func buildWhereClause(q UsageQuery) (string, []any) {
 	if q.Channel != "" {
 		args = append(args, q.Channel)
 		conditions = append(conditions, fmt.Sprintf("channel = $%d", len(args)))
-	}
-
-	if len(conditions) == 0 {
-		return "", nil
 	}
 
 	return " WHERE " + strings.Join(conditions, " AND "), args

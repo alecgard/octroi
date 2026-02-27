@@ -30,7 +30,7 @@ func NewStore(pool *pgxpool.Pool, cipher *crypto.Cipher) *Store {
 const toolColumns = `id, name, description, mode, endpoint, auth_type, auth_config, variables,
 	pricing_model, pricing_amount, pricing_currency, rate_limit,
 	budget_limit, budget_window, transport, log_bodies, timeout_ms, max_retries, retry_backoff_ms, webhook_url, webhook_threshold_pct,
-	cb_enabled, cb_error_threshold_pct, cb_window_seconds, cb_cooldown_seconds, enabled, created_at, updated_at`
+	cb_enabled, cb_error_threshold_pct, cb_window_seconds, cb_cooldown_seconds, enabled, tenant_id, created_at, updated_at`
 
 // scanTool scans a single tool row into a Tool struct, decrypting auth_config if a cipher is set.
 func (s *Store) scanTool(row pgx.Row) (*Tool, error) {
@@ -65,6 +65,7 @@ func (s *Store) scanTool(row pgx.Row) (*Tool, error) {
 		&t.CBWindowSeconds,
 		&t.CBCooldownSeconds,
 		&t.Enabled,
+		&t.TenantID,
 		&t.CreatedAt,
 		&t.UpdatedAt,
 	)
@@ -111,7 +112,7 @@ func (s *Store) scanTool(row pgx.Row) (*Tool, error) {
 }
 
 // Create inserts a new tool and returns the full row.
-func (s *Store) Create(ctx context.Context, input CreateToolInput) (*Tool, error) {
+func (s *Store) Create(ctx context.Context, tenantID string, input CreateToolInput) (*Tool, error) {
 	authConfigJSON, err := json.Marshal(input.AuthConfig)
 	if err != nil {
 		return nil, fmt.Errorf("marshalling auth_config: %w", err)
@@ -179,8 +180,8 @@ func (s *Store) Create(ctx context.Context, input CreateToolInput) (*Tool, error
 		 pricing_model, pricing_amount, pricing_currency, rate_limit,
 		 budget_limit, budget_window, transport, log_bodies, timeout_ms, max_retries, retry_backoff_ms,
 		 webhook_url, webhook_threshold_pct,
-		 cb_enabled, cb_error_threshold_pct, cb_window_seconds, cb_cooldown_seconds, enabled)
-		VALUES ($1, $2, $3, $4, $5, $6, $7, $8, $9, $10, $11, $12, $13, $14, $15, $16, $17, $18, $19, $20, $21, $22, $23, $24, $25)
+		 cb_enabled, cb_error_threshold_pct, cb_window_seconds, cb_cooldown_seconds, enabled, tenant_id)
+		VALUES ($1, $2, $3, $4, $5, $6, $7, $8, $9, $10, $11, $12, $13, $14, $15, $16, $17, $18, $19, $20, $21, $22, $23, $24, $25, $26)
 		RETURNING %s`, toolColumns)
 
 	row := s.pool.QueryRow(ctx, query,
@@ -209,14 +210,15 @@ func (s *Store) Create(ctx context.Context, input CreateToolInput) (*Tool, error
 		cbWindowSeconds,
 		cbCooldownSeconds,
 		enabled,
+		tenantID,
 	)
 	return s.scanTool(row)
 }
 
 // GetByID retrieves an active (non-archived) tool by its ID.
-func (s *Store) GetByID(ctx context.Context, id string) (*Tool, error) {
-	query := fmt.Sprintf(`SELECT %s FROM tools WHERE id = $1 AND archived_at IS NULL`, toolColumns)
-	row := s.pool.QueryRow(ctx, query, id)
+func (s *Store) GetByID(ctx context.Context, tenantID string, id string) (*Tool, error) {
+	query := fmt.Sprintf(`SELECT %s FROM tools WHERE id = $1 AND tenant_id = $2 AND archived_at IS NULL`, toolColumns)
+	row := s.pool.QueryRow(ctx, query, id, tenantID)
 	return s.scanTool(row)
 }
 
@@ -252,15 +254,15 @@ func decodeCursor(cursor string) (time.Time, string, error) {
 }
 
 // List returns a page of tools ordered by created_at DESC, id DESC with cursor-based pagination.
-func (s *Store) List(ctx context.Context, params ToolListParams) ([]*Tool, string, error) {
+func (s *Store) List(ctx context.Context, tenantID string, params ToolListParams) ([]*Tool, string, error) {
 	limit := params.Limit
 	if limit <= 0 {
 		limit = 20
 	}
 
-	args := []interface{}{}
-	argIdx := 1
-	whereClauses := []string{}
+	args := []interface{}{tenantID}
+	argIdx := 2
+	whereClauses := []string{fmt.Sprintf("tenant_id = $1")}
 
 	if params.Cursor != "" {
 		cursorTime, cursorID, err := decodeCursor(params.Cursor)
@@ -319,7 +321,7 @@ func (s *Store) List(ctx context.Context, params ToolListParams) ([]*Tool, strin
 }
 
 // Update applies a partial update to a tool and returns the updated row.
-func (s *Store) Update(ctx context.Context, id string, input UpdateToolInput) (*Tool, error) {
+func (s *Store) Update(ctx context.Context, tenantID string, id string, input UpdateToolInput) (*Tool, error) {
 	setClauses := []string{}
 	args := []interface{}{}
 	argIdx := 1
@@ -467,7 +469,7 @@ func (s *Store) Update(ctx context.Context, id string, input UpdateToolInput) (*
 	}
 
 	if len(setClauses) == 0 {
-		return s.GetByID(ctx, id)
+		return s.GetByID(ctx, tenantID, id)
 	}
 
 	setClauses = append(setClauses, fmt.Sprintf("updated_at = $%d", argIdx))
@@ -475,17 +477,21 @@ func (s *Store) Update(ctx context.Context, id string, input UpdateToolInput) (*
 	argIdx++
 
 	args = append(args, id)
+	idIdx := argIdx
+	argIdx++
 
-	query := fmt.Sprintf(`UPDATE tools SET %s WHERE id = $%d RETURNING %s`,
-		strings.Join(setClauses, ", "), argIdx, toolColumns)
+	args = append(args, tenantID)
+
+	query := fmt.Sprintf(`UPDATE tools SET %s WHERE id = $%d AND tenant_id = $%d RETURNING %s`,
+		strings.Join(setClauses, ", "), idIdx, argIdx, toolColumns)
 
 	row := s.pool.QueryRow(ctx, query, args...)
 	return s.scanTool(row)
 }
 
 // Archive soft-deletes a tool by setting archived_at.
-func (s *Store) Archive(ctx context.Context, id string) error {
-	tag, err := s.pool.Exec(ctx, `UPDATE tools SET archived_at = now() WHERE id = $1 AND archived_at IS NULL`, id)
+func (s *Store) Archive(ctx context.Context, tenantID string, id string) error {
+	tag, err := s.pool.Exec(ctx, `UPDATE tools SET archived_at = now() WHERE id = $1 AND tenant_id = $2 AND archived_at IS NULL`, id, tenantID)
 	if err != nil {
 		return fmt.Errorf("archiving tool: %w", err)
 	}
@@ -496,11 +502,36 @@ func (s *Store) Archive(ctx context.Context, id string) error {
 }
 
 // ListEnabled returns all tools with enabled=true, useful for the MCP aggregator.
-func (s *Store) ListEnabled(ctx context.Context) ([]*Tool, error) {
+func (s *Store) ListEnabled(ctx context.Context, tenantID string) ([]*Tool, error) {
+	query := fmt.Sprintf(`SELECT %s FROM tools WHERE tenant_id = $1 AND enabled = true AND archived_at IS NULL ORDER BY created_at DESC, id DESC`, toolColumns)
+	rows, err := s.pool.Query(ctx, query, tenantID)
+	if err != nil {
+		return nil, fmt.Errorf("listing enabled tools: %w", err)
+	}
+	defer rows.Close()
+
+	var tools []*Tool
+	for rows.Next() {
+		t, err := s.scanTool(rows)
+		if err != nil {
+			slog.Warn("skipping tool with scan error", "error", err)
+			continue
+		}
+		tools = append(tools, t)
+	}
+	if err := rows.Err(); err != nil {
+		return nil, fmt.Errorf("iterating tools: %w", err)
+	}
+	return tools, nil
+}
+
+// ListAllEnabled returns all enabled (non-archived) tools across all tenants.
+// Used at startup for global MCP upstream initialization.
+func (s *Store) ListAllEnabled(ctx context.Context) ([]*Tool, error) {
 	query := fmt.Sprintf(`SELECT %s FROM tools WHERE enabled = true AND archived_at IS NULL ORDER BY created_at DESC, id DESC`, toolColumns)
 	rows, err := s.pool.Query(ctx, query)
 	if err != nil {
-		return nil, fmt.Errorf("listing enabled tools: %w", err)
+		return nil, fmt.Errorf("listing all enabled tools: %w", err)
 	}
 	defer rows.Close()
 

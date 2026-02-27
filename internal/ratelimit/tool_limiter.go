@@ -20,8 +20,8 @@ func NewToolRateLimiter(store *ToolRateLimitStore, limiter *Limiter) *ToolRateLi
 // CheckToolRateLimit resolves the applicable rates for the tool and checks all
 // non-zero buckets. All buckets must allow for the request to proceed. Returns
 // the tightest limit info for response headers.
-func (trl *ToolRateLimiter) CheckToolRateLimit(ctx context.Context, toolID, team, agentID string) (allowed bool, limit, remaining int, resetAt time.Time, err error) {
-	globalRate, teamRate, agentRate, err := trl.store.Resolve(ctx, toolID, team, agentID)
+func (trl *ToolRateLimiter) CheckToolRateLimit(ctx context.Context, tenantID string, toolID, team, agentID string) (allowed bool, limit, remaining int, resetAt time.Time, err error) {
+	globalRate, teamRate, agentRate, err := trl.store.Resolve(ctx, tenantID, toolID, team, agentID)
 	if err != nil {
 		return false, 0, 0, time.Time{}, err
 	}
