@@ -11,5 +11,5 @@ RUN apk --no-cache add ca-certificates
 COPY --from=builder /octroi /usr/local/bin/octroi
 COPY migrations/ /migrations/
 EXPOSE 8080
-ENTRYPOINT ["octroi"]
-CMD ["serve"]
+ENTRYPOINT ["sh", "-c"]
+CMD ["octroi migrate --config /dev/null && octroi ensure-admin --config /dev/null && octroi serve --config /dev/null"]

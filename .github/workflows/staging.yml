@@ -1,0 +1,105 @@
+# Deploys each PR to a dedicated Railway environment with its own Postgres.
+# Auto-creates on PR open/push, destroys on close/merge.
+#
+# Required GitHub secrets:
+#   RAILWAY_API_TOKEN       - Account token from https://railway.com/account/tokens
+#
+# Required GitHub variables (Settings > Secrets and variables > Actions > Variables):
+#   RAILWAY_PROJECT_ID      - Railway project UUID (from dashboard URL)
+#   RAILWAY_SERVICE_ID      - Octroi service UUID in the base environment
+#   RAILWAY_SOURCE_ENV_ID   - Base environment UUID to copy from
+#   RAILWAY_SERVICE_NAME    - Octroi service name (e.g. "octroi")
+#
+# Railway project setup:
+#   1. Create project with Octroi service (Docker image: ghcr.io/alecgard/octroi:latest)
+#   2. Add Postgres database
+#   3. Set service variables: OCTROI_DATABASE_URL=${{Postgres.DATABASE_URL}},
+#      OCTROI_ENCRYPTION_KEY, OCTROI_HOST=0.0.0.0, OCTROI_PORT=8080
+#   4. Enable private networking (RAILWAY_ENABLE_PRIVATE_NETWORKING=true)
+
+name: Staging
+
+on:
+  pull_request:
+    types: [opened, synchronize, reopened, closed]
+
+env:
+  RAILWAY_API_TOKEN: ${{ secrets.RAILWAY_API_TOKEN }}
+  PROJECT_ID: ${{ vars.RAILWAY_PROJECT_ID }}
+  SERVICE_ID: ${{ vars.RAILWAY_SERVICE_ID }}
+  SOURCE_ENV_ID: ${{ vars.RAILWAY_SOURCE_ENV_ID }}
+  SERVICE_NAME: ${{ vars.RAILWAY_SERVICE_NAME }}
+  ENV_NAME: pr-${{ github.event.number }}
+
+jobs:
+  deploy:
+    if: github.event.action != 'closed'
+    runs-on: ubuntu-latest
+    container: ghcr.io/railwayapp/cli:latest
+    permissions:
+      contents: read
+      pull-requests: write
+
+    steps:
+      - uses: actions/checkout@v4
+
+      - name: Link to base environment
+        run: railway link -p $PROJECT_ID -e $SOURCE_ENV_ID -s $SERVICE_ID
+
+      - name: Create environment (skip if exists)
+        run: |
+          railway environment new $ENV_NAME --copy $SOURCE_ENV_ID \
+            || echo "Environment may already exist, continuing"
+
+      - name: Link to PR environment
+        run: railway link -p $PROJECT_ID -e $ENV_NAME -s $SERVICE_NAME
+
+      - name: Deploy
+        run: railway up --detach
+
+      - name: Generate domain
+        id: domain
+        run: |
+          DOMAIN=$(railway domain | sed -n 's/.*\(https:\/\/[^ ]*\).*/\1/p')
+          echo "url=$DOMAIN" >> "$GITHUB_OUTPUT"
+
+      - name: Wait for deploy to be live
+        run: |
+          for i in $(seq 1 30); do
+            if wget -q --spider "${{ steps.domain.outputs.url }}/health" 2>/dev/null; then
+              echo "App is live"
+              exit 0
+            fi
+            echo "Waiting for deploy... ($i/30)"
+            sleep 10
+          done
+          echo "Timed out waiting for deploy"
+          exit 1
+
+      - name: Seed data
+        run: |
+          apk add --no-cache bash curl jq
+          timeout 30 bash scripts/seed.sh ${{ steps.domain.outputs.url }} || true
+
+      - name: Comment on PR
+        uses: marocchino/sticky-pull-request-comment@v2
+        with:
+          header: staging
+          message: |
+            **Staging deployed** :rocket:
+
+            ${{ steps.domain.outputs.url }}/ui
+
+            Login: `admin@octroi.dev` / `octroi`
+
+  destroy:
+    if: github.event.action == 'closed'
+    runs-on: ubuntu-latest
+    container: ghcr.io/railwayapp/cli:latest
+
+    steps:
+      - name: Link to base environment
+        run: railway link -p $PROJECT_ID -e $SOURCE_ENV_ID -s $SERVICE_ID
+
+      - name: Delete PR environment
+        run: railway environment delete $ENV_NAME --yes || true
