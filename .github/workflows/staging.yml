@@ -9,6 +9,7 @@ env:
   PROJECT_ID: ${{ vars.RAILWAY_PROJECT_ID }}
   SERVICE_ID: ${{ vars.RAILWAY_SERVICE_ID }}
   SOURCE_ENV_ID: ${{ vars.RAILWAY_SOURCE_ENV_ID }}
+  SERVICE_NAME: ${{ vars.RAILWAY_SERVICE_NAME }}
   ENV_NAME: pr-${{ github.event.number }}
 
 jobs:
@@ -31,17 +32,11 @@ jobs:
           railway environment new $ENV_NAME --copy $SOURCE_ENV_ID \
             || echo "Environment may already exist, continuing"
 
-      - name: Find service in PR environment
-        id: svc
-        run: |
-          railway link -p $PROJECT_ID -e $ENV_NAME
-          SVC_ID=$(railway service --json | sed -n 's/.*"id":"\([^"]*\)".*/\1/p' | head -1)
-          echo "id=$SVC_ID" >> "$GITHUB_OUTPUT"
-          echo "Found service: $SVC_ID"
-          railway link -p $PROJECT_ID -e $ENV_NAME -s "$SVC_ID"
+      - name: Link to PR environment
+        run: railway link -p $PROJECT_ID -e $ENV_NAME -s $SERVICE_NAME
 
       - name: Deploy
-        run: railway up -s ${{ steps.svc.outputs.id }} --detach
+        run: railway up --detach
 
       - name: Generate domain
         id: domain
