@@ -21,10 +21,10 @@ jobs:
       pull-requests: write
 
     steps:
-      - name: Check CLI version and link help
+      - name: Check CLI
         run: |
-          railway version
-          railway link --help
+          railway --version
+          railway --help
 
       - name: Link project
         run: railway link --project $PROJECT_ID --environment $SOURCE_ENV_ID --service $SERVICE_ID
