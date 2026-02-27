@@ -21,6 +21,8 @@ jobs:
       pull-requests: write
 
     steps:
+      - uses: actions/checkout@v4
+
       - name: Link project
         run: railway link -p $PROJECT_ID -e $SOURCE_ENV_ID -s $SERVICE_ID
 
