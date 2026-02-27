@@ -32,7 +32,6 @@ type Tool struct {
 	Enabled         bool              `json:"enabled"`
 	CreatedAt       time.Time         `json:"created_at"`
 	UpdatedAt       time.Time         `json:"updated_at"`
-	ArchivedAt      *time.Time        `json:"archived_at,omitempty"`
 }
 
 // CreateToolInput holds the fields required to create a new tool.

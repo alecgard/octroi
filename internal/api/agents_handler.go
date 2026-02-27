@@ -1,6 +1,7 @@
 package api
 
 import (
+	"context"
 	"errors"
 	"net/http"
 	"strconv"
@@ -11,13 +12,30 @@ import (
 	"github.com/jackc/pgx/v5"
 )
 
-// agentsHandler groups agent-related HTTP handlers.
-type agentsHandler struct {
-	store       *agent.Store
-	budgetStore *agent.BudgetStore
+// agentStore defines the agent store methods used by the agents handler.
+type agentStore interface {
+	Create(ctx context.Context, in agent.CreateAgentInput) (*agent.Agent, error)
+	GetByID(ctx context.Context, id string) (*agent.Agent, error)
+	Update(ctx context.Context, id string, in agent.UpdateAgentInput) (*agent.Agent, error)
+	Archive(ctx context.Context, id string) error
+	List(ctx context.Context, params agent.AgentListParams) ([]*agent.Agent, string, error)
+	RegenerateKey(ctx context.Context, id, newHash, newPrefix string) (*agent.Agent, error)
 }
 
-func newAgentsHandler(store *agent.Store, budgetStore *agent.BudgetStore) *agentsHandler {
+// agentBudgetStore defines the budget store methods used by the agents handler.
+type agentBudgetStore interface {
+	Set(ctx context.Context, in agent.CreateBudgetInput) (*agent.Budget, error)
+	Get(ctx context.Context, agentID, toolID string) (*agent.Budget, error)
+	ListByAgent(ctx context.Context, agentID string) ([]*agent.Budget, error)
+}
+
+// agentsHandler groups agent-related HTTP handlers.
+type agentsHandler struct {
+	store       agentStore
+	budgetStore agentBudgetStore
+}
+
+func newAgentsHandler(store agentStore, budgetStore agentBudgetStore) *agentsHandler {
 	return &agentsHandler{
 		store:       store,
 		budgetStore: budgetStore,

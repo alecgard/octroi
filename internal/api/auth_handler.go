@@ -1,6 +1,7 @@
 package api
 
 import (
+	"context"
 	"log/slog"
 	"net/http"
 
@@ -8,12 +9,19 @@ import (
 	"github.com/alecgard/octroi/internal/user"
 )
 
-// authHandler groups authentication HTTP handlers.
-type authHandler struct {
-	store *user.Store
+// authUserStore is the subset of user.Store methods used by authHandler.
+type authUserStore interface {
+	GetByEmail(ctx context.Context, email string) (*user.User, error)
+	CreateSession(ctx context.Context, userID string) (string, *user.Session, error)
+	DeleteSession(ctx context.Context, plaintext string) error
 }
 
-func newAuthHandler(store *user.Store) *authHandler {
+// authHandler groups authentication HTTP handlers.
+type authHandler struct {
+	store authUserStore
+}
+
+func newAuthHandler(store authUserStore) *authHandler {
 	return &authHandler{store: store}
 }
 
@@ -90,7 +98,7 @@ func (h *authHandler) Me(w http.ResponseWriter, r *http.Request) {
 
 // Logout handles POST /api/v1/auth/logout.
 func (h *authHandler) Logout(w http.ResponseWriter, r *http.Request) {
-	token := extractBearerToken(r)
+	token := auth.ExtractBearerToken(r)
 	if token == "" {
 		w.WriteHeader(http.StatusNoContent)
 		return
@@ -107,11 +115,3 @@ func (h *authHandler) Logout(w http.ResponseWriter, r *http.Request) {
 	w.WriteHeader(http.StatusNoContent)
 }
 
-// extractBearerToken extracts the bearer token from the Authorization header.
-func extractBearerToken(r *http.Request) string {
-	h := r.Header.Get("Authorization")
-	if len(h) > 7 && h[:7] == "Bearer " {
-		return h[7:]
-	}
-	return ""
-}

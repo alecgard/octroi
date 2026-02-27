@@ -1,6 +1,7 @@
 package api
 
 import (
+	"context"
 	"net/http"
 	"sort"
 
@@ -10,13 +11,25 @@ import (
 	"github.com/go-chi/chi/v5"
 )
 
-// teamsHandler groups team-related HTTP handlers.
-type teamsHandler struct {
-	agentStore *agent.Store
-	userStore  *user.Store
+// teamsAgentStore defines the agent store methods used by the teams handler.
+type teamsAgentStore interface {
+	List(ctx context.Context, params agent.AgentListParams) ([]*agent.Agent, string, error)
 }
 
-func newTeamsHandler(agentStore *agent.Store, userStore *user.Store) *teamsHandler {
+// teamsUserStore defines the user store methods used by the teams handler.
+type teamsUserStore interface {
+	List(ctx context.Context) ([]*user.User, error)
+	GetByID(ctx context.Context, id string) (*user.User, error)
+	Update(ctx context.Context, id string, in user.UpdateUserInput) (*user.User, error)
+}
+
+// teamsHandler groups team-related HTTP handlers.
+type teamsHandler struct {
+	agentStore teamsAgentStore
+	userStore  teamsUserStore
+}
+
+func newTeamsHandler(agentStore teamsAgentStore, userStore teamsUserStore) *teamsHandler {
 	return &teamsHandler{
 		agentStore: agentStore,
 		userStore:  userStore,

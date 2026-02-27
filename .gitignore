@@ -29,5 +29,5 @@ pgdata/
 # Go
 vendor/
 
-# Temp
-tmp/
+# Temp / private docs
+tmp

@@ -55,9 +55,4 @@ type CreateBudgetInput struct {
 	MonthlyLimit float64 `json:"monthly_limit"`
 }
 
-// UsageSummary holds aggregated usage data for an agent or tool.
-type UsageSummary struct {
-	TotalCost     float64 `json:"total_cost"`
-	TotalRequests int64   `json:"total_requests"`
-	Period        string  `json:"period"`
-}
+

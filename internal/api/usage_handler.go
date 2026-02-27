@@ -1,32 +1,96 @@
 package api
 
 import (
+	"context"
 	"encoding/json"
-	"fmt"
 	"net/http"
 	"strconv"
 	"strings"
 	"time"
 
-	"github.com/alecgard/octroi/internal/agent"
 	"github.com/alecgard/octroi/internal/auth"
 	"github.com/alecgard/octroi/internal/metering"
 	"github.com/go-chi/chi/v5"
 )
 
-// usageHandler groups usage and transaction HTTP handlers.
-type usageHandler struct {
-	store      *metering.Store
-	agentStore *agent.Store
-	bodyStore  *metering.BodyStore
+// usageMeteringStore defines the metering store methods used by the usage handler.
+type usageMeteringStore interface {
+	GetSummary(ctx context.Context, q metering.UsageQuery) (*metering.UsageSummary, error)
+	ListTransactions(ctx context.Context, q metering.UsageQuery) ([]*metering.Transaction, string, error)
+	GetToolCallCounts(ctx context.Context) (map[string]int64, error)
+	GetSubToolCallCounts(ctx context.Context, toolID string) (map[string]int64, error)
+	GetByID(ctx context.Context, id string) (*metering.Transaction, error)
 }
 
-func newUsageHandler(store *metering.Store, agentStore *agent.Store) *usageHandler {
+// usageAgentStore defines the agent store methods used by the usage handler.
+type usageAgentStore interface {
+	ListIDsByTeam(ctx context.Context, team string) ([]string, error)
+}
+
+// usageBodyStore defines the body store methods used by the usage handler.
+type usageBodyStore interface {
+	GetByTransactionID(ctx context.Context, transactionID string) (*metering.RequestBody, error)
+}
+
+// usageHandler groups usage and transaction HTTP handlers.
+type usageHandler struct {
+	store      usageMeteringStore
+	agentStore usageAgentStore
+	bodyStore  usageBodyStore
+}
+
+func newUsageHandler(store usageMeteringStore, agentStore usageAgentStore) *usageHandler {
 	return &usageHandler{store: store, agentStore: agentStore}
 }
 
-func (h *usageHandler) setBodyStore(s *metering.BodyStore) {
+func (h *usageHandler) setBodyStore(s usageBodyStore) {
 	h.bodyStore = s
+}
+
+// agentIDLister is the subset of agent.Store needed to resolve team filters.
+type agentIDLister interface {
+	ListIDsByTeam(ctx context.Context, team string) ([]string, error)
+}
+
+// resolveTeamFilter resolves ?team= query param into agent IDs and
+// sets q.AgentIDs, intersecting with any existing agent filter.
+// It is a no-op if the team param is empty or q.AgentID is already set.
+func resolveTeamFilter(ctx context.Context, r *http.Request, q *metering.UsageQuery, store agentIDLister) error {
+	teamFilter := r.URL.Query().Get("team")
+	if teamFilter == "" || q.AgentID != "" {
+		return nil
+	}
+	teams := strings.Split(teamFilter, ",")
+	var allAgentIDs []string
+	for _, t := range teams {
+		t = strings.TrimSpace(t)
+		if t == "" {
+			continue
+		}
+		ids, err := store.ListIDsByTeam(ctx, t)
+		if err != nil {
+			return err
+		}
+		allAgentIDs = append(allAgentIDs, ids...)
+	}
+	// Merge with any existing AgentIDs from agent_id param.
+	if len(q.AgentIDs) > 0 {
+		// Intersect: only keep agent IDs that are in both sets.
+		teamSet := make(map[string]bool, len(allAgentIDs))
+		for _, id := range allAgentIDs {
+			teamSet[id] = true
+		}
+		var intersected []string
+		for _, id := range q.AgentIDs {
+			if teamSet[id] {
+				intersected = append(intersected, id)
+			}
+		}
+		q.AgentIDs = intersected
+	} else {
+		q.AgentIDs = allAgentIDs
+	}
+	return nil
 }
 
 // parseTimeParam parses a date query param in YYYY-MM-DD or RFC3339 format.
@@ -47,36 +111,17 @@ func parseTimeParam(s string) (time.Time, error) {
 	return t, nil
 }
 
-// buildUsageQuery constructs a UsageQuery from query params, respecting agent auth scope.
-func buildUsageQuery(r *http.Request, isAdmin bool) (*metering.UsageQuery, error) {
-	q := &metering.UsageQuery{}
+// parseUsageFilters parses common usage query filters from the request.
+// It handles: tool_id (comma-sep), from, to, path (comma-sep), status_code,
+// min_latency_ms, channel, cursor, limit. It does NOT handle agent scoping.
+func parseUsageFilters(r *http.Request) (metering.UsageQuery, error) {
+	var q metering.UsageQuery
 
-	if isAdmin {
-		if agentParam := r.URL.Query().Get("agent_id"); agentParam != "" {
-			if strings.Contains(agentParam, ",") {
-				q.AgentIDs = strings.Split(agentParam, ",")
-			} else {
-				q.AgentID = agentParam
-			}
-		}
-		if toolParam := r.URL.Query().Get("tool_id"); toolParam != "" {
-			if strings.Contains(toolParam, ",") {
-				q.ToolIDs = strings.Split(toolParam, ",")
-			} else {
-				q.ToolID = toolParam
-			}
-		}
-	} else {
-		agent := auth.AgentFromContext(r.Context())
-		if agent != nil {
-			q.AgentID = agent.ID
-		}
-		if toolParam := r.URL.Query().Get("tool_id"); toolParam != "" {
-			if strings.Contains(toolParam, ",") {
-				q.ToolIDs = strings.Split(toolParam, ",")
-			} else {
-				q.ToolID = toolParam
-			}
+	if toolParam := r.URL.Query().Get("tool_id"); toolParam != "" {
+		if strings.Contains(toolParam, ",") {
+			q.ToolIDs = strings.Split(toolParam, ",")
+		} else {
+			q.ToolID = toolParam
 		}
 	}
 
@@ -86,29 +131,33 @@ func buildUsageQuery(r *http.Request, isAdmin bool) (*metering.UsageQuery, error
 
 	from, err := parseTimeParam(r.URL.Query().Get("from"))
 	if err != nil {
-		return nil, err
+		return q, err
 	}
 	q.From = from
 
 	to, err := parseTimeParam(r.URL.Query().Get("to"))
 	if err != nil {
-		return nil, err
+		return q, err
 	}
 	q.To = to
 
 	if scStr := r.URL.Query().Get("status_code"); scStr != "" {
 		sc, scErr := strconv.Atoi(scStr)
 		if scErr != nil {
-			return nil, scErr
+			return q, scErr
 		}
 		q.StatusCode = &sc
 	}
 	if mlStr := r.URL.Query().Get("min_latency_ms"); mlStr != "" {
 		ml, mlErr := strconv.ParseInt(mlStr, 10, 64)
 		if mlErr != nil {
-			return nil, mlErr
+			return q, mlErr
 		}
 		q.MinLatencyMs = &ml
+	}
+
+	if ch := r.URL.Query().Get("channel"); ch != "" {
+		q.Channel = ch
 	}
 
 	q.Cursor = r.URL.Query().Get("cursor")
@@ -116,12 +165,37 @@ func buildUsageQuery(r *http.Request, isAdmin bool) (*metering.UsageQuery, error
 	if limitStr := r.URL.Query().Get("limit"); limitStr != "" {
 		l, lErr := strconv.Atoi(limitStr)
 		if lErr != nil || l < 1 {
-			return nil, lErr
+			return q, lErr
 		}
 		q.Limit = l
 	}
 
 	return q, nil
+}
+
+// buildUsageQuery constructs a UsageQuery from query params, respecting agent auth scope.
+func buildUsageQuery(r *http.Request, isAdmin bool) (*metering.UsageQuery, error) {
+	q, err := parseUsageFilters(r)
+	if err != nil {
+		return nil, err
+	}
+
+	if isAdmin {
+		if agentParam := r.URL.Query().Get("agent_id"); agentParam != "" {
+			if strings.Contains(agentParam, ",") {
+				q.AgentIDs = strings.Split(agentParam, ",")
+			} else {
+				q.AgentID = agentParam
+			}
+		}
+	} else {
+		agent := auth.AgentFromContext(r.Context())
+		if agent != nil {
+			q.AgentID = agent.ID
+		}
+	}
+
+	return &q, nil
 }
 
 // GetUsage handles GET /api/v1/usage (agent-authed; agent can only see own usage).
@@ -149,146 +223,12 @@ func (h *usageHandler) GetUsageAdmin(w http.ResponseWriter, r *http.Request) {
 		return
 	}
 
-	// Team filter: if ?team=X (or comma-separated), resolve to agent IDs.
-	if teamFilter := r.URL.Query().Get("team"); teamFilter != "" && q.AgentID == "" {
-		teams := strings.Split(teamFilter, ",")
-		var allAgentIDs []string
-		for _, t := range teams {
-			t = strings.TrimSpace(t)
-			if t == "" {
-				continue
-			}
-			ids, tErr := h.agentStore.ListIDsByTeam(r.Context(), t)
-			if tErr != nil {
-				writeError(w, http.StatusInternalServerError, "internal_error", "failed to list team agents")
-				return
-			}
-			allAgentIDs = append(allAgentIDs, ids...)
-		}
-		// Merge with any existing AgentIDs from agent_id param.
-		if len(q.AgentIDs) > 0 {
-			// Intersect: only keep agent IDs that are in both sets.
-			teamSet := make(map[string]bool, len(allAgentIDs))
-			for _, id := range allAgentIDs {
-				teamSet[id] = true
-			}
-			var intersected []string
-			for _, id := range q.AgentIDs {
-				if teamSet[id] {
-					intersected = append(intersected, id)
-				}
-			}
-			q.AgentIDs = intersected
-		} else {
-			q.AgentIDs = allAgentIDs
-		}
+	if err := resolveTeamFilter(r.Context(), r, q, h.agentStore); err != nil {
+		writeError(w, http.StatusInternalServerError, "internal_error", "failed to list team agents")
+		return
 	}
 
 	summary, err := h.store.GetSummary(r.Context(), *q)
-	if err != nil {
-		writeError(w, http.StatusInternalServerError, "internal_error", "failed to get usage summary")
-		return
-	}
-
-	writeJSON(w, http.StatusOK, summary)
-}
-
-// GetUsageByAgent handles GET /api/v1/admin/usage/agents/{agentID} (admin).
-func (h *usageHandler) GetUsageByAgent(w http.ResponseWriter, r *http.Request) {
-	agentID := chi.URLParam(r, "agentID")
-	if agentID == "" {
-		writeError(w, http.StatusBadRequest, "invalid_params", "agent_id is required")
-		return
-	}
-
-	from, err := parseTimeParam(r.URL.Query().Get("from"))
-	if err != nil {
-		writeError(w, http.StatusBadRequest, "invalid_params", "invalid 'from' parameter")
-		return
-	}
-	to, err := parseTimeParam(r.URL.Query().Get("to"))
-	if err != nil {
-		writeError(w, http.StatusBadRequest, "invalid_params", "invalid 'to' parameter")
-		return
-	}
-
-	q := metering.UsageQuery{
-		AgentID: agentID,
-		From:    from,
-		To:      to,
-	}
-
-	summary, err := h.store.GetSummary(r.Context(), q)
-	if err != nil {
-		writeError(w, http.StatusInternalServerError, "internal_error", "failed to get usage summary")
-		return
-	}
-
-	writeJSON(w, http.StatusOK, summary)
-}
-
-// GetUsageByTool handles GET /api/v1/admin/usage/tools/{toolID} (admin).
-func (h *usageHandler) GetUsageByTool(w http.ResponseWriter, r *http.Request) {
-	toolID := chi.URLParam(r, "toolID")
-	if toolID == "" {
-		writeError(w, http.StatusBadRequest, "invalid_params", "tool_id is required")
-		return
-	}
-
-	from, err := parseTimeParam(r.URL.Query().Get("from"))
-	if err != nil {
-		writeError(w, http.StatusBadRequest, "invalid_params", "invalid 'from' parameter")
-		return
-	}
-	to, err := parseTimeParam(r.URL.Query().Get("to"))
-	if err != nil {
-		writeError(w, http.StatusBadRequest, "invalid_params", "invalid 'to' parameter")
-		return
-	}
-
-	q := metering.UsageQuery{
-		ToolID: toolID,
-		From:   from,
-		To:     to,
-	}
-
-	summary, err := h.store.GetSummary(r.Context(), q)
-	if err != nil {
-		writeError(w, http.StatusInternalServerError, "internal_error", "failed to get usage summary")
-		return
-	}
-
-	writeJSON(w, http.StatusOK, summary)
-}
-
-// GetUsageByAgentTool handles GET /api/v1/admin/usage/agents/{agentID}/tools/{toolID} (admin).
-func (h *usageHandler) GetUsageByAgentTool(w http.ResponseWriter, r *http.Request) {
-	agentID := chi.URLParam(r, "agentID")
-	toolID := chi.URLParam(r, "toolID")
-	if agentID == "" || toolID == "" {
-		writeError(w, http.StatusBadRequest, "invalid_params", "agent_id and tool_id are required")
-		return
-	}
-
-	from, err := parseTimeParam(r.URL.Query().Get("from"))
-	if err != nil {
-		writeError(w, http.StatusBadRequest, "invalid_params", "invalid 'from' parameter")
-		return
-	}
-	to, err := parseTimeParam(r.URL.Query().Get("to"))
-	if err != nil {
-		writeError(w, http.StatusBadRequest, "invalid_params", "invalid 'to' parameter")
-		return
-	}
-
-	q := metering.UsageQuery{
-		AgentID: agentID,
-		ToolID:  toolID,
-		From:    from,
-		To:      to,
-	}
-
-	summary, err := h.store.GetSummary(r.Context(), q)
 	if err != nil {
 		writeError(w, http.StatusInternalServerError, "internal_error", "failed to get usage summary")
 		return
@@ -308,36 +248,9 @@ func (h *usageHandler) ListTransactions(w http.ResponseWriter, r *http.Request, 
 
 	// Team filter for admin.
 	if isAdmin {
-		if teamFilter := r.URL.Query().Get("team"); teamFilter != "" && q.AgentID == "" {
-			teams := strings.Split(teamFilter, ",")
-			var allAgentIDs []string
-			for _, t := range teams {
-				t = strings.TrimSpace(t)
-				if t == "" {
-					continue
-				}
-				ids, tErr := h.agentStore.ListIDsByTeam(r.Context(), t)
-				if tErr != nil {
-					writeError(w, http.StatusInternalServerError, "internal_error", "failed to list team agents")
-					return
-				}
-				allAgentIDs = append(allAgentIDs, ids...)
-			}
-			if len(q.AgentIDs) > 0 {
-				teamSet := make(map[string]bool, len(allAgentIDs))
-				for _, id := range allAgentIDs {
-					teamSet[id] = true
-				}
-				var intersected []string
-				for _, id := range q.AgentIDs {
-					if teamSet[id] {
-						intersected = append(intersected, id)
-					}
-				}
-				q.AgentIDs = intersected
-			} else {
-				q.AgentIDs = allAgentIDs
-			}
+		if err := resolveTeamFilter(r.Context(), r, q, h.agentStore); err != nil {
+			writeError(w, http.StatusInternalServerError, "internal_error", "failed to list team agents")
+			return
 		}
 	}
 
@@ -389,31 +302,11 @@ func (h *usageHandler) GetTransactionDetail(w http.ResponseWriter, r *http.Reque
 		return
 	}
 
-	// Get the transaction itself.
-	q := metering.UsageQuery{Limit: 1}
-	txns, _, err := h.store.ListTransactions(r.Context(), q)
+	// Get the transaction by ID.
+	found, err := h.store.GetByID(r.Context(), id)
 	if err != nil {
-		writeError(w, http.StatusInternalServerError, "internal_error", "failed to query transaction")
+		writeError(w, http.StatusNotFound, "not_found", "transaction not found")
 		return
-	}
-
-	// Find by ID.
-	var found *metering.Transaction
-	for _, t := range txns {
-		if t.ID == id {
-			found = t
-			break
-		}
-	}
-
-	// If not found via list, query directly.
-	if found == nil {
-		tx, txErr := h.store.GetByID(r.Context(), id)
-		if txErr != nil {
-			writeError(w, http.StatusNotFound, "not_found", "transaction not found")
-			return
-		}
-		found = tx
 	}
 
 	result := map[string]interface{}{
@@ -434,44 +327,6 @@ func (h *usageHandler) GetTransactionDetail(w http.ResponseWriter, r *http.Reque
 
 	writeJSON(w, http.StatusOK, result)
 }
-
-// ExportTransactions handles GET /api/v1/admin/usage/transactions/export as CSV.
-func (h *usageHandler) ExportTransactions(w http.ResponseWriter, r *http.Request) {
-	q, err := buildUsageQuery(r, true)
-	if err != nil {
-		writeError(w, http.StatusBadRequest, "invalid_params", "invalid query parameters: "+err.Error())
-		return
-	}
-	q.Limit = 10000 // cap export
-
-	txns, _, err := h.store.ListTransactions(r.Context(), *q)
-	if err != nil {
-		writeError(w, http.StatusInternalServerError, "internal_error", "failed to list transactions")
-		return
-	}
-
-	w.Header().Set("Content-Type", "text/csv")
-	w.Header().Set("Content-Disposition", "attachment; filename=transactions.csv")
-	w.WriteHeader(http.StatusOK)
-
-	// CSV header.
-	fmt.Fprintln(w, "id,agent_id,tool_id,timestamp,method,path,status_code,latency_ms,request_size,response_size,success,cost,cost_source,error")
-	for _, tx := range txns {
-		fmt.Fprintf(w, "%s,%s,%s,%s,%s,%s,%d,%d,%d,%d,%t,%.6f,%s,%s\n",
-			tx.ID, tx.AgentID, tx.ToolID,
-			tx.Timestamp.Format(time.RFC3339),
-			tx.Method, tx.Path,
-			tx.StatusCode, tx.LatencyMs,
-			tx.RequestSize, tx.ResponseSize,
-			tx.Success, tx.Cost, tx.CostSource,
-			strings.ReplaceAll(tx.Error, ",", ";"),
-		)
-	}
-}
-
-// transactionView is an alias — Transaction already contains agent_name/tool_name
-// stored at write time, so no server-side enrichment is needed.
-type transactionView = metering.Transaction
 
 // tryParseJSON attempts to parse bytes as JSON, returning the parsed value or the raw string.
 func tryParseJSON(data []byte) interface{} {

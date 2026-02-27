@@ -14,7 +14,6 @@ const wellKnownManifest = `{
   },
   "endpoints": {
     "tools": "/api/v1/tools",
-    "tools_search": "/api/v1/tools/search",
     "agents": "/api/v1/agents",
     "usage": "/api/v1/usage",
     "proxy": "/proxy/{toolID}/"

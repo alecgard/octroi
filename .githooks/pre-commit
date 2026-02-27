@@ -1,0 +1,67 @@
+#!/bin/sh
+set -e
+
+# Only run tests if testable files are staged.
+if ! git diff --cached --name-only | grep -qE '\.(go|html|sql)$|go\.(mod|sum)$|\.yaml$|^e2e/'; then
+  echo "No testable changes staged — skipping tests."
+  exit 0
+fi
+
+ROOT="$(git rev-parse --show-toplevel)"
+E2E_CONFIG="configs/octroi.e2e.yaml"
+DEV_ENV="configs/.env.dev"
+E2E_PROJECT="octroi-e2e"
+SERVER_PID=""
+
+cleanup() {
+  if [ -n "$SERVER_PID" ]; then
+    kill "$SERVER_PID" 2>/dev/null || true
+    wait "$SERVER_PID" 2>/dev/null || true
+  fi
+  # Tear down the ephemeral e2e Postgres (tmpfs, no persistent data).
+  docker compose -p "$E2E_PROJECT" -f docker-compose.e2e.yml down 2>/dev/null || true
+}
+trap cleanup EXIT
+
+cd "$ROOT"
+
+# --- Go unit & handler tests ---
+echo "Running Go tests..."
+go test ./... -count=1
+echo "Go tests passed."
+
+# --- E2E: spin up isolated stack, run Playwright ---
+echo "Starting e2e Postgres on :5435..."
+set -a && . "./$DEV_ENV" && set +a
+docker compose -p "$E2E_PROJECT" -f docker-compose.e2e.yml up -d --wait
+
+echo "Running migrations & ensuring admin..."
+go run ./cmd/octroi migrate --config "$E2E_CONFIG" 2>/dev/null
+go run ./cmd/octroi ensure-admin --config "$E2E_CONFIG" 2>/dev/null || true
+
+echo "Starting e2e server on :9091..."
+OCTROI_DEV=1 go run ./cmd/octroi serve --config "$E2E_CONFIG" &
+SERVER_PID=$!
+
+# Wait for server to be ready.
+for i in $(seq 1 30); do
+  if curl -s http://localhost:9091/health > /dev/null 2>&1; then
+    break
+  fi
+  sleep 1
+done
+
+if ! curl -s http://localhost:9091/health > /dev/null 2>&1; then
+  echo "E2E server failed to start. Commit aborted."
+  exit 1
+fi
+
+# Seed the e2e database.
+echo "Seeding e2e data..."
+timeout 30 scripts/seed.sh http://localhost:9091 2>/dev/null || true
+
+echo "Running Playwright e2e tests..."
+cd e2e && BASE_URL="http://localhost:9091" npm test
+echo "E2E tests passed."
+
+echo "All tests passed."

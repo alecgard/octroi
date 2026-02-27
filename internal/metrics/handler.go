@@ -217,31 +217,6 @@ func counterWithLabel(f *dto.MetricFamily, labelName, labelValue string) float64
 	return 0
 }
 
-func computeErrorRate(f *dto.MetricFamily) float64 {
-	if f == nil {
-		return 0
-	}
-	var total, errors float64
-	for _, m := range f.GetMetric() {
-		if m.GetCounter() == nil {
-			continue
-		}
-		v := m.GetCounter().GetValue()
-		total += v
-		for _, lp := range m.GetLabel() {
-			if lp.GetName() == "status_code" {
-				code := lp.GetValue()
-				if len(code) > 0 && code[0] >= '4' {
-					errors += v
-				}
-			}
-		}
-	}
-	if total == 0 {
-		return 0
-	}
-	return errors / total
-}
 
 func hasLabel(m *dto.Metric, name, value string) bool {
 	for _, lp := range m.GetLabel() {

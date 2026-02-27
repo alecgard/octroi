@@ -8,18 +8,14 @@ import (
 	"strings"
 	"testing"
 	"time"
+
+	"github.com/alecgard/octroi/internal/auth"
+	"github.com/alecgard/octroi/internal/registry"
 )
 
 // ---------------------------------------------------------------------------
 // Health check handler tests
 // ---------------------------------------------------------------------------
-
-// fakePinger implements the Ping(ctx) method used by the health handler.
-type fakePinger struct {
-	err error
-}
-
-func (f *fakePinger) Ping(_ interface{}) error { return f.err }
 
 func TestHealthCheck_OK(t *testing.T) {
 	// Build a minimal router with no DBPool (the nil path returns "ok").
@@ -101,7 +97,7 @@ func TestWellKnownHandler(t *testing.T) {
 	if !ok {
 		t.Fatal("endpoints field is not an object")
 	}
-	expectedEndpoints := []string{"tools", "tools_search", "agents", "usage", "proxy"}
+	expectedEndpoints := []string{"tools", "agents", "usage", "proxy"}
 	for _, ep := range expectedEndpoints {
 		if _, ok := endpoints[ep]; !ok {
 			t.Errorf("endpoints missing %q", ep)
@@ -720,7 +716,7 @@ func TestParseTimeParam(t *testing.T) {
 }
 
 // ---------------------------------------------------------------------------
-// extractBearerToken tests
+// ExtractBearerToken tests (uses auth.ExtractBearerToken)
 // ---------------------------------------------------------------------------
 
 func TestExtractBearerToken(t *testing.T) {
@@ -743,7 +739,7 @@ func TestExtractBearerToken(t *testing.T) {
 			if tt.auth != "" {
 				req.Header.Set("Authorization", tt.auth)
 			}
-			got := extractBearerToken(req)
+			got := auth.ExtractBearerToken(req)
 			if got != tt.want {
 				t.Errorf("got %q, want %q", got, tt.want)
 			}
@@ -883,6 +879,16 @@ func TestIsValidationError(t *testing.T) {
 	}{
 		{"nil error", nil, false},
 		{"random error", fmt.Errorf("something went wrong"), false},
+		{"ErrNameRequired", registry.ErrNameRequired, true},
+		{"ErrDescriptionRequired", registry.ErrDescriptionRequired, true},
+		{"ErrEndpointInvalid", registry.ErrEndpointInvalid, true},
+		{"ErrAuthTypeInvalid", registry.ErrAuthTypeInvalid, true},
+		{"ErrModeInvalid", registry.ErrModeInvalid, true},
+		{"ErrVariablesMissing", registry.ErrVariablesMissing, true},
+		{"ErrTransportInvalid", registry.ErrTransportInvalid, true},
+		{"ErrTransportRequired", registry.ErrTransportRequired, true},
+		{"ErrTransportForbidden", registry.ErrTransportForbidden, true},
+		{"wrapped validation error", fmt.Errorf("wrap: %w", registry.ErrNameRequired), true},
 	}
 
 	for _, tt := range tests {
@@ -896,5 +902,195 @@ func TestIsValidationError(t *testing.T) {
 				t.Errorf("isValidationError(%v) = %v, want %v", tt.err, got, tt.want)
 			}
 		})
+	}
+}
+
+// ---------------------------------------------------------------------------
+// parseToolListParams tests
+// ---------------------------------------------------------------------------
+
+func TestParseToolListParams_Defaults(t *testing.T) {
+	req := httptest.NewRequest(http.MethodGet, "/test", nil)
+	params := parseToolListParams(req)
+
+	if params.Cursor != "" {
+		t.Errorf("expected empty cursor, got %q", params.Cursor)
+	}
+	if params.Query != "" {
+		t.Errorf("expected empty query, got %q", params.Query)
+	}
+	if params.Limit != 0 {
+		t.Errorf("expected limit 0, got %d", params.Limit)
+	}
+}
+
+func TestParseToolListParams_AllParams(t *testing.T) {
+	req := httptest.NewRequest(http.MethodGet, "/test?cursor=abc&q=search&limit=25", nil)
+	params := parseToolListParams(req)
+
+	if params.Cursor != "abc" {
+		t.Errorf("expected cursor=abc, got %q", params.Cursor)
+	}
+	if params.Query != "search" {
+		t.Errorf("expected query=search, got %q", params.Query)
+	}
+	if params.Limit != 25 {
+		t.Errorf("expected limit=25, got %d", params.Limit)
+	}
+}
+
+func TestParseToolListParams_InvalidLimit(t *testing.T) {
+	req := httptest.NewRequest(http.MethodGet, "/test?limit=foo", nil)
+	params := parseToolListParams(req)
+
+	if params.Limit != 0 {
+		t.Errorf("expected limit 0 for invalid input, got %d", params.Limit)
+	}
+}
+
+func TestParseToolListParams_NegativeLimit(t *testing.T) {
+	req := httptest.NewRequest(http.MethodGet, "/test?limit=-5", nil)
+	params := parseToolListParams(req)
+
+	if params.Limit != 0 {
+		t.Errorf("expected limit 0 for negative input, got %d", params.Limit)
+	}
+}
+
+// ---------------------------------------------------------------------------
+// parseUsageFilters tests
+// ---------------------------------------------------------------------------
+
+func TestParseUsageFilters_Empty(t *testing.T) {
+	req := httptest.NewRequest(http.MethodGet, "/test", nil)
+	q, err := parseUsageFilters(req)
+	if err != nil {
+		t.Fatalf("unexpected error: %v", err)
+	}
+	if q.ToolID != "" {
+		t.Errorf("expected empty ToolID, got %q", q.ToolID)
+	}
+	if len(q.ToolIDs) != 0 {
+		t.Errorf("expected empty ToolIDs, got %v", q.ToolIDs)
+	}
+	if !q.From.IsZero() {
+		t.Errorf("expected zero From, got %v", q.From)
+	}
+	if !q.To.IsZero() {
+		t.Errorf("expected zero To, got %v", q.To)
+	}
+	if q.StatusCode != nil {
+		t.Errorf("expected nil StatusCode, got %v", q.StatusCode)
+	}
+	if q.MinLatencyMs != nil {
+		t.Errorf("expected nil MinLatencyMs, got %v", q.MinLatencyMs)
+	}
+	if q.Channel != "" {
+		t.Errorf("expected empty Channel, got %q", q.Channel)
+	}
+	if q.Cursor != "" {
+		t.Errorf("expected empty Cursor, got %q", q.Cursor)
+	}
+	if q.Limit != 0 {
+		t.Errorf("expected zero Limit, got %d", q.Limit)
+	}
+}
+
+func TestParseUsageFilters_AllParams(t *testing.T) {
+	req := httptest.NewRequest(http.MethodGet,
+		"/test?tool_id=t1&from=2024-01-01&to=2024-12-31&path=foo,bar&status_code=200&min_latency_ms=100&channel=mcp&cursor=xyz&limit=50",
+		nil)
+	q, err := parseUsageFilters(req)
+	if err != nil {
+		t.Fatalf("unexpected error: %v", err)
+	}
+	if q.ToolID != "t1" {
+		t.Errorf("expected ToolID=t1, got %q", q.ToolID)
+	}
+	if q.From.Format("2006-01-02") != "2024-01-01" {
+		t.Errorf("expected From=2024-01-01, got %v", q.From)
+	}
+	if q.To.Format("2006-01-02") != "2024-12-31" {
+		t.Errorf("expected To=2024-12-31, got %v", q.To)
+	}
+	if len(q.Paths) != 2 || q.Paths[0] != "foo" || q.Paths[1] != "bar" {
+		t.Errorf("expected Paths=[foo bar], got %v", q.Paths)
+	}
+	if q.StatusCode == nil || *q.StatusCode != 200 {
+		t.Errorf("expected StatusCode=200, got %v", q.StatusCode)
+	}
+	if q.MinLatencyMs == nil || *q.MinLatencyMs != 100 {
+		t.Errorf("expected MinLatencyMs=100, got %v", q.MinLatencyMs)
+	}
+	if q.Channel != "mcp" {
+		t.Errorf("expected Channel=mcp, got %q", q.Channel)
+	}
+	if q.Cursor != "xyz" {
+		t.Errorf("expected Cursor=xyz, got %q", q.Cursor)
+	}
+	if q.Limit != 50 {
+		t.Errorf("expected Limit=50, got %d", q.Limit)
+	}
+}
+
+func TestParseUsageFilters_CommaToolIDs(t *testing.T) {
+	req := httptest.NewRequest(http.MethodGet, "/test?tool_id=t1,t2,t3", nil)
+	q, err := parseUsageFilters(req)
+	if err != nil {
+		t.Fatalf("unexpected error: %v", err)
+	}
+	if q.ToolID != "" {
+		t.Errorf("expected empty ToolID when comma-separated, got %q", q.ToolID)
+	}
+	if len(q.ToolIDs) != 3 {
+		t.Fatalf("expected 3 ToolIDs, got %d: %v", len(q.ToolIDs), q.ToolIDs)
+	}
+	expected := []string{"t1", "t2", "t3"}
+	for i, want := range expected {
+		if q.ToolIDs[i] != want {
+			t.Errorf("ToolIDs[%d] = %q, want %q", i, q.ToolIDs[i], want)
+		}
+	}
+}
+
+func TestParseUsageFilters_SingleToolID(t *testing.T) {
+	req := httptest.NewRequest(http.MethodGet, "/test?tool_id=t1", nil)
+	q, err := parseUsageFilters(req)
+	if err != nil {
+		t.Fatalf("unexpected error: %v", err)
+	}
+	if q.ToolID != "t1" {
+		t.Errorf("expected ToolID=t1, got %q", q.ToolID)
+	}
+	if len(q.ToolIDs) != 0 {
+		t.Errorf("expected empty ToolIDs for single tool_id, got %v", q.ToolIDs)
+	}
+}
+
+func TestParseUsageFilters_InvalidFrom(t *testing.T) {
+	req := httptest.NewRequest(http.MethodGet, "/test?from=not-a-date", nil)
+	_, err := parseUsageFilters(req)
+	if err == nil {
+		t.Error("expected error for invalid from date, got nil")
+	}
+}
+
+func TestParseUsageFilters_InvalidStatusCode(t *testing.T) {
+	req := httptest.NewRequest(http.MethodGet, "/test?status_code=abc", nil)
+	_, err := parseUsageFilters(req)
+	if err == nil {
+		t.Error("expected error for invalid status_code, got nil")
+	}
+}
+
+func TestParseUsageFilters_DateOnlyFormat(t *testing.T) {
+	req := httptest.NewRequest(http.MethodGet, "/test?from=2024-01-15", nil)
+	q, err := parseUsageFilters(req)
+	if err != nil {
+		t.Fatalf("unexpected error: %v", err)
+	}
+	want := time.Date(2024, 1, 15, 0, 0, 0, 0, time.UTC)
+	if !q.From.Equal(want) {
+		t.Errorf("expected From=%v, got %v", want, q.From)
 	}
 }

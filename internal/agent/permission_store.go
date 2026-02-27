@@ -2,6 +2,7 @@ package agent
 
 import (
 	"context"
+	"errors"
 	"fmt"
 
 	"github.com/jackc/pgx/v5"
@@ -52,7 +53,7 @@ func (s *PermissionStore) IsAllowed(ctx context.Context, agentID, toolID string)
 		agentID, toolID,
 	).Scan(&allowed)
 	if err != nil {
-		if err == pgx.ErrNoRows {
+		if errors.Is(err, pgx.ErrNoRows) {
 			return false, nil
 		}
 		return false, fmt.Errorf("checking permission: %w", err)
@@ -80,7 +81,7 @@ func (s *PermissionStore) IsSubToolAllowed(ctx context.Context, agentID, toolID,
 		agentID, toolID,
 	).Scan(&allowed, &subTools)
 	if err != nil {
-		if err == pgx.ErrNoRows {
+		if errors.Is(err, pgx.ErrNoRows) {
 			return false, nil
 		}
 		return false, fmt.Errorf("checking permission: %w", err)
@@ -98,20 +99,6 @@ func (s *PermissionStore) IsSubToolAllowed(ctx context.Context, agentID, toolID,
 		}
 	}
 	return false, nil
-}
-
-// Set upserts a permission for an agent-tool pair.
-func (s *PermissionStore) Set(ctx context.Context, agentID, toolID string, allowed bool) error {
-	_, err := s.pool.Exec(ctx,
-		`INSERT INTO agent_tool_permissions (agent_id, tool_id, allowed)
-		 VALUES ($1, $2, $3)
-		 ON CONFLICT (agent_id, tool_id) DO UPDATE SET allowed = $3`,
-		agentID, toolID, allowed,
-	)
-	if err != nil {
-		return fmt.Errorf("setting permission: %w", err)
-	}
-	return nil
 }
 
 // SetWithSubTools upserts a permission for an agent-tool pair including sub-tools.

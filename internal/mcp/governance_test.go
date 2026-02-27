@@ -178,8 +178,14 @@ func TestGovernedCaller_RESTSuccess(t *testing.T) {
 	if tx.AgentID != "agent-1" {
 		t.Errorf("tx.AgentID = %q, want %q", tx.AgentID, "agent-1")
 	}
+	if tx.AgentName != "test-agent" {
+		t.Errorf("tx.AgentName = %q, want %q", tx.AgentName, "test-agent")
+	}
 	if tx.ToolID != testToolID {
 		t.Errorf("tx.ToolID = %q, want %q", tx.ToolID, testToolID)
+	}
+	if tx.ToolName != "search" {
+		t.Errorf("tx.ToolName = %q, want %q", tx.ToolName, "search")
 	}
 	if tx.Method != "tools/call" {
 		t.Errorf("tx.Method = %q, want %q", tx.Method, "tools/call")
@@ -195,6 +201,9 @@ func TestGovernedCaller_RESTSuccess(t *testing.T) {
 	}
 	if tx.Cost != 0.01 {
 		t.Errorf("tx.Cost = %f, want %f", tx.Cost, 0.01)
+	}
+	if tx.Channel != "mcp" {
+		t.Errorf("tx.Channel = %q, want %q", tx.Channel, "mcp")
 	}
 }
 
@@ -350,14 +359,23 @@ func TestGovernedCaller_MCPUpstreamSuccess(t *testing.T) {
 		t.Fatalf("expected 1 transaction, got %d", len(collector.transactions))
 	}
 	tx := collector.transactions[0]
+	if tx.AgentName != "test-agent" {
+		t.Errorf("tx.AgentName = %q, want %q", tx.AgentName, "test-agent")
+	}
 	if tx.ToolID != mcpToolID {
 		t.Errorf("tx.ToolID = %q, want %q", tx.ToolID, mcpToolID)
+	}
+	if tx.ToolName != "upstream" {
+		t.Errorf("tx.ToolName = %q, want %q", tx.ToolName, "upstream")
 	}
 	if tx.Path != "upstream__search" {
 		t.Errorf("tx.Path = %q, want %q", tx.Path, "upstream__search")
 	}
 	if tx.StatusCode != 200 {
 		t.Errorf("tx.StatusCode = %d, want 200", tx.StatusCode)
+	}
+	if tx.Channel != "mcp" {
+		t.Errorf("tx.Channel = %q, want %q", tx.Channel, "mcp")
 	}
 }
 
@@ -422,8 +440,14 @@ func TestGovernedCaller_MeteringRecorded(t *testing.T) {
 	if tx.AgentID != "agent-1" {
 		t.Errorf("tx.AgentID = %q, want %q", tx.AgentID, "agent-1")
 	}
+	if tx.AgentName != "test-agent" {
+		t.Errorf("tx.AgentName = %q, want %q", tx.AgentName, "test-agent")
+	}
 	if tx.ToolID != testToolID {
 		t.Errorf("tx.ToolID = %q, want %q", tx.ToolID, testToolID)
+	}
+	if tx.ToolName != "search" {
+		t.Errorf("tx.ToolName = %q, want %q", tx.ToolName, "search")
 	}
 	if tx.Method != "tools/call" {
 		t.Errorf("tx.Method = %q, want %q", tx.Method, "tools/call")

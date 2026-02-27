@@ -154,7 +154,6 @@ func NewRouter(deps RouterDeps) http.Handler {
 	// Handlers.
 	tools := newToolsHandler(deps.ToolService)
 	agents := newAgentsHandler(deps.AgentStore, deps.BudgetStore)
-	search := newSearchHandler(deps.ToolService)
 	usage := newUsageHandler(deps.MeterStore, deps.AgentStore)
 	if deps.BodyStore != nil {
 		usage.setBodyStore(deps.BodyStore)
@@ -218,7 +217,6 @@ func NewRouter(deps RouterDeps) http.Handler {
 	r.Get("/.well-known/octroi.json", WellKnownHandler)
 
 	// Public (unauthenticated) routes.
-	r.Get("/api/v1/tools/search", search.SearchTools)
 	r.Get("/api/v1/tools", tools.ListTools)
 	r.Get("/api/v1/tools/{id}", tools.GetTool)
 
@@ -285,15 +283,11 @@ func NewRouter(deps RouterDeps) http.Handler {
 
 		// Admin usage queries.
 		ar.Get("/usage", usage.GetUsageAdmin)
-		ar.Get("/usage/agents/{agentID}", usage.GetUsageByAgent)
 		ar.Get("/usage/tools/calls", usage.GetToolCallCounts)
 		ar.Get("/usage/tools/{id}/calls", usage.GetSubToolCallCounts)
-		ar.Get("/usage/tools/{toolID}", usage.GetUsageByTool)
-		ar.Get("/usage/agents/{agentID}/tools/{toolID}", usage.GetUsageByAgentTool)
 		ar.Get("/usage/transactions", func(w http.ResponseWriter, r *http.Request) {
 			usage.ListTransactions(w, r, true)
 		})
-		ar.Get("/usage/transactions/export", usage.ExportTransactions)
 		ar.Get("/usage/transactions/{id}", usage.GetTransactionDetail)
 
 		// User management (admin only).
@@ -347,7 +341,7 @@ func NewRouter(deps RouterDeps) http.Handler {
 
 	// Member routes (require any valid session).
 	if deps.UserStore != nil && sessionLookup != nil {
-		member := newMemberHandler(deps.AgentStore, deps.ToolStore, deps.ToolService, deps.MeterStore)
+		member := newMemberHandler(deps.AgentStore, deps.MeterStore)
 		teams := newTeamsHandler(deps.AgentStore, deps.UserStore)
 		users := newUsersHandler(deps.UserStore)
 		r.Route("/api/v1/member", func(mr chi.Router) {
@@ -358,13 +352,12 @@ func NewRouter(deps RouterDeps) http.Handler {
 			mr.Put("/agents/{id}", member.UpdateAgent)
 			mr.Delete("/agents/{id}", member.DeleteAgent)
 			mr.Post("/agents/{id}/regenerate-key", member.RegenerateKey)
-			mr.Get("/tools", member.ListTools)
 			mr.Get("/usage", member.GetUsage)
 			mr.Get("/usage/transactions", member.ListTransactions)
 			mr.Get("/teams", teams.MemberListTeams)
 			mr.Put("/teams/{team}/members/{userId}", teams.AddTeamMember)
 			mr.Delete("/teams/{team}/members/{userId}", teams.RemoveTeamMember)
-			mr.Get("/users", users.MemberListUsers)
+			mr.Get("/users", users.ListUsers)
 			mr.Put("/users/me", users.UpdateSelf)
 			mr.Put("/users/me/password", users.ChangePassword)
 		})

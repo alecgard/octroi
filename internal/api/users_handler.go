@@ -11,9 +11,18 @@ import (
 	"github.com/jackc/pgx/v5"
 )
 
+// userStorer is the subset of *user.Store used by usersHandler.
+type userStorer interface {
+	Create(ctx context.Context, in user.CreateUserInput) (*user.User, error)
+	List(ctx context.Context) ([]*user.User, error)
+	GetByID(ctx context.Context, id string) (*user.User, error)
+	Update(ctx context.Context, id string, in user.UpdateUserInput) (*user.User, error)
+	Archive(ctx context.Context, id string) error
+}
+
 // usersHandler groups user management HTTP handlers (admin only).
 type usersHandler struct {
-	store *user.Store
+	store userStorer
 }
 
 func newUsersHandler(store *user.Store) *usersHandler {
@@ -24,7 +33,7 @@ func newUsersHandler(store *user.Store) *usersHandler {
 // would not leave any team without an admin. It compares the user's current
 // teams to newTeams and checks affected teams. Returns the team name that
 // would be left without an admin, or "" if safe.
-func checkLastTeamAdmin(ctx context.Context, store *user.Store, userID string, current, proposed []user.TeamMembership) (string, error) {
+func checkLastTeamAdmin(ctx context.Context, store userStorer, userID string, current, proposed []user.TeamMembership) (string, error) {
 	// Find teams where this user is currently admin but either removed or demoted.
 	type change struct{ team string }
 	var affected []change
@@ -176,23 +185,6 @@ func (h *usersHandler) UpdateUser(w http.ResponseWriter, r *http.Request) {
 	auditLog(r, "update", "user", id, "email", u.Email)
 
 	writeJSON(w, http.StatusOK, u)
-}
-
-// MemberListUsers handles GET /api/v1/member/users — read-only user list for any member.
-func (h *usersHandler) MemberListUsers(w http.ResponseWriter, r *http.Request) {
-	users, err := h.store.List(r.Context())
-	if err != nil {
-		writeError(w, http.StatusInternalServerError, "internal_error", "failed to list users")
-		return
-	}
-
-	if users == nil {
-		users = []*user.User{}
-	}
-
-	writeJSON(w, http.StatusOK, map[string]interface{}{
-		"users": users,
-	})
 }
 
 // UpdateSelf handles PUT /api/v1/member/users/me — update own profile (name only).

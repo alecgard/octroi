@@ -78,18 +78,6 @@ func (s *BudgetStore) ListByAgent(ctx context.Context, agentID string) ([]*Budge
 	return budgets, nil
 }
 
-// Delete removes a budget for the given agent and tool.
-func (s *BudgetStore) Delete(ctx context.Context, agentID, toolID string) error {
-	_, err := s.pool.Exec(ctx,
-		`DELETE FROM agent_tool_budgets WHERE agent_id = $1 AND tool_id = $2`,
-		agentID, toolID,
-	)
-	if err != nil {
-		return fmt.Errorf("deleting budget: %w", err)
-	}
-	return nil
-}
-
 // CheckBudget verifies whether the agent is within its daily and monthly budget
 // for the given tool. A limit of 0 means unlimited. It returns whether the
 // request is allowed, plus the remaining daily and monthly amounts.

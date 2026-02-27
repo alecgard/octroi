@@ -80,8 +80,9 @@ button:disabled { opacity: 0.4; cursor: not-allowed; }
 .btn-sm { padding: 2px 8px; font-size: 11px; }
 .badge-mode { font-size: 10px; font-weight: 600; padding: 1px 6px; border-radius: 3px; text-transform: uppercase; letter-spacing: 0.5px; }
 .badge-service { background: #e8f4fd; color: #1a73e8; }
-.badge-api { background: #fef3e0; color: #e65100; }
+.badge-api { background: #f3e8fd; color: #7b1fa2; }
 .badge-mcp { background: #e8f5e9; color: #2e7d32; }
+.badge-error { background: #fef3e0; color: #e65100; }
 .mcp-chevron { cursor: pointer; display: inline-block; font-size: 10px; color: var(--text2); transition: transform 0.15s ease; user-select: none; width: 14px; text-align: center; }
 .mcp-chevron:hover { color: var(--text); }
 .mcp-chevron.open { transform: rotate(90deg); }
@@ -710,6 +711,7 @@ body.shift-held .txn-filter-pending { background: var(--surface2); }
           <th>Time</th>
           <th>Team</th>
           <th>Agent</th>
+          <th>Channel</th>
           <th>Tool</th>
           <th>Type</th>
           <th>Method</th>
@@ -996,6 +998,10 @@ body.shift-held .txn-filter-pending { background: var(--surface2); }
     <h3 id="agent-modal-title">Create Agent</h3>
     <div class="modal-body">
     <input type="hidden" id="agent-edit-id">
+    <div class="form-group" id="agent-id-group" style="display:none">
+      <label>Agent ID</label>
+      <code id="agent-id-display" style="display:block;padding:6px 8px;background:var(--surface);border:1px solid var(--border);border-radius:4px;font-size:12px;color:var(--text2);user-select:all"></code>
+    </div>
     <div class="form-group" id="agent-key-group" style="display:none">
       <label>Key</label>
       <div class="mono" id="agent-key-display" style="padding:4px 0;color:var(--text2)"></div>
@@ -1664,7 +1670,7 @@ window.addEventListener('hashchange', onHashChange);
 async function loadTools() {
   if (!currentUser) return;
   try {
-    const path = isAdmin ? '/api/v1/admin/tools?limit=100' : '/api/v1/member/tools?limit=100';
+    const path = isAdmin ? '/api/v1/admin/tools?limit=100' : '/api/v1/tools?limit=100';
     const data = await api('GET', path);
     toolsCache = data.tools || [];
     renderTools();
@@ -1684,7 +1690,7 @@ function renderTools() {
   const tbody = document.getElementById('tools-body');
   const empty = document.getElementById('tools-empty');
   const q = (document.getElementById('tools-search').value || '').toLowerCase();
-  const filtered = toolsCache.filter(t => !q || t.name.toLowerCase().includes(q) || (t.description || '').toLowerCase().includes(q));
+  const filtered = toolsCache.filter(t => !q || t.name.toLowerCase().includes(q) || (t.description || '').toLowerCase().includes(q) || (t.id || '').toLowerCase().includes(q));
   if (!filtered.length) { tbody.innerHTML = ''; empty.style.display = 'block'; return; }
   empty.style.display = 'none';
 
@@ -1969,7 +1975,7 @@ function renderAgents() {
   const empty = document.getElementById('agents-empty');
   const q = (document.getElementById('agents-search').value || '').toLowerCase();
   const teamFilter = document.getElementById('agents-team-filter').value;
-  const filtered = agentsCache.filter(a => (!q || a.name.toLowerCase().includes(q) || (a.team || '').toLowerCase().includes(q)) && (!teamFilter || a.team === teamFilter));
+  const filtered = agentsCache.filter(a => (!q || a.name.toLowerCase().includes(q) || (a.team || '').toLowerCase().includes(q) || (a.id || '').toLowerCase().includes(q)) && (!teamFilter || a.team === teamFilter));
   if (!filtered.length) { tbody.innerHTML = ''; empty.style.display = 'block'; return; }
   empty.style.display = 'none';
   tbody.innerHTML = filtered.map(a => `<tr>
@@ -1994,6 +2000,8 @@ function populateAgentsTeamFilter() {
 
 function openAgentModal(ag) {
   document.getElementById('agent-edit-id').value = ag ? ag.id : '';
+  document.getElementById('agent-id-group').style.display = ag ? '' : 'none';
+  document.getElementById('agent-id-display').textContent = ag ? ag.id : '';
   document.getElementById('agent-modal-title').textContent = ag ? 'Edit Agent' : 'Create Agent';
   document.getElementById('agent-submit-btn').textContent = ag ? 'Save' : 'Create';
   document.getElementById('agent-name').value = ag ? ag.name : '';
@@ -2453,11 +2461,12 @@ function renderTxnTable(prevTimestamp) {
     <td style="white-space:nowrap">${fmtTime(t.timestamp)}</td>
     <td class="txn-filterable${teamExcl}">${team}${txnFilterBtn('team', esc(teamRaw), teamRaw)}</td>
     <td class="txn-filterable${agentExcl}">${esc(resolveAgentName(t.agent_id, t))}${txnFilterBtn('agent', t.agent_id, t.agent_id)}</td>
+    <td><span class="badge-mode badge-${(t.channel || 'http') === 'mcp' ? 'mcp' : 'service'}" style="font-size:11px">${esc(t.channel || 'http')}</span></td>
     <td class="txn-filterable${toolExcl}">${esc(resolveToolName(t.tool_id, t))}${txnFilterBtn('tool', t.tool_id, t.tool_id)}</td>
     <td><span class="badge-mode badge-${(resolveToolMode(t.tool_id) || '').toLowerCase()}">${resolveToolMode(t.tool_id)}</span></td>
     <td>${esc(t.method)}</td>
     <td class="txn-filterable${pathExcl} mono" style="font-size:12px">${esc(cleaned)}${txnFilterBtn('path', esc(cleaned), cleaned)}</td>
-    <td><span class="badge-mode badge-${t.status_code >= 200 && t.status_code < 300 ? 'service' : t.status_code >= 400 ? 'api' : 'mcp'}" style="font-size:11px">${t.status_code}</span></td>
+    <td><span class="badge-mode badge-${t.status_code >= 200 && t.status_code < 300 ? 'service' : t.status_code >= 400 ? 'error' : 'mcp'}" style="font-size:11px">${t.status_code}</span></td>
     <td>${t.latency_ms}ms</td>
     <td>$${(t.cost || 0).toFixed(4)}</td>
     <td style="text-align:center;vertical-align:middle;padding:0 4px" title="View detail"><svg width="14" height="14" style="display:block;margin:auto" viewBox="0 0 24 24" fill="none" stroke="var(--text2)" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><path d="M1 12s4-8 11-8 11 8 11 8-4 8-11 8-11-8-11-8z"/><circle cx="12" cy="12" r="3"/></svg></td>
@@ -2636,7 +2645,7 @@ function showUsageLoading() {
     document.getElementById(id).innerHTML = '<span class="usage-spinner"></span>';
   });
   document.getElementById('txn-empty').style.display = 'none';
-  document.getElementById('txn-body').innerHTML = '<tr><td colspan="8"><div class="usage-spinner"></div></td></tr>';
+  document.getElementById('txn-body').innerHTML = '<tr><td colspan="9"><div class="usage-spinner"></div></td></tr>';
   document.getElementById('usage-chart').innerHTML = '<div class="usage-spinner"></div>';
 }
 
@@ -2687,6 +2696,7 @@ async function showTransactionDetail(txnId) {
     let html = '<div style="font-size:12px;line-height:1.6">';
     html += '<div><b>ID:</b> ' + tx.id + '</div>';
     html += '<div><b>Agent:</b> ' + tx.agent_id + '</div>';
+    html += '<div><b>Channel:</b> ' + esc(tx.channel || 'http') + '</div>';
     html += '<div><b>Tool:</b> ' + tx.tool_id + '</div>';
     html += '<div><b>Status:</b> ' + tx.status_code + '</div>';
     html += '<div><b>Latency:</b> ' + tx.latency_ms + 'ms</div>';

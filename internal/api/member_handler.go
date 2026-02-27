@@ -1,7 +1,9 @@
 package api
 
 import (
+	"context"
 	"errors"
+	"fmt"
 	"net/http"
 	"strconv"
 	"strings"
@@ -9,28 +11,65 @@ import (
 	"github.com/alecgard/octroi/internal/agent"
 	"github.com/alecgard/octroi/internal/auth"
 	"github.com/alecgard/octroi/internal/metering"
-	"github.com/alecgard/octroi/internal/registry"
 	"github.com/go-chi/chi/v5"
 	"github.com/jackc/pgx/v5"
 )
 
-// memberHandler groups member (team-scoped) HTTP handlers.
-type memberHandler struct {
-	agentStore  *agent.Store
-	toolStore   *registry.Store
-	toolService *registry.Service
-	meterStore  *metering.Store
+// memberAgentStore defines the agent store methods used by member handlers.
+type memberAgentStore interface {
+	ListByTeams(ctx context.Context, teams []string, params agent.AgentListParams) ([]*agent.Agent, string, error)
+	GetByID(ctx context.Context, id string) (*agent.Agent, error)
+	Create(ctx context.Context, in agent.CreateAgentInput) (*agent.Agent, error)
+	Update(ctx context.Context, id string, in agent.UpdateAgentInput) (*agent.Agent, error)
+	Archive(ctx context.Context, id string) error
+	RegenerateKey(ctx context.Context, id, newHash, newPrefix string) (*agent.Agent, error)
+	ListIDsByTeams(ctx context.Context, teams []string) ([]string, error)
 }
 
-func newMemberHandler(agentStore *agent.Store, toolStore *registry.Store, toolService *registry.Service, meterStore *metering.Store) *memberHandler {
+// memberMeterStore defines the metering store methods used by member handlers.
+type memberMeterStore interface {
+	GetSummary(ctx context.Context, q metering.UsageQuery) (*metering.UsageSummary, error)
+	ListTransactions(ctx context.Context, q metering.UsageQuery) ([]*metering.Transaction, string, error)
+}
+
+// memberHandler groups member (team-scoped) HTTP handlers.
+type memberHandler struct {
+	agentStore memberAgentStore
+	meterStore memberMeterStore
+}
+
+func newMemberHandler(agentStore memberAgentStore, meterStore memberMeterStore) *memberHandler {
 	return &memberHandler{
-		agentStore:  agentStore,
-		toolStore:   toolStore,
-		toolService: toolService,
-		meterStore:  meterStore,
+		agentStore: agentStore,
+		meterStore: meterStore,
 	}
 }
 
+// resolveMemberTeamFilter resolves team scope for a member user.
+// It validates the optional ?team= param against the user's teams and returns
+// the agent IDs the member is allowed to see.
+func resolveMemberTeamFilter(ctx context.Context, r *http.Request, u *auth.User, agentStore memberAgentStore) ([]string, error) {
+	teamNames := u.TeamNames()
+	teams := teamNames
+	if teamFilter := r.URL.Query().Get("team"); teamFilter != "" {
+		filterTeams := strings.Split(teamFilter, ",")
+		var validTeams []string
+		for _, t := range filterTeams {
+			t = strings.TrimSpace(t)
+			if t == "" {
+				continue
+			}
+			if !u.InTeam(t) {
+				return nil, fmt.Errorf("you are not a member of team %s", t)
+			}
+			validTeams = append(validTeams, t)
+		}
+		if len(validTeams) > 0 {
+			teams = validTeams
+		}
+	}
+	return agentStore.ListIDsByTeams(ctx, teams)
+}
 
 // ListAgents handles GET /api/v1/member/agents — agents in user's teams.
 func (h *memberHandler) ListAgents(w http.ResponseWriter, r *http.Request) {
@@ -75,11 +114,7 @@ func (h *memberHandler) CreateAgent(w http.ResponseWriter, r *http.Request) {
 		return
 	}
 
-	var req struct {
-		Name      string `json:"name"`
-		Team      string `json:"team"`
-		RateLimit int    `json:"rate_limit"`
-	}
+	var req createAgentRequest
 	if err := readJSON(r, &req); err != nil {
 		writeError(w, http.StatusBadRequest, "invalid_body", "failed to parse request body")
 		return
@@ -286,36 +321,6 @@ func (h *memberHandler) RegenerateKey(w http.ResponseWriter, r *http.Request) {
 	})
 }
 
-// ListTools handles GET /api/v1/member/tools — public tool list.
-func (h *memberHandler) ListTools(w http.ResponseWriter, r *http.Request) {
-	params := registry.ToolListParams{
-		Cursor: r.URL.Query().Get("cursor"),
-		Query:  r.URL.Query().Get("q"),
-	}
-	if limitStr := r.URL.Query().Get("limit"); limitStr != "" {
-		l, err := strconv.Atoi(limitStr)
-		if err != nil || l < 1 {
-			writeError(w, http.StatusBadRequest, "invalid_limit", "limit must be a positive integer")
-			return
-		}
-		params.Limit = l
-	}
-
-	tools, nextCursor, err := h.toolService.List(r.Context(), params)
-	if err != nil {
-		writeError(w, http.StatusInternalServerError, "internal_error", "failed to list tools")
-		return
-	}
-
-	resp := map[string]interface{}{
-		"tools": tools,
-	}
-	if nextCursor != "" {
-		resp["next_cursor"] = nextCursor
-	}
-	writeJSON(w, http.StatusOK, resp)
-}
-
 // GetUsage handles GET /api/v1/member/usage — team-scoped usage.
 func (h *memberHandler) GetUsage(w http.ResponseWriter, r *http.Request) {
 	u := auth.UserFromContext(r.Context())
@@ -324,60 +329,18 @@ func (h *memberHandler) GetUsage(w http.ResponseWriter, r *http.Request) {
 		return
 	}
 
-	// Optional team filter — must be one of user's teams (supports comma-separated).
-	teamNames := u.TeamNames()
-	teams := teamNames
-	if teamFilter := r.URL.Query().Get("team"); teamFilter != "" {
-		filterTeams := strings.Split(teamFilter, ",")
-		var validTeams []string
-		for _, t := range filterTeams {
-			t = strings.TrimSpace(t)
-			if t == "" {
-				continue
-			}
-			if !u.InTeam(t) {
-				writeError(w, http.StatusForbidden, "forbidden", "you are not a member of team "+t)
-				return
-			}
-			validTeams = append(validTeams, t)
-		}
-		if len(validTeams) > 0 {
-			teams = validTeams
-		}
-	}
-
-	agentIDs, err := h.agentStore.ListIDsByTeams(r.Context(), teams)
+	agentIDs, err := resolveMemberTeamFilter(r.Context(), r, u, h.agentStore)
 	if err != nil {
-		writeError(w, http.StatusInternalServerError, "internal_error", "failed to list team agents")
+		writeError(w, http.StatusForbidden, "forbidden", err.Error())
 		return
 	}
 
-	q := metering.UsageQuery{
-		AgentIDs: agentIDs,
-	}
-
-	// Optional tool_id filter (supports comma-separated).
-	if toolParam := r.URL.Query().Get("tool_id"); toolParam != "" {
-		if strings.Contains(toolParam, ",") {
-			q.ToolIDs = strings.Split(toolParam, ",")
-		} else {
-			q.ToolID = toolParam
-		}
-	}
-
-	from, err := parseTimeParam(r.URL.Query().Get("from"))
+	q, err := parseUsageFilters(r)
 	if err != nil {
-		writeError(w, http.StatusBadRequest, "invalid_params", "invalid 'from' parameter")
+		writeError(w, http.StatusBadRequest, "invalid_params", "invalid query parameters: "+err.Error())
 		return
 	}
-	q.From = from
-
-	to, err := parseTimeParam(r.URL.Query().Get("to"))
-	if err != nil {
-		writeError(w, http.StatusBadRequest, "invalid_params", "invalid 'to' parameter")
-		return
-	}
-	q.To = to
+	q.AgentIDs = agentIDs
 
 	summary, err := h.meterStore.GetSummary(r.Context(), q)
 	if err != nil {
@@ -396,70 +359,18 @@ func (h *memberHandler) ListTransactions(w http.ResponseWriter, r *http.Request)
 		return
 	}
 
-	// Optional team filter — must be one of user's teams (supports comma-separated).
-	teamNames := u.TeamNames()
-	teams := teamNames
-	if teamFilter := r.URL.Query().Get("team"); teamFilter != "" {
-		filterTeams := strings.Split(teamFilter, ",")
-		var validTeams []string
-		for _, t := range filterTeams {
-			t = strings.TrimSpace(t)
-			if t == "" {
-				continue
-			}
-			if !u.InTeam(t) {
-				writeError(w, http.StatusForbidden, "forbidden", "you are not a member of team "+t)
-				return
-			}
-			validTeams = append(validTeams, t)
-		}
-		if len(validTeams) > 0 {
-			teams = validTeams
-		}
-	}
-
-	agentIDs, err := h.agentStore.ListIDsByTeams(r.Context(), teams)
+	agentIDs, err := resolveMemberTeamFilter(r.Context(), r, u, h.agentStore)
 	if err != nil {
-		writeError(w, http.StatusInternalServerError, "internal_error", "failed to list team agents")
+		writeError(w, http.StatusForbidden, "forbidden", err.Error())
 		return
 	}
 
-	q := metering.UsageQuery{
-		AgentIDs: agentIDs,
-		Cursor:   r.URL.Query().Get("cursor"),
-	}
-
-	// Optional tool_id filter (supports comma-separated).
-	if toolParam := r.URL.Query().Get("tool_id"); toolParam != "" {
-		if strings.Contains(toolParam, ",") {
-			q.ToolIDs = strings.Split(toolParam, ",")
-		} else {
-			q.ToolID = toolParam
-		}
-	}
-
-	from, err := parseTimeParam(r.URL.Query().Get("from"))
+	q, err := parseUsageFilters(r)
 	if err != nil {
-		writeError(w, http.StatusBadRequest, "invalid_params", "invalid 'from' parameter")
+		writeError(w, http.StatusBadRequest, "invalid_params", "invalid query parameters: "+err.Error())
 		return
 	}
-	q.From = from
-
-	to, err := parseTimeParam(r.URL.Query().Get("to"))
-	if err != nil {
-		writeError(w, http.StatusBadRequest, "invalid_params", "invalid 'to' parameter")
-		return
-	}
-	q.To = to
-
-	if limitStr := r.URL.Query().Get("limit"); limitStr != "" {
-		l, lErr := strconv.Atoi(limitStr)
-		if lErr != nil || l < 1 {
-			writeError(w, http.StatusBadRequest, "invalid_limit", "limit must be a positive integer")
-			return
-		}
-		q.Limit = l
-	}
+	q.AgentIDs = agentIDs
 
 	txns, nextCursor, err := h.meterStore.ListTransactions(r.Context(), q)
 	if err != nil {

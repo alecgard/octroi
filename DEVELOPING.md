@@ -4,6 +4,17 @@
 
 - Go 1.24+
 - Docker and Docker Compose
+- Node.js (for e2e tests)
+
+## Setup
+
+Run once after cloning:
+
+```bash
+make setup
+```
+
+This installs git hooks and e2e test dependencies (Playwright + Chromium).
 
 ## Local Development
 
@@ -30,6 +41,7 @@ Requires: curl, jq, python3. Backfill additionally requires psql and bc.
 ### Make Targets
 
 ```
+make setup            # One-time setup: git hooks, e2e deps (run after cloning)
 make dev              # Start Postgres, migrate, ensure admin, serve (hot reload via go run)
 make db:dev           # Start dev Postgres only (port 5433)
 make clean:dev        # Tear down dev containers and volumes
@@ -206,7 +218,7 @@ Tools can opt into request/response body logging. When enabled, payloads are sto
 go test ./...
 ```
 
-There is a pre-commit hook that runs `go test ./...` before every commit.
+A pre-commit hook (installed via `make setup`) runs Go tests and Playwright e2e tests when relevant files are changed.
 
 - **Store tests** (`agent/store_test.go`, `metering/store_test.go`, `registry/store_test.go`) use a real Postgres database
 - **Handler tests** (`api/handler_test.go`) use httptest with fakes

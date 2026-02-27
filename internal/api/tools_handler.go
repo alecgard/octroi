@@ -1,6 +1,7 @@
 package api
 
 import (
+	"context"
 	"errors"
 	"log/slog"
 	"net/http"
@@ -13,12 +14,22 @@ import (
 	"github.com/jackc/pgx/v5"
 )
 
-// toolsHandler groups tool-related HTTP handlers.
-type toolsHandler struct {
-	service *registry.Service
+// toolServicer abstracts the registry.Service methods used by toolsHandler,
+// enabling test fakes without a database.
+type toolServicer interface {
+	Create(ctx context.Context, input registry.CreateToolInput) (*registry.Tool, error)
+	GetByID(ctx context.Context, id string) (*registry.Tool, error)
+	List(ctx context.Context, params registry.ToolListParams) ([]*registry.Tool, string, error)
+	Update(ctx context.Context, id string, input registry.UpdateToolInput) (*registry.Tool, error)
+	Delete(ctx context.Context, id string) error
 }
 
-func newToolsHandler(svc *registry.Service) *toolsHandler {
+// toolsHandler groups tool-related HTTP handlers.
+type toolsHandler struct {
+	service toolServicer
+}
+
+func newToolsHandler(svc toolServicer) *toolsHandler {
 	return &toolsHandler{service: svc}
 }
 
@@ -108,20 +119,23 @@ func (h *toolsHandler) DeleteTool(w http.ResponseWriter, r *http.Request) {
 	w.WriteHeader(http.StatusNoContent)
 }
 
-// ListTools handles GET /api/v1/tools (public).
-func (h *toolsHandler) ListTools(w http.ResponseWriter, r *http.Request) {
+// parseToolListParams parses common tool list query params: cursor, q, limit.
+func parseToolListParams(r *http.Request) registry.ToolListParams {
 	params := registry.ToolListParams{
 		Cursor: r.URL.Query().Get("cursor"),
 		Query:  r.URL.Query().Get("q"),
 	}
-	if limitStr := r.URL.Query().Get("limit"); limitStr != "" {
-		l, err := strconv.Atoi(limitStr)
-		if err != nil || l < 1 {
-			writeError(w, http.StatusBadRequest, "invalid_limit", "limit must be a positive integer")
-			return
+	if lim := r.URL.Query().Get("limit"); lim != "" {
+		if v, err := strconv.Atoi(lim); err == nil && v > 0 {
+			params.Limit = v
 		}
-		params.Limit = l
 	}
+	return params
+}
+
+// ListTools handles GET /api/v1/tools (public).
+func (h *toolsHandler) ListTools(w http.ResponseWriter, r *http.Request) {
+	params := parseToolListParams(r)
 
 	tools, nextCursor, err := h.service.List(r.Context(), params)
 	if err != nil {
@@ -163,18 +177,7 @@ func (h *toolsHandler) GetTool(w http.ResponseWriter, r *http.Request) {
 
 // AdminListTools handles GET /api/v1/admin/tools (admin view with endpoint/auth_config).
 func (h *toolsHandler) AdminListTools(w http.ResponseWriter, r *http.Request) {
-	params := registry.ToolListParams{
-		Cursor: r.URL.Query().Get("cursor"),
-		Query:  r.URL.Query().Get("q"),
-	}
-	if limitStr := r.URL.Query().Get("limit"); limitStr != "" {
-		l, err := strconv.Atoi(limitStr)
-		if err != nil || l < 1 {
-			writeError(w, http.StatusBadRequest, "invalid_limit", "limit must be a positive integer")
-			return
-		}
-		params.Limit = l
-	}
+	params := parseToolListParams(r)
 
 	tools, nextCursor, err := h.service.List(r.Context(), params)
 	if err != nil {
