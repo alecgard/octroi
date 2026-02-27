@@ -5,7 +5,7 @@ on:
     types: [opened, synchronize, reopened, closed]
 
 env:
-  RAILWAY_TOKEN: ${{ secrets.RAILWAY_TOKEN }}
+  RAILWAY_API_TOKEN: ${{ secrets.RAILWAY_API_TOKEN }}
   PROJECT_ID: ${{ vars.RAILWAY_PROJECT_ID }}
   SERVICE_ID: ${{ vars.RAILWAY_SERVICE_ID }}
   SOURCE_ENV_ID: ${{ vars.RAILWAY_SOURCE_ENV_ID }}
