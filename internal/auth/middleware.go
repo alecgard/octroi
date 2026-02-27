@@ -69,8 +69,16 @@ func AgentAuthMiddleware(svc *Service, callbacks ...func()) func(http.Handler) h
 				return
 			}
 
-			// Verify tenant match if subdomain tenant is present.
-			if t := TenantFromContext(r.Context()); t != nil && agent.TenantID != t.ID {
+			// Verify tenant match — require tenant context for all agent auth.
+			t := TenantFromContext(r.Context())
+			if t == nil {
+				if onFailure != nil {
+					onFailure()
+				}
+				writeForbidden(w, "tenant context required")
+				return
+			}
+			if agent.TenantID != t.ID {
 				if onFailure != nil {
 					onFailure()
 				}
@@ -111,12 +119,16 @@ func AdminSessionMiddleware(sessions SessionLookup, callbacks ...func()) func(ht
 				return
 			}
 
+			// Require tenant context for all session auth.
 			t := TenantFromContext(r.Context())
-			tenantID := ""
-			if t != nil {
-				tenantID = t.ID
+			if t == nil {
+				if onFailure != nil {
+					onFailure()
+				}
+				writeForbidden(w, "tenant context required")
+				return
 			}
-			user, err := sessions.LookupSession(r.Context(), tenantID, token)
+			user, err := sessions.LookupSession(r.Context(), t.ID, token)
 			if err != nil || user == nil {
 				if onFailure != nil {
 					onFailure()
@@ -124,8 +136,7 @@ func AdminSessionMiddleware(sessions SessionLookup, callbacks ...func()) func(ht
 				writeUnauthorized(w, "invalid or expired session")
 				return
 			}
-			// Verify tenant match if subdomain tenant is present.
-			if t != nil && user.TenantID != t.ID {
+			if user.TenantID != t.ID {
 				if onFailure != nil {
 					onFailure()
 				}
@@ -197,12 +208,16 @@ func MemberAuthMiddleware(sessions SessionLookup, callbacks ...func()) func(http
 				return
 			}
 
+			// Require tenant context for all session auth.
 			t := TenantFromContext(r.Context())
-			tenantID := ""
-			if t != nil {
-				tenantID = t.ID
+			if t == nil {
+				if onFailure != nil {
+					onFailure()
+				}
+				writeForbidden(w, "tenant context required")
+				return
 			}
-			user, err := sessions.LookupSession(r.Context(), tenantID, token)
+			user, err := sessions.LookupSession(r.Context(), t.ID, token)
 			if err != nil || user == nil {
 				if onFailure != nil {
 					onFailure()
@@ -210,8 +225,7 @@ func MemberAuthMiddleware(sessions SessionLookup, callbacks ...func()) func(http
 				writeUnauthorized(w, "invalid or expired session")
 				return
 			}
-			// Verify tenant match if subdomain tenant is present.
-			if t != nil && user.TenantID != t.ID {
+			if user.TenantID != t.ID {
 				if onFailure != nil {
 					onFailure()
 				}

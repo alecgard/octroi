@@ -52,6 +52,8 @@ func (s *Store) GetByID(ctx context.Context, tenantID, id string) (*Agent, error
 
 
 // GetByKeyHash retrieves an agent by its API key hash, used for authentication.
+// Intentionally cross-tenant: the API key hash is globally unique and the tenant
+// is unknown at lookup time. The auth middleware verifies tenant match after lookup.
 func (s *Store) GetByKeyHash(ctx context.Context, hash string) (*Agent, error) {
 	a := &Agent{}
 	err := s.pool.QueryRow(ctx,

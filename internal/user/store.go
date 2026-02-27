@@ -258,6 +258,9 @@ func (s *Store) GetSessionUser(ctx context.Context, tenantID, plaintext string) 
 	if err != nil {
 		return nil, fmt.Errorf("getting session user: %w", err)
 	}
+	if tenantID != "" && u.TenantID != tenantID {
+		return nil, fmt.Errorf("getting session user: tenant mismatch")
+	}
 	return u, nil
 }
 
