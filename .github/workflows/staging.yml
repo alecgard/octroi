@@ -9,6 +9,7 @@ env:
   PROJECT_ID: ${{ vars.RAILWAY_PROJECT_ID }}
   SERVICE_ID: ${{ vars.RAILWAY_SERVICE_ID }}
   SOURCE_ENV_ID: ${{ vars.RAILWAY_SOURCE_ENV_ID }}
+  ENV_NAME: pr-${{ github.event.number }}
 
 jobs:
   deploy:
@@ -20,14 +21,21 @@ jobs:
       pull-requests: write
 
     steps:
-      - name: Create environment
+      - name: Link project
+        run: railway link $PROJECT_ID $SOURCE_ENV_ID $SERVICE_ID
+
+      - name: Create environment (skip if exists)
         run: |
-          railway environment --project $PROJECT_ID new pr-${{ github.event.number }} \
+          railway environment new $ENV_NAME \
             --copy $SOURCE_ENV_ID \
-            --service-config $SERVICE_ID "source.branch" "${{ github.head_ref }}"
+            --service-config $SERVICE_ID "source.branch" "${{ github.head_ref }}" \
+            || echo "Environment may already exist, continuing"
+
+      - name: Switch to PR environment
+        run: railway link $PROJECT_ID $ENV_NAME $SERVICE_ID
 
       - name: Deploy
-        run: railway up --project $PROJECT_ID --environment pr-${{ github.event.number }} --service $SERVICE_ID --detach
+        run: railway up --detach
 
       - name: Comment on PR
         uses: marocchino/sticky-pull-request-comment@v2
@@ -36,7 +44,7 @@ jobs:
           message: |
             **Staging deployed** :rocket:
 
-            https://pr-${{ github.event.number }}-octroi.up.railway.app/ui
+            https://${{ env.ENV_NAME }}-octroi.up.railway.app/ui
 
             Login: `admin@octroi.dev` / `octroi`
 
@@ -46,5 +54,8 @@ jobs:
     container: ghcr.io/railwayapp/cli:latest
 
     steps:
+      - name: Link project
+        run: railway link $PROJECT_ID $SOURCE_ENV_ID $SERVICE_ID
+
       - name: Delete PR environment
-        run: railway environment --project $PROJECT_ID delete pr-${{ github.event.number }} --yes || true
+        run: railway environment delete $ENV_NAME --yes || true
