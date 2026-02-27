@@ -1,3 +1,22 @@
+# Deploys each PR to a dedicated Railway environment with its own Postgres.
+# Auto-creates on PR open/push, destroys on close/merge.
+#
+# Required GitHub secrets:
+#   RAILWAY_API_TOKEN       - Account token from https://railway.com/account/tokens
+#
+# Required GitHub variables (Settings > Secrets and variables > Actions > Variables):
+#   RAILWAY_PROJECT_ID      - Railway project UUID (from dashboard URL)
+#   RAILWAY_SERVICE_ID      - Octroi service UUID in the base environment
+#   RAILWAY_SOURCE_ENV_ID   - Base environment UUID to copy from
+#   RAILWAY_SERVICE_NAME    - Octroi service name (e.g. "octroi")
+#
+# Railway project setup:
+#   1. Create project with Octroi service (Docker image: ghcr.io/alecgard/octroi:latest)
+#   2. Add Postgres database
+#   3. Set service variables: OCTROI_DATABASE_URL=${{Postgres.DATABASE_URL}},
+#      OCTROI_ENCRYPTION_KEY, OCTROI_HOST=0.0.0.0, OCTROI_PORT=8080
+#   4. Enable private networking (RAILWAY_ENABLE_PRIVATE_NETWORKING=true)
+
 name: Staging
 
 on:
