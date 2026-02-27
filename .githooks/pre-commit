@@ -56,7 +56,11 @@ if ! curl -s http://localhost:9091/health > /dev/null 2>&1; then
   exit 1
 fi
 
-# Seed the e2e database.
+# Create a second tenant for cross-tenant isolation tests.
+OCTROI_TENANT_NAME=rival OCTROI_TENANT_SLUG=rival \
+  go run ./cmd/octroi ensure-admin --config "$E2E_CONFIG" 2>/dev/null || true
+
+# Seed the e2e database (primary tenant).
 echo "Seeding e2e data..."
 timeout 30 scripts/seed.sh http://local.localhost:9091 2>/dev/null || true
 
