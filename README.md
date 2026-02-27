@@ -26,7 +26,30 @@ Octroi meets agents and tools wherever they are — MCP clients talk to Octroi's
 
 ## Deploy
 
-### Quick start (local)
+### Docker (recommended)
+
+Pull the image and run with your own Postgres:
+
+```bash
+docker run -d --name octroi \
+  -e OCTROI_DATABASE_URL="postgres://octroi:SECRET@your-db:5432/octroi?sslmode=require" \
+  -e OCTROI_ENCRYPTION_KEY="$(openssl rand -hex 32)" \
+  -p 8080:8080 \
+  ghcr.io/alecgard/octroi:main
+```
+
+Octroi runs migrations automatically on startup. Log in at **http://localhost:8080/ui** with `admin@octroi.dev` / `octroi` and **change the password immediately**.
+
+Or use Docker Compose with an included Postgres:
+
+```bash
+curl -O https://raw.githubusercontent.com/alecgard/octroi/main/docker-compose.prod.yml
+OCTROI_ENCRYPTION_KEY=$(openssl rand -hex 32) docker compose -f docker-compose.prod.yml up -d
+```
+
+Images are published to `ghcr.io/alecgard/octroi` on every push to main. Pinned releases are available as `ghcr.io/alecgard/octroi:v1.0.0`.
+
+### Quick start (local development)
 
 Try Octroi on your machine — runs everything in Docker:
 
@@ -38,28 +61,6 @@ make prod-local
 Open **http://localhost:9080/ui** and log in with `admin@octroi.dev` / `octroi`.
 
 Tear down with `make clean:prod-local`.
-
-### Production (bring your own Postgres)
-
-Configure secrets in `configs/.env.prod`:
-
-```bash
-# Generate encryption key
-echo "OCTROI_ENCRYPTION_KEY=$(openssl rand -hex 32)" > configs/.env.prod
-
-# Set your Postgres connection URL
-echo "OCTROI_DATABASE_URL=postgres://octroi:STRONG_PASSWORD@your-db-host:5432/octroi?sslmode=require" >> configs/.env.prod
-```
-
-Then run the Octroi container (or binary):
-
-```bash
-docker run --env-file configs/.env.prod \
-  -v ./configs/octroi.prod.yaml:/etc/octroi.yaml \
-  octroi serve --config /etc/octroi.yaml
-```
-
-Octroi runs migrations automatically on startup. **Change the default admin password immediately** (`admin@octroi.dev` / `octroi`).
 
 ## Connect via MCP
 
