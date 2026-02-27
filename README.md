@@ -35,7 +35,7 @@ docker run -d --name octroi \
   -e OCTROI_DATABASE_URL="postgres://octroi:SECRET@your-db:5432/octroi?sslmode=require" \
   -e OCTROI_ENCRYPTION_KEY="$(openssl rand -hex 32)" \
   -p 8080:8080 \
-  ghcr.io/alecgard/octroi:main
+  ghcr.io/alecgard/octroi:latest
 ```
 
 Octroi runs migrations automatically on startup. Log in at **http://localhost:8080/ui** with `admin@octroi.dev` / `octroi` and **change the password immediately**.
