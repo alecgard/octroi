@@ -16,9 +16,11 @@ set -euo pipefail
 
 BACKFILL=false
 BASE="http://local.localhost:8080"
+EXPLICIT_TENANT=""
 for arg in "$@"; do
   case "$arg" in
     --backfill) BACKFILL=true ;;
+    --tenant=*) EXPLICIT_TENANT="${arg#--tenant=}" ;;
     *)          BASE="$arg" ;;
   esac
 done
@@ -33,6 +35,12 @@ DB_URL="${OCTROI_DB_URL:-postgres://octroi:octroi@localhost:5433/octroi?sslmode=
 BASE_HOST=$(echo "$BASE" | sed -E 's|https?://||; s|/$||')
 TENANT_SLUG=$(echo "$BASE_HOST" | sed -E 's/\..*//')
 HOST_HEADER="$BASE_HOST"
+
+# Allow explicit tenant slug override (e.g. for Railway/cloud deploys where
+# the domain doesn't match the tenant slug).
+if [[ -n "$EXPLICIT_TENANT" ]]; then
+  TENANT_SLUG="$EXPLICIT_TENANT"
+fi
 
 # --- helpers ---------------------------------------------------------------
 
@@ -51,7 +59,7 @@ retry() {
 
 api() {
   local method="$1" path="$2" body="${3:-}"
-  local args=(-s -H "Authorization: Bearer $TOKEN" -H "Content-Type: application/json" -H "Host: $HOST_HEADER")
+  local args=(-s -H "Authorization: Bearer $TOKEN" -H "Content-Type: application/json" -H "Host: $HOST_HEADER" -H "X-Tenant-Slug: $TENANT_SLUG")
   if [[ -n "$body" ]]; then
     args+=(-d "$body")
   fi
@@ -75,6 +83,7 @@ while true; do
   LOGIN_RESP=$(curl -s -X POST "${BASE}/api/v1/auth/login" \
     -H "Content-Type: application/json" \
     -H "Host: $HOST_HEADER" \
+    -H "X-Tenant-Slug: $TENANT_SLUG" \
     -d "{\"email\":\"$ADMIN_EMAIL\",\"password\":\"$ADMIN_PASS\"}" 2>/dev/null || true)
 
   TOKEN=$(echo "$LOGIN_RESP" | jq -r '.token // empty' 2>/dev/null || true)

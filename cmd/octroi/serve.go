@@ -262,6 +262,7 @@ func runServe(cmd *cobra.Command, args []string) error {
 		UserStore:          userStore,
 		ToolRateLimitStore: toolRateLimitStore,
 		AllowedOrigins:     cfg.CORS.AllowedOrigins,
+		DefaultTenantSlug:  os.Getenv("OCTROI_DEFAULT_TENANT"),
 		Metrics:            m,
 		MCPServer:          mcpServer,
 		MCPAggregator:      aggregator,

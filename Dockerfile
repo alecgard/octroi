@@ -12,4 +12,5 @@ COPY --from=builder /octroi /usr/local/bin/octroi
 COPY migrations/ /migrations/
 EXPOSE 8080
 ENTRYPOINT ["sh", "-c"]
+ENV OCTROI_DEFAULT_TENANT=local
 CMD ["octroi migrate --config /dev/null && octroi ensure-admin --config /dev/null && octroi serve --config /dev/null"]
