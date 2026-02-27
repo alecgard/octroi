@@ -8,7 +8,6 @@ import (
 	"strconv"
 	"time"
 
-	"github.com/alecgard/octroi/internal/auth"
 	"github.com/alecgard/octroi/internal/mcp"
 	"github.com/alecgard/octroi/internal/registry"
 	"github.com/go-chi/chi/v5"
@@ -36,7 +35,10 @@ func newToolsHandler(svc toolServicer) *toolsHandler {
 
 // CreateTool handles POST /api/v1/tools (admin).
 func (h *toolsHandler) CreateTool(w http.ResponseWriter, r *http.Request) {
-	tenant := auth.TenantFromContext(r.Context())
+	tenant := mustTenant(w, r)
+	if tenant == nil {
+		return
+	}
 
 	var input registry.CreateToolInput
 	if err := readJSON(r, &input); err != nil {
@@ -68,7 +70,10 @@ func (h *toolsHandler) UpdateTool(w http.ResponseWriter, r *http.Request) {
 		return
 	}
 
-	tenant := auth.TenantFromContext(r.Context())
+	tenant := mustTenant(w, r)
+	if tenant == nil {
+		return
+	}
 
 	var input registry.UpdateToolInput
 	if err := readJSON(r, &input); err != nil {
@@ -103,7 +108,10 @@ func (h *toolsHandler) DeleteTool(w http.ResponseWriter, r *http.Request) {
 		return
 	}
 
-	tenant := auth.TenantFromContext(r.Context())
+	tenant := mustTenant(w, r)
+	if tenant == nil {
+		return
+	}
 
 	// Fetch tool name before deleting for audit trail.
 	var toolName string
@@ -142,7 +150,10 @@ func parseToolListParams(r *http.Request) registry.ToolListParams {
 
 // ListTools handles GET /api/v1/tools (public).
 func (h *toolsHandler) ListTools(w http.ResponseWriter, r *http.Request) {
-	tenant := auth.TenantFromContext(r.Context())
+	tenant := mustTenant(w, r)
+	if tenant == nil {
+		return
+	}
 	params := parseToolListParams(r)
 
 	tools, nextCursor, err := h.service.List(r.Context(), tenant.ID, params)
@@ -169,7 +180,10 @@ func (h *toolsHandler) GetTool(w http.ResponseWriter, r *http.Request) {
 		return
 	}
 
-	tenant := auth.TenantFromContext(r.Context())
+	tenant := mustTenant(w, r)
+	if tenant == nil {
+		return
+	}
 
 	tool, err := h.service.GetByID(r.Context(), tenant.ID, id)
 	if err != nil {
@@ -187,7 +201,10 @@ func (h *toolsHandler) GetTool(w http.ResponseWriter, r *http.Request) {
 
 // AdminListTools handles GET /api/v1/admin/tools (admin view with endpoint/auth_config).
 func (h *toolsHandler) AdminListTools(w http.ResponseWriter, r *http.Request) {
-	tenant := auth.TenantFromContext(r.Context())
+	tenant := mustTenant(w, r)
+	if tenant == nil {
+		return
+	}
 	params := parseToolListParams(r)
 
 	tools, nextCursor, err := h.service.List(r.Context(), tenant.ID, params)
@@ -218,7 +235,10 @@ func (h *toolsHandler) RefreshMCPTools(agg *mcp.Aggregator) http.HandlerFunc {
 			return
 		}
 
-		tenant := auth.TenantFromContext(r.Context())
+		tenant := mustTenant(w, r)
+		if tenant == nil {
+			return
+		}
 
 		tool, err := h.service.GetByID(r.Context(), tenant.ID, id)
 		if err != nil {
@@ -277,7 +297,10 @@ func (h *toolsHandler) ListMCPTools(agg *mcp.Aggregator) http.HandlerFunc {
 			return
 		}
 
-		tenant := auth.TenantFromContext(r.Context())
+		tenant := mustTenant(w, r)
+		if tenant == nil {
+			return
+		}
 
 		tool, err := h.service.GetByID(r.Context(), tenant.ID, id)
 		if err != nil {

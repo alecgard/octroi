@@ -53,7 +53,7 @@ func (s *ToolRateLimitStore) Set(ctx context.Context, tenantID string, toolID, s
 	_, err := s.pool.Exec(ctx,
 		`INSERT INTO tool_rate_limits (tool_id, scope, scope_id, rate_limit, tenant_id)
 		 VALUES ($1, $2, $3, $4, $5)
-		 ON CONFLICT (tool_id, scope, scope_id) DO UPDATE SET rate_limit = EXCLUDED.rate_limit`,
+		 ON CONFLICT (tool_id, scope, scope_id, tenant_id) DO UPDATE SET rate_limit = EXCLUDED.rate_limit`,
 		toolID, scope, scopeID, rate, tenantID)
 	if err != nil {
 		return fmt.Errorf("upserting tool rate limit: %w", err)

@@ -69,7 +69,10 @@ func (h *agentsHandler) CreateAgent(w http.ResponseWriter, r *http.Request) {
 		return
 	}
 
-	tenant := auth.TenantFromContext(r.Context())
+	tenant := mustTenant(w, r)
+	if tenant == nil {
+		return
+	}
 
 	input := agent.CreateAgentInput{
 		Name:         req.Name,
@@ -108,7 +111,10 @@ func (h *agentsHandler) UpdateAgent(w http.ResponseWriter, r *http.Request) {
 		return
 	}
 
-	tenant := auth.TenantFromContext(r.Context())
+	tenant := mustTenant(w, r)
+	if tenant == nil {
+		return
+	}
 
 	var input agent.UpdateAgentInput
 	if err := readJSON(r, &input); err != nil {
@@ -139,7 +145,10 @@ func (h *agentsHandler) DeleteAgent(w http.ResponseWriter, r *http.Request) {
 		return
 	}
 
-	tenant := auth.TenantFromContext(r.Context())
+	tenant := mustTenant(w, r)
+	if tenant == nil {
+		return
+	}
 
 	var agentName string
 	if ag, err := h.store.GetByID(r.Context(), tenant.ID, id); err == nil {
@@ -159,7 +168,10 @@ func (h *agentsHandler) DeleteAgent(w http.ResponseWriter, r *http.Request) {
 
 // ListAgents handles GET /api/v1/agents (admin).
 func (h *agentsHandler) ListAgents(w http.ResponseWriter, r *http.Request) {
-	tenant := auth.TenantFromContext(r.Context())
+	tenant := mustTenant(w, r)
+	if tenant == nil {
+		return
+	}
 
 	params := agent.AgentListParams{
 		Cursor: r.URL.Query().Get("cursor"),
@@ -215,7 +227,10 @@ func (h *agentsHandler) RegenerateKey(w http.ResponseWriter, r *http.Request) {
 		return
 	}
 
-	tenant := auth.TenantFromContext(r.Context())
+	tenant := mustTenant(w, r)
+	if tenant == nil {
+		return
+	}
 
 	apiKey, plaintext, err := auth.GenerateAPIKey()
 	if err != nil {
@@ -256,7 +271,10 @@ func (h *agentsHandler) SetBudget(w http.ResponseWriter, r *http.Request) {
 		return
 	}
 
-	tenant := auth.TenantFromContext(r.Context())
+	tenant := mustTenant(w, r)
+	if tenant == nil {
+		return
+	}
 
 	var input struct {
 		DailyLimit   float64 `json:"daily_limit"`
@@ -292,7 +310,10 @@ func (h *agentsHandler) GetBudget(w http.ResponseWriter, r *http.Request) {
 		return
 	}
 
-	tenant := auth.TenantFromContext(r.Context())
+	tenant := mustTenant(w, r)
+	if tenant == nil {
+		return
+	}
 
 	budget, err := h.budgetStore.Get(r.Context(), tenant.ID, agentID, toolID)
 	if err != nil {
@@ -315,7 +336,10 @@ func (h *agentsHandler) ListBudgets(w http.ResponseWriter, r *http.Request) {
 		return
 	}
 
-	tenant := auth.TenantFromContext(r.Context())
+	tenant := mustTenant(w, r)
+	if tenant == nil {
+		return
+	}
 
 	budgets, err := h.budgetStore.ListByAgent(r.Context(), tenant.ID, agentID)
 	if err != nil {

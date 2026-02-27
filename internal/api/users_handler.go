@@ -102,7 +102,10 @@ func (h *usersHandler) CreateUser(w http.ResponseWriter, r *http.Request) {
 		return
 	}
 
-	tenant := auth.TenantFromContext(r.Context())
+	tenant := mustTenant(w, r)
+	if tenant == nil {
+		return
+	}
 	req.TenantID = tenant.ID
 
 	u, err := h.store.Create(r.Context(), req)
@@ -118,7 +121,10 @@ func (h *usersHandler) CreateUser(w http.ResponseWriter, r *http.Request) {
 
 // ListUsers handles GET /api/v1/admin/users.
 func (h *usersHandler) ListUsers(w http.ResponseWriter, r *http.Request) {
-	tenant := auth.TenantFromContext(r.Context())
+	tenant := mustTenant(w, r)
+	if tenant == nil {
+		return
+	}
 	users, err := h.store.List(r.Context(), tenant.ID)
 	if err != nil {
 		writeError(w, http.StatusInternalServerError, "internal_error", "failed to list users")
@@ -142,7 +148,10 @@ func (h *usersHandler) UpdateUser(w http.ResponseWriter, r *http.Request) {
 		return
 	}
 
-	tenant := auth.TenantFromContext(r.Context())
+	tenant := mustTenant(w, r)
+	if tenant == nil {
+		return
+	}
 
 	var input user.UpdateUserInput
 	if err := readJSON(r, &input); err != nil {
@@ -281,7 +290,10 @@ func (h *usersHandler) DeleteUser(w http.ResponseWriter, r *http.Request) {
 		return
 	}
 
-	tenant := auth.TenantFromContext(r.Context())
+	tenant := mustTenant(w, r)
+	if tenant == nil {
+		return
+	}
 
 	// Check if deleting this user would leave a team without an admin.
 	existing, err := h.store.GetByID(r.Context(), tenant.ID, id)

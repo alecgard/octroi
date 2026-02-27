@@ -4,6 +4,8 @@ import (
 	"encoding/json"
 	"io"
 	"net/http"
+
+	"github.com/alecgard/octroi/internal/auth"
 )
 
 // maxBodySize is the maximum allowed request body size (1 MB).
@@ -42,4 +44,15 @@ func writeJSON(w http.ResponseWriter, statusCode int, data interface{}) {
 func readJSON(r *http.Request, v interface{}) error {
 	lr := io.LimitReader(r.Body, maxBodySize)
 	return json.NewDecoder(lr).Decode(v)
+}
+
+// mustTenant extracts the tenant from the request context.
+// If no tenant is present, it writes a 400 error and returns nil.
+func mustTenant(w http.ResponseWriter, r *http.Request) *auth.Tenant {
+	t := auth.TenantFromContext(r.Context())
+	if t == nil {
+		writeError(w, http.StatusBadRequest, "tenant_required", "tenant required")
+		return nil
+	}
+	return t
 }

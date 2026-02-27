@@ -6,7 +6,6 @@ import (
 	"net/http"
 
 	"github.com/alecgard/octroi/internal/agent"
-	"github.com/alecgard/octroi/internal/auth"
 	"github.com/go-chi/chi/v5"
 )
 
@@ -42,7 +41,10 @@ func (h *permissionsHandler) ListPermissions(w http.ResponseWriter, r *http.Requ
 		return
 	}
 
-	tenant := auth.TenantFromContext(r.Context())
+	tenant := mustTenant(w, r)
+	if tenant == nil {
+		return
+	}
 
 	perms, err := h.store.ListByAgent(r.Context(), tenant.ID, agentID)
 	if err != nil {
@@ -71,7 +73,10 @@ func (h *permissionsHandler) SetPermission(w http.ResponseWriter, r *http.Reques
 		return
 	}
 
-	tenant := auth.TenantFromContext(r.Context())
+	tenant := mustTenant(w, r)
+	if tenant == nil {
+		return
+	}
 
 	var body struct {
 		Allowed  bool     `json:"allowed"`
@@ -115,7 +120,10 @@ func (h *permissionsHandler) BulkSetPermissions(w http.ResponseWriter, r *http.R
 		return
 	}
 
-	tenant := auth.TenantFromContext(r.Context())
+	tenant := mustTenant(w, r)
+	if tenant == nil {
+		return
+	}
 
 	// Update allowlist_mode if provided.
 	if body.AllowlistMode != nil {
@@ -184,7 +192,10 @@ func (h *permissionsHandler) DeletePermission(w http.ResponseWriter, r *http.Req
 		return
 	}
 
-	tenant := auth.TenantFromContext(r.Context())
+	tenant := mustTenant(w, r)
+	if tenant == nil {
+		return
+	}
 
 	if err := h.store.Delete(r.Context(), tenant.ID, agentID, toolID); err != nil {
 		writeError(w, http.StatusInternalServerError, "internal_error", "failed to delete permission")

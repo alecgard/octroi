@@ -203,7 +203,7 @@ func (s *Store) Archive(ctx context.Context, tenantID, id string) error {
 		return fmt.Errorf("user not found")
 	}
 	// Invalidate all active sessions for the archived user.
-	_, err = s.pool.Exec(ctx, `DELETE FROM sessions WHERE user_id = $1`, id)
+	_, err = s.pool.Exec(ctx, `DELETE FROM sessions WHERE user_id = $1 AND tenant_id = $2`, id, tenantID)
 	if err != nil {
 		return fmt.Errorf("cleaning sessions for archived user: %w", err)
 	}

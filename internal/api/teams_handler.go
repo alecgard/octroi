@@ -2,6 +2,7 @@ package api
 
 import (
 	"context"
+	"fmt"
 	"net/http"
 	"sort"
 
@@ -58,7 +59,7 @@ type userBrief struct {
 
 // AdminListTeams handles GET /api/v1/admin/teams — all teams.
 func (h *teamsHandler) AdminListTeams(w http.ResponseWriter, r *http.Request) {
-	teams, err := h.buildTeams(r, nil)
+	teams, err := h.buildTeams(w, r, nil)
 	if err != nil {
 		writeError(w, http.StatusInternalServerError, "internal_error", "failed to list teams")
 		return
@@ -74,7 +75,7 @@ func (h *teamsHandler) MemberListTeams(w http.ResponseWriter, r *http.Request) {
 		return
 	}
 
-	teams, err := h.buildTeams(r, u.TeamNames())
+	teams, err := h.buildTeams(w, r, u.TeamNames())
 	if err != nil {
 		writeError(w, http.StatusInternalServerError, "internal_error", "failed to list teams")
 		return
@@ -84,11 +85,14 @@ func (h *teamsHandler) MemberListTeams(w http.ResponseWriter, r *http.Request) {
 
 // buildTeams fetches all agents and users and groups them by team.
 // If filterTeams is non-nil, only those teams are included.
-func (h *teamsHandler) buildTeams(r *http.Request, filterTeams []string) ([]teamInfo, error) {
+func (h *teamsHandler) buildTeams(w http.ResponseWriter, r *http.Request, filterTeams []string) ([]teamInfo, error) {
 	ctx := r.Context()
 
 	// Fetch all agents (up to a reasonable limit).
-	tenant := auth.TenantFromContext(r.Context())
+	tenant := mustTenant(w, r)
+	if tenant == nil {
+		return nil, fmt.Errorf("tenant required")
+	}
 	agents, _, err := h.agentStore.List(ctx, tenant.ID, agent.AgentListParams{Limit: 1000})
 	if err != nil {
 		return nil, err

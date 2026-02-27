@@ -5,7 +5,6 @@ import (
 	"errors"
 	"net/http"
 
-	"github.com/alecgard/octroi/internal/auth"
 	"github.com/alecgard/octroi/internal/ratelimit"
 	"github.com/alecgard/octroi/internal/registry"
 	"github.com/go-chi/chi/v5"
@@ -42,7 +41,10 @@ func (h *toolRateLimitsHandler) ListToolRateLimits(w http.ResponseWriter, r *htt
 		return
 	}
 
-	tenant := auth.TenantFromContext(r.Context())
+	tenant := mustTenant(w, r)
+	if tenant == nil {
+		return
+	}
 
 	tool, err := h.toolStore.GetByID(r.Context(), tenant.ID, toolID)
 	if err != nil {
@@ -100,7 +102,10 @@ func (h *toolRateLimitsHandler) SetToolRateLimit(w http.ResponseWriter, r *http.
 		return
 	}
 
-	tenant := auth.TenantFromContext(r.Context())
+	tenant := mustTenant(w, r)
+	if tenant == nil {
+		return
+	}
 
 	// Verify tool exists.
 	if _, err := h.toolStore.GetByID(r.Context(), tenant.ID, toolID); err != nil {
@@ -136,7 +141,10 @@ func (h *toolRateLimitsHandler) DeleteToolRateLimit(w http.ResponseWriter, r *ht
 		return
 	}
 
-	tenant := auth.TenantFromContext(r.Context())
+	tenant := mustTenant(w, r)
+	if tenant == nil {
+		return
+	}
 	err := h.store.Delete(r.Context(), tenant.ID, toolID, scope, scopeID)
 	if err != nil {
 		if errors.Is(err, pgx.ErrNoRows) {

@@ -41,9 +41,8 @@ func (h *authHandler) Login(w http.ResponseWriter, r *http.Request) {
 		return
 	}
 
-	tenant := auth.TenantFromContext(r.Context())
+	tenant := mustTenant(w, r)
 	if tenant == nil {
-		writeError(w, http.StatusBadRequest, "tenant_required", "tenant required")
 		return
 	}
 

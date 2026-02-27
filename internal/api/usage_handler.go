@@ -226,7 +226,10 @@ func (h *usageHandler) GetUsageAdmin(w http.ResponseWriter, r *http.Request) {
 		return
 	}
 
-	tenant := auth.TenantFromContext(r.Context())
+	tenant := mustTenant(w, r)
+	if tenant == nil {
+		return
+	}
 
 	if err := resolveTeamFilter(r.Context(), r, tenant.ID, q, h.agentStore); err != nil {
 		writeError(w, http.StatusInternalServerError, "internal_error", "failed to list team agents")
@@ -253,7 +256,10 @@ func (h *usageHandler) ListTransactions(w http.ResponseWriter, r *http.Request, 
 
 	var tenantID string
 	if isAdmin {
-		tenant := auth.TenantFromContext(r.Context())
+		tenant := mustTenant(w, r)
+		if tenant == nil {
+			return
+		}
 		tenantID = tenant.ID
 		if err := resolveTeamFilter(r.Context(), r, tenantID, q, h.agentStore); err != nil {
 			writeError(w, http.StatusInternalServerError, "internal_error", "failed to list team agents")
@@ -281,7 +287,10 @@ func (h *usageHandler) ListTransactions(w http.ResponseWriter, r *http.Request, 
 
 // GetToolCallCounts handles GET /api/v1/admin/usage/tools/calls (admin).
 func (h *usageHandler) GetToolCallCounts(w http.ResponseWriter, r *http.Request) {
-	tenant := auth.TenantFromContext(r.Context())
+	tenant := mustTenant(w, r)
+	if tenant == nil {
+		return
+	}
 	counts, err := h.store.GetToolCallCounts(r.Context(), tenant.ID)
 	if err != nil {
 		writeError(w, http.StatusInternalServerError, "internal_error", "failed to get tool call counts")
@@ -297,7 +306,10 @@ func (h *usageHandler) GetSubToolCallCounts(w http.ResponseWriter, r *http.Reque
 		writeError(w, http.StatusBadRequest, "invalid_id", "tool id is required")
 		return
 	}
-	tenant := auth.TenantFromContext(r.Context())
+	tenant := mustTenant(w, r)
+	if tenant == nil {
+		return
+	}
 	counts, err := h.store.GetSubToolCallCounts(r.Context(), tenant.ID, id)
 	if err != nil {
 		writeError(w, http.StatusInternalServerError, "internal_error", "failed to get sub-tool call counts")
@@ -314,7 +326,10 @@ func (h *usageHandler) GetTransactionDetail(w http.ResponseWriter, r *http.Reque
 		return
 	}
 
-	tenant := auth.TenantFromContext(r.Context())
+	tenant := mustTenant(w, r)
+	if tenant == nil {
+		return
+	}
 
 	// Get the transaction by ID.
 	found, err := h.store.GetByID(r.Context(), tenant.ID, id)

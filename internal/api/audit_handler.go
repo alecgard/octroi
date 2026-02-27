@@ -8,7 +8,6 @@ import (
 	"time"
 
 	"github.com/alecgard/octroi/internal/audit"
-	"github.com/alecgard/octroi/internal/auth"
 )
 
 // auditLogStore defines the audit store methods used by the handler.
@@ -48,7 +47,10 @@ func (h *auditHandler) ListAuditLog(w http.ResponseWriter, r *http.Request) {
 		}
 	}
 
-	tenant := auth.TenantFromContext(r.Context())
+	tenant := mustTenant(w, r)
+	if tenant == nil {
+		return
+	}
 	entries, nextCursor, err := h.store.List(r.Context(), tenant.ID, params)
 	if err != nil {
 		writeError(w, http.StatusInternalServerError, "internal_error", "failed to list audit log")
