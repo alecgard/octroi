@@ -156,6 +156,10 @@ Configuration lives in YAML files under `configs/`. See [`configs/octroi.dev.yam
 
 ## Contributing
 
+```bash
+make setup  # one-time: installs git hooks and e2e deps
+```
+
 See [DEVELOPING.md](DEVELOPING.md) for local development setup, architecture, testing, and the full API reference.
 
 ## License

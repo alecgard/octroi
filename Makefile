@@ -1,4 +1,4 @@
-.PHONY: dev prod-local db\:dev clean\:dev clean\:prod-local e2e e2e\:install e2e\:ui clean\:e2e
+.PHONY: dev prod-local db\:dev clean\:dev clean\:prod-local e2e e2e\:install e2e\:ui clean\:e2e setup hooks
 
 DEV_CONFIG := configs/octroi.dev.yaml
 E2E_CONFIG := configs/octroi.e2e.yaml
@@ -68,3 +68,12 @@ e2e\:ui:
 
 clean\:e2e:
 	docker compose -p $(E2E_PROJECT) -f docker-compose.e2e.yml down -v
+
+# --- setup: one-time dev environment setup ---
+setup:
+	git config core.hooksPath .githooks
+	cd e2e && npm install && npx playwright install chromium
+
+# --- hooks: install git hooks from .githooks/ (included in setup) ---
+hooks:
+	git config core.hooksPath .githooks
