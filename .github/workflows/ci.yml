@@ -51,3 +51,73 @@ jobs:
         run: go test -race -count=1 ./...
         env:
           OCTROI_DATABASE_URL: postgres://octroi:octroi@localhost:5433/octroi?sslmode=disable
+
+  e2e:
+    runs-on: ubuntu-latest
+    needs: test
+
+    services:
+      postgres:
+        image: postgres:16-alpine
+        env:
+          POSTGRES_USER: octroi
+          POSTGRES_PASSWORD: octroi
+          POSTGRES_DB: octroi_e2e
+        ports:
+          - 5435:5432
+        options: >-
+          --health-cmd "pg_isready -U octroi"
+          --health-interval 10s
+          --health-timeout 5s
+          --health-retries 5
+
+    env:
+      OCTROI_ENCRYPTION_KEY: "0000000000000000000000000000000000000000000000000000000000000000"
+      POSTGRES_PASSWORD: octroi
+
+    steps:
+      - uses: actions/checkout@v4
+
+      - uses: actions/setup-go@v5
+        with:
+          go-version: '1.24'
+
+      - uses: actions/setup-node@v4
+        with:
+          node-version: '22'
+
+      - name: Build server
+        run: go build -o octroi ./cmd/octroi
+
+      - name: Run migrations
+        run: ./octroi migrate --config configs/octroi.e2e.yaml
+
+      - name: Create admin user
+        run: ./octroi ensure-admin --config configs/octroi.e2e.yaml 2>/dev/null || true
+
+      - name: Start server
+        run: |
+          OCTROI_DEV=1 ./octroi serve --config configs/octroi.e2e.yaml &
+          sleep 3
+
+      - name: Seed data
+        run: timeout 30 scripts/seed.sh http://localhost:9091 || true
+
+      - name: Install Playwright
+        working-directory: e2e
+        run: |
+          npm ci
+          npx playwright install --with-deps chromium
+
+      - name: Run E2E tests
+        working-directory: e2e
+        run: npx playwright test
+        env:
+          BASE_URL: http://localhost:9091
+
+      - uses: actions/upload-artifact@v4
+        if: always()
+        with:
+          name: playwright-report
+          path: e2e/playwright-report/
+          retention-days: 7
