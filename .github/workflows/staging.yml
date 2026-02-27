@@ -23,7 +23,7 @@ jobs:
     steps:
       - uses: actions/checkout@v4
 
-      - name: Link project
+      - name: Link to base environment
         run: railway link -p $PROJECT_ID -e $SOURCE_ENV_ID -s $SERVICE_ID
 
       - name: Create environment (skip if exists)
@@ -31,13 +31,16 @@ jobs:
           railway environment new $ENV_NAME --copy $SOURCE_ENV_ID \
             || echo "Environment may already exist, continuing"
 
-      - name: Deploy PR code to environment
-        run: railway up -e $ENV_NAME -s $SERVICE_ID --detach
+      - name: Link to PR environment
+        run: railway link -p $PROJECT_ID -e $ENV_NAME -s $SERVICE_ID
+
+      - name: Deploy
+        run: railway up --detach
 
       - name: Generate domain
         id: domain
         run: |
-          DOMAIN=$(railway domain -e $ENV_NAME -s $SERVICE_ID 2>&1 || true)
+          DOMAIN=$(railway domain)
           echo "url=$DOMAIN" >> "$GITHUB_OUTPUT"
 
       - name: Comment on PR
@@ -57,7 +60,7 @@ jobs:
     container: ghcr.io/railwayapp/cli:latest
 
     steps:
-      - name: Link project
+      - name: Link to base environment
         run: railway link -p $PROJECT_ID -e $SOURCE_ENV_ID -s $SERVICE_ID
 
       - name: Delete PR environment
