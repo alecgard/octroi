@@ -20,12 +20,11 @@ jobs:
       pull-requests: write
 
     steps:
-      - name: Create or update environment
+      - name: Create environment
         run: |
           railway environment --project $PROJECT_ID new pr-${{ github.event.number }} \
             --copy $SOURCE_ENV_ID \
-            --service-config $SERVICE_ID "source.branch" "${{ github.head_ref }}" \
-            2>/dev/null || true
+            --service-config $SERVICE_ID "source.branch" "${{ github.head_ref }}"
 
       - name: Deploy
         run: railway up --project $PROJECT_ID --environment pr-${{ github.event.number }} --service $SERVICE_ID --detach
