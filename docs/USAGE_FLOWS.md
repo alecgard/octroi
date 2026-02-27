@@ -1,14 +1,71 @@
 # Octroi Usage Flows
 
-Step-by-step workflows for common operations. Each flow shows the exact API calls in order, with the minimum required fields. See [API.md](API.md) for full request/response schemas.
+Step-by-step workflows for every operation in the system. Each flow shows exact API calls with minimum required fields. See [API.md](API.md) for full request/response schemas.
 
 All examples use `$BASE` for the server URL (e.g. `http://localhost:8080`).
 
 ---
 
-## 1. Admin Setup
+## 1. Discovery & Health
 
-### 1.1 Initial Login
+### 1.1 Health Check
+
+```
+GET /health
+→ { "status": "ok", "database": "connected" }
+```
+
+Returns `"degraded"` if the database is unreachable.
+
+### 1.2 Service Manifest
+
+```
+GET /.well-known/octroi.json
+→ { "name": "octroi", "version": "...", "api_base": "/api/v1", ... }
+```
+
+Used by clients to discover API endpoint locations and version info.
+
+### 1.3 Browse Public Tool Catalog
+
+List tools without authentication (endpoints and auth credentials are hidden):
+
+```
+GET /api/v1/tools?limit=20
+→ { "tools": [{ "id": "tool-1", "name": "GitHub API", "mode": "service", ... }],
+    "next_cursor": "eyJ..." }
+```
+
+Page through results:
+
+```
+GET /api/v1/tools?limit=20&cursor=eyJ...
+→ { "tools": [...], "next_cursor": "eyK..." }
+```
+
+### 1.4 Search Public Tools
+
+```
+GET /api/v1/tools/search?q=github&limit=10
+→ { "tools": [...] }
+```
+
+### 1.5 Get a Single Public Tool
+
+```
+GET /api/v1/tools/tool-1
+→ { "id": "tool-1", "name": "GitHub API", "description": "...", "mode": "service", ... }
+```
+
+No endpoint or auth_config in the response.
+
+---
+
+## 2. User Authentication
+
+### 2.1 Login
+
+Rate limited to 5 attempts per IP per minute.
 
 ```
 POST /api/v1/auth/login
@@ -16,31 +73,48 @@ Body: { "email": "admin@octroi.dev", "password": "octroi" }
 → { "token": "abc123...", "user": { "id", "email", "name", "role": "org_admin", "teams": [] } }
 ```
 
-Store the token. All subsequent admin calls use `Authorization: Bearer <token>`.
+Store the token. All subsequent user calls use `Authorization: Bearer <token>`.
 
-### 1.2 Create a Team (via Users)
-
-Teams are implicit — they exist when at least one user or agent belongs to them. To create a team, create a user assigned to it:
+### 2.2 Check Current Session
 
 ```
-POST /api/v1/admin/users
-Body: { "email": "alice@co.com", "password": "...", "name": "Alice", "role": "member",
-        "teams": [{ "team": "backend", "role": "admin" }] }
-→ { "id": "user-1", "email": "alice@co.com", "teams": [{ "team": "backend", "role": "admin" }] }
+GET /api/v1/auth/me
+→ { "id": "user-1", "email": "admin@octroi.dev", "name": "Admin", "role": "org_admin", "teams": [] }
 ```
 
-The team `backend` now exists. Verify with:
+Returns the authenticated user. Use this to verify a stored token is still valid.
+
+### 2.3 Logout
 
 ```
-GET /api/v1/admin/teams
-→ { "teams": [{ "name": "backend", "agents": [], "users": [{ "id": "user-1", ... }] }] }
+POST /api/v1/auth/logout
+→ 204 No Content
 ```
+
+Invalidates the session token server-side. The token cannot be reused.
 
 ---
 
-## 2. Adding a Tool
+## 3. Tool Management (Admin)
 
-### 2.1 REST/Service Tool
+### 3.1 List All Tools
+
+Returns full details including endpoint and auth credentials (admin only):
+
+```
+GET /api/v1/admin/tools?limit=50
+→ { "tools": [{ "id": "tool-1", "endpoint": "https://api.github.com",
+                 "auth_config": { "key": "ghp_..." }, ... }],
+    "next_cursor": "..." }
+```
+
+Search by name:
+
+```
+GET /api/v1/admin/tools?q=github
+```
+
+### 3.2 Create a Service Tool
 
 ```
 POST /api/v1/admin/tools
@@ -55,9 +129,9 @@ Body: {
 → { "id": "tool-1", "name": "GitHub API", "mode": "service", ... }
 ```
 
-Agents can now call `ANY /proxy/tool-1/repos/octocat/hello-world` and the request is forwarded to `https://api.github.com/repos/octocat/hello-world` with the bearer token injected.
+Agents call `ANY /proxy/tool-1/repos/octocat/hello-world` and the request forwards to `https://api.github.com/repos/octocat/hello-world` with the bearer token injected.
 
-### 2.2 API-Mode Tool (URL Templates)
+### 3.3 Create an API-Mode Tool
 
 API mode supports path variables in the endpoint:
 
@@ -70,9 +144,10 @@ Body: {
   "auth_type": "header",
   "auth_config": { "header_name": "X-API-Key", "key": "secret" }
 }
+→ { "id": "tool-3", ... }
 ```
 
-### 2.3 MCP Tool
+### 3.4 Create an MCP Tool
 
 ```
 POST /api/v1/admin/tools
@@ -93,7 +168,7 @@ POST /api/v1/admin/tools/tool-2/refresh-mcp
 → 204 No Content
 ```
 
-Verify what sub-tools were discovered:
+### 3.5 List MCP Sub-Tools
 
 ```
 GET /api/v1/admin/tools/tool-2/mcp-tools
@@ -101,29 +176,14 @@ GET /api/v1/admin/tools/tool-2/mcp-tools
                    { "name": "brave_local_search", "description": "..." }] }
 ```
 
-Agents can now call sub-tools via the proxy:
+### 3.6 Update a Tool
 
-```
-POST /proxy/tool-2/brave_web_search
-Body: { "query": "octroi api gateway" }
-→ MCP CallToolResult as JSON
-```
-
-Or list available sub-tools:
-
-```
-GET /proxy/tool-2/
-→ { "tool_id": "tool-2", "tool_name": "Brave Search",
-    "sub_tools": [{ "name": "brave_web_search", "description": "..." }, ...] }
-```
-
-### 2.4 Configure Tool Resilience
-
-After creating a tool, optionally configure rate limits, budget, retries, and circuit breaker:
+Partial update — only send fields you want to change:
 
 ```
 PUT /api/v1/admin/tools/tool-1
 Body: {
+  "description": "Updated description",
   "rate_limit": 100,
   "budget_limit": 50.00,
   "budget_window": "monthly",
@@ -133,52 +193,158 @@ Body: {
   "max_retries": 2,
   "retry_backoff_ms": 500,
   "log_bodies": true,
+  "webhook_url": "https://hooks.slack.com/...",
+  "webhook_threshold_pct": 80,
   "cb_enabled": true,
   "cb_error_threshold_pct": 50,
   "cb_window_seconds": 60,
   "cb_cooldown_seconds": 30
 }
+→ updated tool object
 ```
 
-Set team-specific rate limits:
+### 3.7 Archive a Tool
+
+Soft-delete. Existing transactions are preserved. Agents can no longer call it.
+
+```
+DELETE /api/v1/admin/tools/tool-1
+→ 204 No Content
+```
+
+### 3.8 Check Circuit Breaker Status
+
+```
+GET /api/v1/admin/tools/tool-1/circuit-breaker
+→ { "state": "closed", "error_count": 2, "last_error": "..." }
+```
+
+States: `closed` (healthy) → `open` (blocking, returns 503) → `half-open` (testing recovery).
+
+---
+
+## 4. Tool Rate Limit Overrides (Admin)
+
+### 4.1 List Rate Limit Overrides
+
+```
+GET /api/v1/admin/tools/tool-1/rate-limits
+→ { "global_limit": 100,
+    "overrides": [{ "scope": "team", "scope_id": "backend", "rate_limit": 200 },
+                  { "scope": "agent", "scope_id": "agent-1", "rate_limit": 50 }] }
+```
+
+### 4.2 Set a Team Override
 
 ```
 PUT /api/v1/admin/tools/tool-1/rate-limits
 Body: { "scope": "team", "scope_id": "backend", "rate_limit": 200 }
-→ 204
+→ 204 No Content
+```
+
+### 4.3 Set an Agent Override
+
+```
+PUT /api/v1/admin/tools/tool-1/rate-limits
+Body: { "scope": "agent", "scope_id": "agent-1", "rate_limit": 50 }
+→ 204 No Content
+```
+
+### 4.4 Remove an Override
+
+```
+DELETE /api/v1/admin/tools/tool-1/rate-limits/team/backend
+→ 204 No Content
+```
+
+```
+DELETE /api/v1/admin/tools/tool-1/rate-limits/agent/agent-1
+→ 204 No Content
 ```
 
 ---
 
-## 3. Adding an Agent
+## 5. Agent Management (Admin)
 
-### 3.1 Create Agent (Admin)
+### 5.1 List All Agents
+
+```
+GET /api/v1/admin/agents?limit=50
+→ { "agents": [{ "id": "agent-1", "name": "backend-deploy", "team": "backend",
+                  "api_key_prefix": "octroi_a1b2c3", ... }],
+    "next_cursor": "..." }
+```
+
+### 5.2 Create an Agent
+
+The plaintext API key is returned **only in this response**. Store it immediately.
 
 ```
 POST /api/v1/admin/agents
-Body: { "name": "backend-deploy", "team": "backend" }
+Body: { "name": "backend-deploy", "team": "backend", "rate_limit": 60 }
 → { "id": "agent-1", "name": "backend-deploy", "team": "backend",
-    "api_key": "octroi_a1b2c3...",  ← shown ONCE, store it now
+    "api_key": "octroi_a1b2c3...",
     "api_key_prefix": "octroi_a1b2c3" }
 ```
 
-The `api_key` is only returned on creation (and regeneration). It cannot be retrieved later.
-
-### 3.2 Create Agent (Member)
-
-Members can create agents scoped to their own team:
+### 5.3 Update an Agent
 
 ```
-POST /api/v1/member/agents
-Body: { "name": "my-bot", "team": "backend" }
-→ { "id": "agent-2", "api_key": "octroi_x7y8z9...", ... }
+PUT /api/v1/admin/agents/agent-1
+Body: { "name": "backend-deployer", "rate_limit": 120 }
+→ updated agent object
 ```
 
-If the member belongs to only one team, `team` can be omitted.
+### 5.4 Archive an Agent
 
-### 3.3 Configure Agent Permissions
+The agent's API key stops working immediately. Transaction history is retained.
 
-By default, agents can call any tool. To restrict access, enable allowlist mode:
+```
+DELETE /api/v1/admin/agents/agent-1
+→ 204 No Content
+```
+
+### 5.5 Regenerate API Key
+
+Old key is immediately invalidated. New key is only shown in this response.
+
+```
+POST /api/v1/admin/agents/agent-1/regenerate-key
+→ { "api_key": "octroi_new_key..." }
+```
+
+---
+
+## 6. Agent Permissions (Admin)
+
+### 6.1 List Agent Permissions
+
+```
+GET /api/v1/admin/agents/agent-1/permissions
+→ { "allowlist_mode": true,
+    "permissions": [{ "tool_id": "tool-1", "allowed": true },
+                    { "tool_id": "tool-2", "allowed": true, "sub_tools": ["brave_web_search"] }] }
+```
+
+### 6.2 Set Permission for a Single Tool
+
+```
+PUT /api/v1/admin/agents/agent-1/permissions/tool-1
+Body: { "allowed": true }
+→ 204 No Content
+```
+
+With MCP sub-tool scoping:
+
+```
+PUT /api/v1/admin/agents/agent-1/permissions/tool-2
+Body: { "allowed": true, "sub_tools": ["brave_web_search"] }
+→ 204 No Content
+```
+
+### 6.3 Bulk Set Permissions
+
+Sets allowlist mode and all permissions in one call:
 
 ```
 PUT /api/v1/admin/agents/agent-1/permissions
@@ -189,12 +355,21 @@ Body: {
     "tool-2": { "allowed": true, "sub_tools": ["brave_web_search"] }
   }
 }
-→ 204
+→ 204 No Content
 ```
 
-Now `agent-1` can only call `tool-1` (all paths) and `tool-2` (only the `brave_web_search` sub-tool).
+### 6.4 Remove a Permission
 
-### 3.4 Set Agent Budgets
+```
+DELETE /api/v1/admin/agents/agent-1/permissions/tool-1
+→ 204 No Content
+```
+
+---
+
+## 7. Agent Budgets (Admin)
+
+### 7.1 Set a Budget
 
 ```
 PUT /api/v1/admin/agents/agent-1/budgets/tool-1
@@ -204,24 +379,30 @@ Body: { "daily_limit": 5.00, "monthly_limit": 100.00 }
     "daily_used": 0, "monthly_used": 0 }
 ```
 
-### 3.5 Regenerate API Key
-
-If a key is compromised:
+### 7.2 Get a Specific Budget
 
 ```
-POST /api/v1/admin/agents/agent-1/regenerate-key
-→ { "api_key": "octroi_new_key..." }
+GET /api/v1/admin/agents/agent-1/budgets/tool-1
+→ { "agent_id": "agent-1", "tool_id": "tool-1",
+    "daily_limit": 5.00, "monthly_limit": 100.00,
+    "daily_used": 1.23, "monthly_used": 45.67 }
 ```
 
-The old key is immediately invalidated.
+### 7.3 List All Budgets for an Agent
+
+```
+GET /api/v1/admin/agents/agent-1/budgets
+→ [{ "tool_id": "tool-1", "daily_limit": 5.00, ... },
+   { "tool_id": "tool-2", "daily_limit": 10.00, ... }]
+```
 
 ---
 
-## 4. Agent Calling a Tool
+## 8. Agent Calling Tools
 
-### 4.1 Service/API Tool via Proxy
+### 8.1 Service/API Tool via Proxy
 
-The agent authenticates with its API key and calls the proxy:
+The agent authenticates with its API key:
 
 ```
 GET /proxy/tool-1/repos/octocat/hello-world
@@ -229,21 +410,31 @@ Authorization: Bearer octroi_a1b2c3...
 → (proxied response from https://api.github.com/repos/octocat/hello-world)
 ```
 
-The proxy:
-1. Authenticates the agent
-2. Looks up the tool and checks it's enabled
-3. Checks permissions (if allowlist mode is on)
-4. Checks rate limits (returns 429 with `X-Tool-RateLimit-*` headers if exceeded)
-5. Checks budget (returns 403 `budget_exceeded` if exceeded)
-6. Checks circuit breaker (returns 503 `circuit_open` if tripped)
-7. Injects auth credentials into the upstream request
-8. Forwards the request, retrying on 5xx
-9. Records the transaction (cost, latency, status)
-10. Returns the upstream response
+Any HTTP method works. The path after `/proxy/{toolID}/` is appended to the tool's endpoint. Auth credentials are injected into the upstream request.
 
-### 4.2 MCP Tool via Proxy (HTTP)
+**Governance checks (in order):**
+1. Agent authentication
+2. Tool exists and is enabled (404 if archived)
+3. Agent permissions (403 if allowlist blocks it)
+4. Per-tool rate limit (429 with `X-Tool-RateLimit-*` headers)
+5. Agent budget (403 `budget_exceeded`)
+6. Global tool budget (403 `budget_exceeded`)
+7. Circuit breaker (503 `circuit_open`)
 
-Agents that prefer REST can call MCP sub-tools via HTTP:
+On success, the request is forwarded with retries on 5xx. A transaction is recorded.
+
+### 8.2 MCP Tool via HTTP Proxy
+
+List available sub-tools:
+
+```
+GET /proxy/tool-2/
+Authorization: Bearer octroi_a1b2c3...
+→ { "tool_id": "tool-2", "tool_name": "Brave Search",
+    "sub_tools": [{ "name": "brave_web_search", "description": "..." }, ...] }
+```
+
+Call a sub-tool:
 
 ```
 POST /proxy/tool-2/brave_web_search
@@ -252,27 +443,30 @@ Body: { "query": "rust async runtime" }
 → { "content": [{ "type": "text", "text": "..." }], "isError": false }
 ```
 
-### 4.3 MCP Tool via MCP Protocol
+Same governance checks apply. Sub-tool permissions are enforced if configured.
 
-Agents that speak MCP natively connect to the SSE endpoint:
+### 8.3 MCP Tool via Native MCP Protocol
+
+For agents that speak MCP natively (SSE transport):
 
 ```
 POST /mcp/
 Authorization: Bearer octroi_a1b2c3...
-(MCP JSON-RPC protocol)
+(MCP JSON-RPC protocol over SSE)
 ```
 
 The MCP server dynamically lists all MCP-mode tools the agent has access to and applies the same governance (permissions, rate limits, budgets) as the proxy.
 
-### 4.4 Agent Self-Service
-
-Agents can check their own identity and usage:
+### 8.4 Agent Self-Service: Identity
 
 ```
 GET /api/v1/agents/me
 Authorization: Bearer octroi_a1b2c3...
-→ { "id": "agent-1", "name": "backend-deploy", "team": "backend", ... }
+→ { "id": "agent-1", "name": "backend-deploy", "team": "backend",
+    "rate_limit": 60, "allowlist_mode": false, ... }
 ```
+
+### 8.5 Agent Self-Service: Usage Summary
 
 ```
 GET /api/v1/usage?tool_id=tool-1&from=2025-01-01
@@ -280,96 +474,144 @@ Authorization: Bearer octroi_a1b2c3...
 → { "total_requests": 142, "total_cost": 0.142, "avg_latency_ms": 85, ... }
 ```
 
+Filter parameters: `tool_id`, `path`, `from`, `to`, `status_code`, `min_latency_ms`, `channel`.
+
+### 8.6 Agent Self-Service: Transaction List
+
 ```
 GET /api/v1/usage/transactions?limit=10
 Authorization: Bearer octroi_a1b2c3...
 → { "transactions": [...], "next_cursor": "..." }
 ```
 
+Same filter parameters as usage summary, plus `cursor` and `limit`.
+
 ---
 
-## 5. Monitoring Usage
+## 9. Usage & Analytics (Admin)
 
-### 5.1 Admin: Dashboard Overview
+### 9.1 Global Usage Summary
 
 ```
 GET /api/v1/admin/usage?from=2025-01-01
-→ { "total_requests": 12400, "total_cost": 48.20, "avg_latency_ms": 120, ... }
+→ { "total_requests": 12400, "successful_requests": 12100, "failed_requests": 300,
+    "total_cost": 48.20, "total_latency_ms": 1488000, "avg_latency_ms": 120,
+    "tools_called": 15 }
 ```
 
-### 5.2 Admin: Filter by Team/Agent/Tool
+Filter parameters: `agent_id`, `tool_id`, `team`, `from`, `to`, `path`, `status_code`, `min_latency_ms`, `channel`. Comma-separated for multi-value filters.
+
+### 9.2 Usage for a Specific Agent
 
 ```
-GET /api/v1/admin/usage?team=backend&tool_id=tool-1&from=2025-01-01
-→ { "total_requests": 3200, ... }
+GET /api/v1/admin/usage/agents/agent-1
+→ { "total_requests": 3200, "total_cost": 12.80, ... }
 ```
 
-### 5.3 Admin: Browse Transactions
+### 9.3 Usage for a Specific Tool
 
 ```
-GET /api/v1/admin/usage/transactions?team=backend&limit=50
-→ { "transactions": [...], "next_cursor": "eyJ..." }
+GET /api/v1/admin/usage/tools/tool-1
+→ { "total_requests": 5600, "total_cost": 22.40, ... }
 ```
 
-Page through with cursor:
+### 9.4 Usage for an Agent+Tool Pair
 
 ```
-GET /api/v1/admin/usage/transactions?team=backend&limit=50&cursor=eyJ...
-→ { "transactions": [...], "next_cursor": "eyK..." }
+GET /api/v1/admin/usage/agents/agent-1/tools/tool-1
+→ { "total_requests": 1400, "total_cost": 5.60, ... }
 ```
 
-### 5.4 Admin: Inspect a Transaction
+### 9.5 Tool Call Counts
 
-```
-GET /api/v1/admin/usage/transactions/txn-123
-→ {
-    "transaction": { "id": "txn-123", "agent_name": "backend-deploy", "tool_name": "GitHub API",
-                     "method": "GET", "path": "/repos/...", "status_code": 200,
-                     "latency_ms": 85, "cost": 0.001, "channel": "http" },
-    "body": { "request_body": "...", "response_body": "..." }
-  }
-```
-
-Request/response bodies are only available if `log_bodies` is enabled on the tool.
-
-### 5.5 Admin: Tool Call Counts
+Total calls per tool:
 
 ```
 GET /api/v1/admin/usage/tools/calls
-→ { "counts": { "tool-1": 3200, "tool-2": 890, ... } }
+→ { "counts": { "tool-1": 5600, "tool-2": 890, ... } }
 ```
 
-For MCP tools, see per-sub-tool breakdown:
+Per-sub-tool breakdown for MCP tools:
 
 ```
 GET /api/v1/admin/usage/tools/tool-2/calls
 → { "counts": { "brave_web_search": 750, "brave_local_search": 140 } }
 ```
 
-### 5.6 Admin: Export
+### 9.6 Browse Transactions
+
+```
+GET /api/v1/admin/usage/transactions?team=backend&limit=50
+→ { "transactions": [...], "next_cursor": "eyJ..." }
+```
+
+Page through:
+
+```
+GET /api/v1/admin/usage/transactions?team=backend&limit=50&cursor=eyJ...
+→ { "transactions": [...], "next_cursor": "eyK..." }
+```
+
+### 9.7 Inspect a Transaction
+
+```
+GET /api/v1/admin/usage/transactions/txn-123
+→ {
+    "transaction": { "id": "txn-123", "agent_name": "backend-deploy",
+      "tool_name": "GitHub API", "method": "GET", "path": "/repos/...",
+      "status_code": 200, "latency_ms": 85, "cost": 0.001, "channel": "http" },
+    "body": { "request_body": "...", "response_body": "..." }
+  }
+```
+
+Request/response bodies only available if `log_bodies` is enabled on the tool.
+
+### 9.8 Export Transactions as CSV
 
 ```
 GET /api/v1/admin/usage/transactions/export?team=backend&from=2025-01-01
 → (CSV download, max 10,000 rows)
 ```
 
-### 5.7 Member: Team-Scoped Usage
-
-Members see only their team's data:
-
-```
-GET /api/v1/member/usage?from=2025-01-01
-→ { "total_requests": 3200, ... }
-
-GET /api/v1/member/usage/transactions?limit=20
-→ { "transactions": [...] }
-```
+Same filter parameters as transaction list.
 
 ---
 
-## 6. User Management
+## 10. Admin Metrics
 
-### 6.1 Create Users
+### 10.1 Dashboard Metrics
+
+JSON summary of operational metrics (not Prometheus):
+
+```
+GET /api/v1/admin/metrics
+→ { "auth_success": 450, "auth_failure": 12, "rate_limit_rejections": 3, ... }
+```
+
+### 10.2 Prometheus Metrics
+
+```
+GET /metrics
+→ (Prometheus exposition format — request counts, latencies, error rates)
+```
+
+Prometheus is for infrastructure monitoring only. Product analytics (cost, per-tool usage) come from the usage API.
+
+---
+
+## 11. User Management (Admin)
+
+### 11.1 List All Users
+
+```
+GET /api/v1/admin/users
+→ [{ "id": "user-1", "email": "admin@octroi.dev", "name": "Admin",
+     "role": "org_admin", "teams": [], ... },
+   { "id": "user-2", "email": "alice@co.com", "role": "member",
+     "teams": [{ "team": "backend", "role": "admin" }], ... }]
+```
+
+### 11.2 Create a User
 
 ```
 POST /api/v1/admin/users
@@ -380,29 +622,199 @@ Body: {
   "role": "member",
   "teams": [{ "team": "backend", "role": "member" }]
 }
-→ { "id": "user-2", ... }
+→ { "id": "user-3", ... }
 ```
 
-### 6.2 Manage Team Membership
+Creating a user with a team that doesn't exist yet will create the team implicitly.
 
-Add a user to a team (requires team admin):
-
-```
-PUT /api/v1/member/teams/backend/members/user-2
-Body: { "role": "admin" }
-→ 204
-```
-
-Remove a user from a team:
+### 11.3 Update a User
 
 ```
-DELETE /api/v1/member/teams/backend/members/user-2
-→ 204
+PUT /api/v1/admin/users/user-3
+Body: { "name": "Robert", "role": "org_admin", "teams": [{ "team": "backend", "role": "admin" }] }
+→ updated user
 ```
 
 Cannot remove the last admin of a team (returns 409).
 
-### 6.3 Self-Service Profile
+### 11.4 Archive a User
+
+Soft-delete. All active sessions are invalidated immediately.
+
+```
+DELETE /api/v1/admin/users/user-3
+→ 204 No Content
+```
+
+Cannot delete the last admin of any team (returns 409).
+
+---
+
+## 12. Team Management (Admin)
+
+### 12.1 List All Teams
+
+Teams are derived from user and agent memberships:
+
+```
+GET /api/v1/admin/teams
+→ [{ "name": "backend",
+     "agents": [{ "id": "agent-1", "name": "backend-deploy", "api_key_prefix": "octroi_a1b2" }],
+     "users": [{ "id": "user-2", "email": "alice@co.com", "name": "Alice",
+                 "role": "member", "team_role": "admin" }] }]
+```
+
+### 12.2 Create a Team
+
+Teams are implicit — they're created when a user or agent is assigned to one:
+
+```
+POST /api/v1/admin/users
+Body: { "email": "sarah@co.com", "password": "...", "name": "Sarah",
+        "role": "member", "teams": [{ "team": "ml", "role": "admin" }] }
+```
+
+The team `ml` now exists.
+
+---
+
+## 13. Audit Log (Admin)
+
+### 13.1 List Audit Entries
+
+```
+GET /api/v1/admin/audit-log?limit=20
+→ { "entries": [
+      { "id": "...", "timestamp": "...", "action": "create", "resource_type": "agent",
+        "resource_id": "agent-1", "user_id": "user-1", "ip_address": "...",
+        "request_id": "...", "details": { "name": "backend-deploy" } },
+      ...
+    ], "next_cursor": "..." }
+```
+
+### 13.2 Filter by Resource Type
+
+```
+GET /api/v1/admin/audit-log?resource_type=user&from=2025-01-01&to=2025-02-01
+→ { "entries": [...], "next_cursor": "..." }
+```
+
+Filter parameters: `resource_type` (tool, agent, user), `from`, `to`, `cursor`, `limit`.
+
+Every mutation is logged: `create`, `update`, `delete`, `regenerate_key`, `login`, `logout`.
+
+---
+
+## 14. Member Operations
+
+Members have team-scoped access. All member endpoints require a user session (any role).
+
+### 14.1 List My Teams
+
+```
+GET /api/v1/member/teams
+→ [{ "name": "backend", "agents": [...], "users": [...] }]
+```
+
+Only returns teams the user belongs to.
+
+### 14.2 List Agents in My Teams
+
+```
+GET /api/v1/member/agents
+→ [{ "id": "agent-1", "name": "backend-deploy", "team": "backend", ... }]
+```
+
+### 14.3 Create an Agent (Member)
+
+```
+POST /api/v1/member/agents
+Body: { "name": "my-bot", "team": "backend" }
+→ { "id": "agent-2", "api_key": "octroi_x7y8z9...", ... }
+```
+
+If the member belongs to only one team, `team` can be omitted.
+
+### 14.4 Update an Agent (Member)
+
+Cannot change team:
+
+```
+PUT /api/v1/member/agents/agent-2
+Body: { "name": "my-renamed-bot", "rate_limit": 30 }
+→ updated agent
+```
+
+### 14.5 Archive an Agent (Member)
+
+```
+DELETE /api/v1/member/agents/agent-2
+→ 204 No Content
+```
+
+### 14.6 Regenerate Agent Key (Member)
+
+```
+POST /api/v1/member/agents/agent-2/regenerate-key
+→ { "api_key": "octroi_new..." }
+```
+
+### 14.7 List Tools (Member)
+
+Public view (no endpoint/auth_config):
+
+```
+GET /api/v1/member/tools
+→ [{ "id": "tool-1", "name": "GitHub API", "mode": "service", ... }]
+```
+
+### 14.8 Team-Scoped Usage
+
+```
+GET /api/v1/member/usage?from=2025-01-01
+→ { "total_requests": 3200, "total_cost": 12.80, ... }
+```
+
+Filter by team (if member of multiple):
+
+```
+GET /api/v1/member/usage?team=backend&tool_id=tool-1
+```
+
+### 14.9 Team-Scoped Transactions
+
+```
+GET /api/v1/member/usage/transactions?limit=20
+→ { "transactions": [...], "next_cursor": "..." }
+```
+
+### 14.10 List All Users (Read-Only)
+
+```
+GET /api/v1/member/users
+→ [{ "id": "user-1", "email": "admin@octroi.dev", ... }, ...]
+```
+
+### 14.11 Manage Team Members
+
+Add or update a member (requires team admin role):
+
+```
+PUT /api/v1/member/teams/backend/members/user-3
+Body: { "role": "admin" }
+→ 204 No Content
+```
+
+Remove a member:
+
+```
+DELETE /api/v1/member/teams/backend/members/user-3
+→ 204 No Content
+```
+
+Cannot remove the last admin of a team (returns 409).
+
+### 14.12 Update Own Profile
 
 ```
 PUT /api/v1/member/users/me
@@ -410,81 +822,19 @@ Body: { "name": "Robert" }
 → updated user
 ```
 
+### 14.13 Change Own Password
+
 ```
 PUT /api/v1/member/users/me/password
 Body: { "current_password": "old", "new_password": "new123" }
-→ 204
+→ 204 No Content
 ```
+
+Minimum 6 characters for new password.
 
 ---
 
-## 7. Audit & Observability
-
-### 7.1 View Audit Log
-
-```
-GET /api/v1/admin/audit-log?resource_type=agent&limit=20
-→ { "entries": [
-      { "action": "create", "resource_type": "agent", "resource_id": "agent-1",
-        "user_id": "user-1", "timestamp": "...", "details": { "name": "backend-deploy" } },
-      ...
-    ], "next_cursor": "..." }
-```
-
-Every mutation (create, update, delete, regenerate_key, login, logout) is logged with the acting user, IP address, and request ID.
-
-### 7.2 Circuit Breaker Status
-
-```
-GET /api/v1/admin/tools/tool-1/circuit-breaker
-→ { "state": "closed", "error_count": 2, "last_error": "..." }
-```
-
-States: `closed` (healthy) → `open` (blocking requests, returns 503) → `half-open` (testing recovery).
-
-### 7.3 Prometheus Metrics
-
-```
-GET /metrics
-→ (Prometheus exposition format)
-```
-
-Operational metrics only (request counts, latencies, error rates). Product analytics (cost, per-tool usage) come from the transactions table via the usage API.
-
----
-
-## 8. Cleanup & Archiving
-
-### 8.1 Archive a Tool
-
-```
-DELETE /api/v1/admin/tools/tool-1
-→ 204
-```
-
-The tool is soft-deleted. Existing transactions are preserved. Agents can no longer call it.
-
-### 8.2 Archive an Agent
-
-```
-DELETE /api/v1/admin/agents/agent-1
-→ 204
-```
-
-The agent's API key stops working immediately. Transaction history is retained.
-
-### 8.3 Archive a User
-
-```
-DELETE /api/v1/admin/users/user-2
-→ 204
-```
-
-All active sessions are invalidated. Cannot delete the last admin of any team (returns 409).
-
----
-
-## 9. End-to-End Example: New Team Onboarding
+## 15. End-to-End: New Team Onboarding
 
 A complete flow for setting up a new team from scratch:
 
@@ -500,32 +850,72 @@ curl -s $BASE/api/v1/admin/users -H "$AUTH" \
   -d '{"email":"sarah@co.com","password":"pass123","name":"Sarah",
        "role":"member","teams":[{"team":"ml","role":"admin"}]}'
 
-# 3. Register a tool the team will use
+# 3. Register a tool
 TOOL_ID=$(curl -s $BASE/api/v1/admin/tools -H "$AUTH" \
   -d '{"name":"OpenAI","mode":"service","endpoint":"https://api.openai.com/v1",
        "auth_type":"bearer","auth_config":{"key":"sk-..."},
        "pricing_model":"per_request","pricing_amount":0.01,
        "rate_limit":60,"budget_limit":500}' | jq -r .id)
 
-# 4. Create an agent for the team
+# 4. Create an agent
 AGENT=$(curl -s $BASE/api/v1/admin/agents -H "$AUTH" \
   -d "{\"name\":\"ml-trainer\",\"team\":\"ml\"}")
 AGENT_ID=$(echo $AGENT | jq -r .id)
 API_KEY=$(echo $AGENT | jq -r .api_key)
 
-# 5. Set agent permissions (allowlist to just OpenAI)
+# 5. Restrict agent to just OpenAI
 curl -s -X PUT $BASE/api/v1/admin/agents/$AGENT_ID/permissions -H "$AUTH" \
   -d "{\"allowlist_mode\":true,\"permissions\":{\"$TOOL_ID\":true}}"
 
-# 6. Set agent budget
+# 6. Set agent budget ($10/day, $200/month)
 curl -s -X PUT $BASE/api/v1/admin/agents/$AGENT_ID/budgets/$TOOL_ID -H "$AUTH" \
   -d '{"daily_limit":10,"monthly_limit":200}'
 
-# 7. Agent calls the tool
+# 7. Set team rate limit override (200 req/min for ml team)
+curl -s -X PUT $BASE/api/v1/admin/tools/$TOOL_ID/rate-limits -H "$AUTH" \
+  -d '{"scope":"team","scope_id":"ml","rate_limit":200}'
+
+# 8. Agent calls the tool
 curl -s $BASE/proxy/$TOOL_ID/chat/completions \
   -H "Authorization: Bearer $API_KEY" \
   -d '{"model":"gpt-4","messages":[{"role":"user","content":"hello"}]}'
 
-# 8. Check usage
+# 9. Check usage
 curl -s "$BASE/api/v1/admin/usage?team=ml" -H "$AUTH"
+
+# 10. View audit trail
+curl -s "$BASE/api/v1/admin/audit-log?resource_type=agent" -H "$AUTH"
+```
+
+---
+
+## 16. End-to-End: MCP Tool Setup
+
+```bash
+# 1. Register the MCP tool
+TOOL_ID=$(curl -s $BASE/api/v1/admin/tools -H "$AUTH" \
+  -d '{"name":"Brave Search","mode":"mcp",
+       "endpoint":"http://mcp-server:8080/brave",
+       "auth_type":"bearer","auth_config":{"key":"brave-key"}}' | jq -r .id)
+
+# 2. Discover sub-tools
+curl -s -X POST $BASE/api/v1/admin/tools/$TOOL_ID/refresh-mcp -H "$AUTH"
+
+# 3. Verify sub-tools
+curl -s $BASE/api/v1/admin/tools/$TOOL_ID/mcp-tools -H "$AUTH"
+
+# 4. Restrict an agent to specific sub-tools
+curl -s -X PUT $BASE/api/v1/admin/agents/$AGENT_ID/permissions/$TOOL_ID -H "$AUTH" \
+  -d '{"allowed":true,"sub_tools":["brave_web_search"]}'
+
+# 5. Agent lists available sub-tools via proxy
+curl -s $BASE/proxy/$TOOL_ID/ -H "Authorization: Bearer $API_KEY"
+
+# 6. Agent calls a sub-tool via HTTP
+curl -s -X POST $BASE/proxy/$TOOL_ID/brave_web_search \
+  -H "Authorization: Bearer $API_KEY" \
+  -d '{"query":"octroi api gateway"}'
+
+# 7. Check sub-tool call counts
+curl -s $BASE/api/v1/admin/usage/tools/$TOOL_ID/calls -H "$AUTH"
 ```
