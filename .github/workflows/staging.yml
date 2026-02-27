@@ -31,11 +31,17 @@ jobs:
           railway environment new $ENV_NAME --copy $SOURCE_ENV_ID \
             || echo "Environment may already exist, continuing"
 
-      - name: Link to PR environment
-        run: railway link -p $PROJECT_ID -e $ENV_NAME -s $SERVICE_ID
+      - name: Find service in PR environment
+        id: svc
+        run: |
+          railway link -p $PROJECT_ID -e $ENV_NAME
+          SVC_ID=$(railway service --json | sed -n 's/.*"id":"\([^"]*\)".*/\1/p' | head -1)
+          echo "id=$SVC_ID" >> "$GITHUB_OUTPUT"
+          echo "Found service: $SVC_ID"
+          railway link -p $PROJECT_ID -e $ENV_NAME -s "$SVC_ID"
 
       - name: Deploy
-        run: railway up -s $SERVICE_ID --detach
+        run: railway up -s ${{ steps.svc.outputs.id }} --detach
 
       - name: Generate domain
         id: domain
@@ -58,7 +64,8 @@ jobs:
 
       - name: Seed data
         run: |
-          timeout 30 sh scripts/seed.sh ${{ steps.domain.outputs.url }} || true
+          apk add --no-cache bash curl jq
+          timeout 30 bash scripts/seed.sh ${{ steps.domain.outputs.url }} || true
 
       - name: Comment on PR
         uses: marocchino/sticky-pull-request-comment@v2
