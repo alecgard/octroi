@@ -63,7 +63,7 @@ jobs:
             OCTROI_TENANT_SLUG="$TENANT_SLUG"
 
       - name: Deploy
-        run: railway up --detach --service $SERVICE_NAME
+        run: railway up --service $SERVICE_NAME
 
       - name: Generate domain
         id: domain
