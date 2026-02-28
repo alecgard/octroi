@@ -55,7 +55,7 @@ jobs:
         run: railway link -p $PROJECT_ID -e $ENV_NAME -s $SERVICE_NAME
 
       - name: Deploy
-        run: railway up --detach
+        run: railway up --detach --service $SERVICE_NAME
 
       - name: Generate domain
         id: domain
