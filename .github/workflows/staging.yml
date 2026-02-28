@@ -15,6 +15,7 @@
 #   2. Add Postgres database
 #   3. Set service variables: OCTROI_DATABASE_URL=${{Postgres.DATABASE_URL}},
 #      OCTROI_ENCRYPTION_KEY, OCTROI_HOST=0.0.0.0, OCTROI_PORT=8080
+#      (tenant vars are set automatically per PR environment by this workflow)
 #   4. Enable private networking (RAILWAY_ENABLE_PRIVATE_NETWORKING=true)
 
 name: Staging
@@ -54,6 +55,13 @@ jobs:
       - name: Link to PR environment
         run: railway link -p $PROJECT_ID -e $ENV_NAME -s $SERVICE_NAME
 
+      - name: Set tenant env vars
+        run: |
+          railway variables set \
+            OCTROI_TENANT_NAME="$ENV_NAME" \
+            OCTROI_TENANT_SLUG="$ENV_NAME" \
+            OCTROI_DEFAULT_TENANT="$ENV_NAME"
+
       - name: Deploy
         run: railway up --detach --service $SERVICE_NAME
 
@@ -79,7 +87,7 @@ jobs:
       - name: Seed data and generate traffic
         run: |
           apk add --no-cache bash curl jq bc
-          timeout 120 bash scripts/seed.sh --tenant=local ${{ steps.domain.outputs.url }} || true
+          timeout 120 bash scripts/seed.sh --tenant=$ENV_NAME ${{ steps.domain.outputs.url }} || true
 
       - name: Comment on PR
         uses: marocchino/sticky-pull-request-comment@v2
