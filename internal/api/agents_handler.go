@@ -20,6 +20,7 @@ type agentStore interface {
 	Archive(ctx context.Context, id string) error
 	List(ctx context.Context, params agent.AgentListParams) ([]*agent.Agent, string, error)
 	RegenerateKey(ctx context.Context, id, newHash, newPrefix string) (*agent.Agent, error)
+	RevokePrevKey(ctx context.Context, id string) (*agent.Agent, error)
 }
 
 // agentBudgetStore defines the budget store methods used by the agents handler.
@@ -199,6 +200,7 @@ func (h *agentsHandler) GetSelfAgent(w http.ResponseWriter, r *http.Request) {
 }
 
 // RegenerateKey handles POST /api/v1/admin/agents/{id}/regenerate-key (admin).
+// Rotates the key: the old key remains valid for 24 hours.
 func (h *agentsHandler) RegenerateKey(w http.ResponseWriter, r *http.Request) {
 	id := chi.URLParam(r, "id")
 	if id == "" {
@@ -233,7 +235,34 @@ func (h *agentsHandler) RegenerateKey(w http.ResponseWriter, r *http.Request) {
 		"rate_limit":     ag.RateLimit,
 		"created_at":     ag.CreatedAt,
 	}
+	if ag.PrevKeyExpiresAt != nil {
+		resp["prev_key_expires_at"] = ag.PrevKeyExpiresAt
+	}
 	writeJSON(w, http.StatusOK, resp)
+}
+
+// RevokeKey handles POST /api/v1/admin/agents/{id}/revoke-prev-key (admin).
+// Immediately revokes the previous (expiring) key.
+func (h *agentsHandler) RevokeKey(w http.ResponseWriter, r *http.Request) {
+	id := chi.URLParam(r, "id")
+	if id == "" {
+		writeError(w, http.StatusBadRequest, "invalid_id", "agent id is required")
+		return
+	}
+
+	ag, err := h.store.RevokePrevKey(r.Context(), id)
+	if err != nil {
+		if errors.Is(err, pgx.ErrNoRows) {
+			writeError(w, http.StatusNotFound, "not_found", "agent not found")
+			return
+		}
+		writeError(w, http.StatusInternalServerError, "internal_error", "failed to revoke key")
+		return
+	}
+
+	auditLog(r, "revoke_prev_key", "agent", id, "name", ag.Name)
+
+	writeJSON(w, http.StatusOK, ag)
 }
 
 // SetBudget handles PUT /api/v1/agents/{agentID}/budgets/{toolID} (admin).

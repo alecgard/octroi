@@ -100,8 +100,22 @@ func (f *fakeMemberAgentStore) RegenerateKey(_ context.Context, id, newHash, new
 	if !ok {
 		return nil, pgx.ErrNoRows
 	}
+	oldHash := a.APIKeyHash
 	a.APIKeyHash = newHash
 	a.APIKeyPrefix = newPrefix
+	a.PrevKeyHash = &oldHash
+	expires := time.Now().Add(24 * time.Hour)
+	a.PrevKeyExpiresAt = &expires
+	return a, nil
+}
+
+func (f *fakeMemberAgentStore) RevokePrevKey(_ context.Context, id string) (*agent.Agent, error) {
+	a, ok := f.agents[id]
+	if !ok {
+		return nil, pgx.ErrNoRows
+	}
+	a.PrevKeyHash = nil
+	a.PrevKeyExpiresAt = nil
 	return a, nil
 }
 

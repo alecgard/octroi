@@ -1033,6 +1033,7 @@ body.shift-held .txn-filter-pending { background: var(--surface2); }
     </div>
     <div class="modal-actions">
       <button class="btn-warn" id="agent-regen-btn" onclick="regenKeyFromModal()" style="display:none;margin-right:auto">Regenerate Key</button>
+      <button class="btn-warn" id="agent-revoke-btn" onclick="revokeOldKeyFromModal()" style="display:none;margin-right:0;background:var(--danger,#dc3545);border-color:var(--danger,#dc3545)">Revoke Old Key</button>
       <button class="btn-ghost" onclick="closeModal('agent-modal')">Cancel</button>
       <button class="btn-primary" id="agent-submit-btn" onclick="submitAgent()">Create</button>
     </div>
@@ -2015,10 +2016,28 @@ function openAgentModal(ag) {
   const keyGroup = document.getElementById('agent-key-group');
   const keyDisplay = document.getElementById('agent-key-display');
   if (ag && ag.api_key_prefix) {
-    keyDisplay.textContent = ag.api_key_prefix + '...';
+    let keyText = ag.api_key_prefix + '...';
+    if (ag.prev_key_expires_at) {
+      const expires = new Date(ag.prev_key_expires_at);
+      const now = new Date();
+      if (expires > now) {
+        const hoursLeft = Math.max(0, Math.round((expires - now) / 3600000));
+        const minsLeft = Math.max(0, Math.round((expires - now) / 60000));
+        const timeLeft = hoursLeft > 0 ? hoursLeft + 'h' : minsLeft + 'm';
+        keyText += '  (old key expiring in ' + timeLeft + ')';
+      }
+    }
+    keyDisplay.textContent = keyText;
     keyGroup.style.display = '';
   } else {
     keyGroup.style.display = 'none';
+  }
+  // Show/hide revoke button based on whether there is an expiring previous key.
+  const revokeBtn = document.getElementById('agent-revoke-btn');
+  if (ag && ag.prev_key_expires_at && new Date(ag.prev_key_expires_at) > new Date()) {
+    revokeBtn.style.display = '';
+  } else {
+    revokeBtn.style.display = 'none';
   }
   // Allowlist mode + permissions (edit mode only)
   const allowlistSection = document.getElementById('agent-allowlist-section');
@@ -2140,13 +2159,26 @@ async function regenKeyFromModal() {
   const id = document.getElementById('agent-edit-id').value;
   const name = document.getElementById('agent-name').value;
   if (!id) return;
-  if (!await appConfirm('Regenerate API key for "' + name + '"? The old key will stop working immediately.', { title: 'Regenerate Key', okLabel: 'Regenerate' })) return;
+  if (!await appConfirm('Regenerate API key for "' + name + '"? The old key will continue working for 24 hours.', { title: 'Regenerate Key', okLabel: 'Regenerate' })) return;
   try {
     const res = await api('POST', apiBase() + '/agents/' + id + '/regenerate-key');
     if (res.api_key) {
       document.getElementById('agent-key-value').textContent = res.api_key;
       document.getElementById('agent-key-banner').classList.add('show');
     }
+    closeModal('agent-modal');
+    loadAgents();
+  } catch (e) { toast('Error: ' + e.message); }
+}
+
+async function revokeOldKeyFromModal() {
+  const id = document.getElementById('agent-edit-id').value;
+  const name = document.getElementById('agent-name').value;
+  if (!id) return;
+  if (!await appConfirm('Immediately revoke the old key for "' + name + '"? It will stop working right away.', { title: 'Revoke Old Key', okLabel: 'Revoke' })) return;
+  try {
+    await api('POST', apiBase() + '/agents/' + id + '/revoke-prev-key');
+    toast('Old key revoked');
     closeModal('agent-modal');
     loadAgents();
   } catch (e) { toast('Error: ' + e.message); }
