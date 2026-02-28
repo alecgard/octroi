@@ -40,26 +40,26 @@ type fakeUsageMeteringStore struct {
 	lastGetByID   string
 }
 
-func (f *fakeUsageMeteringStore) GetSummary(_ context.Context, q metering.UsageQuery) (*metering.UsageSummary, error) {
+func (f *fakeUsageMeteringStore) GetSummary(_ context.Context, _ string, q metering.UsageQuery) (*metering.UsageSummary, error) {
 	f.lastSummaryQuery = q
 	return f.summary, f.summaryErr
 }
 
-func (f *fakeUsageMeteringStore) ListTransactions(_ context.Context, q metering.UsageQuery) ([]*metering.Transaction, string, error) {
+func (f *fakeUsageMeteringStore) ListTransactions(_ context.Context, _ string, q metering.UsageQuery) ([]*metering.Transaction, string, error) {
 	f.lastListQuery = q
 	return f.transactions, f.nextCursor, f.listErr
 }
 
-func (f *fakeUsageMeteringStore) GetToolCallCounts(_ context.Context) (map[string]int64, error) {
+func (f *fakeUsageMeteringStore) GetToolCallCounts(_ context.Context, _ string) (map[string]int64, error) {
 	return f.toolCallCounts, f.toolCallCountsErr
 }
 
-func (f *fakeUsageMeteringStore) GetSubToolCallCounts(_ context.Context, toolID string) (map[string]int64, error) {
+func (f *fakeUsageMeteringStore) GetSubToolCallCounts(_ context.Context, _ string, toolID string) (map[string]int64, error) {
 	f.lastSubToolID = toolID
 	return f.subToolCallCounts, f.subToolCallCountsErr
 }
 
-func (f *fakeUsageMeteringStore) GetByID(_ context.Context, id string) (*metering.Transaction, error) {
+func (f *fakeUsageMeteringStore) GetByID(_ context.Context, _, id string) (*metering.Transaction, error) {
 	f.lastGetByID = id
 	return f.transaction, f.transactionErr
 }
@@ -72,7 +72,7 @@ type fakeUsageAgentStore struct {
 	teamAgents map[string][]string
 }
 
-func (f *fakeUsageAgentStore) ListIDsByTeam(_ context.Context, team string) ([]string, error) {
+func (f *fakeUsageAgentStore) ListIDsByTeam(_ context.Context, _, team string) ([]string, error) {
 	ids, ok := f.teamAgents[team]
 	if !ok {
 		return nil, nil
@@ -89,7 +89,7 @@ type fakeUsageBodyStore struct {
 	err  error
 }
 
-func (f *fakeUsageBodyStore) GetByTransactionID(_ context.Context, _ string) (*metering.RequestBody, error) {
+func (f *fakeUsageBodyStore) GetByTransactionID(_ context.Context, _, _ string) (*metering.RequestBody, error) {
 	return f.body, f.err
 }
 
@@ -125,7 +125,7 @@ func TestGetUsage_Success(t *testing.T) {
 	h := newTestUsageHandler(ms, &fakeUsageAgentStore{}, nil)
 
 	req := httptest.NewRequest(http.MethodGet, "/api/v1/usage", nil)
-	ctx := auth.ContextWithAgent(req.Context(), &auth.Agent{ID: "agent-1", Name: "test", Team: "team-a"})
+	ctx := auth.ContextWithAgent(req.Context(), &auth.Agent{ID: "agent-1", Name: "test", Team: "team-a", TenantID: "t1"})
 	req = req.WithContext(ctx)
 
 	rec := httptest.NewRecorder()
@@ -158,7 +158,7 @@ func TestGetUsage_FilterByToolID(t *testing.T) {
 	h := newTestUsageHandler(ms, &fakeUsageAgentStore{}, nil)
 
 	req := httptest.NewRequest(http.MethodGet, "/api/v1/usage?tool_id=tool-abc", nil)
-	ctx := auth.ContextWithAgent(req.Context(), &auth.Agent{ID: "agent-1", Name: "test", Team: "team-a"})
+	ctx := auth.ContextWithAgent(req.Context(), &auth.Agent{ID: "agent-1", Name: "test", Team: "team-a", TenantID: "t1"})
 	req = req.WithContext(ctx)
 
 	rec := httptest.NewRecorder()
@@ -182,7 +182,7 @@ func TestGetUsage_StoreError(t *testing.T) {
 	h := newTestUsageHandler(ms, &fakeUsageAgentStore{}, nil)
 
 	req := httptest.NewRequest(http.MethodGet, "/api/v1/usage", nil)
-	ctx := auth.ContextWithAgent(req.Context(), &auth.Agent{ID: "agent-1"})
+	ctx := auth.ContextWithAgent(req.Context(), &auth.Agent{ID: "agent-1", TenantID: "t1"})
 	req = req.WithContext(ctx)
 
 	rec := httptest.NewRecorder()
@@ -208,9 +208,10 @@ func TestGetUsageAdmin_Success(t *testing.T) {
 	h := newTestUsageHandler(ms, as, nil)
 
 	req := httptest.NewRequest(http.MethodGet, "/api/v1/admin/usage", nil)
-	ctx := auth.ContextWithUser(req.Context(), &auth.User{
+	ctx := auth.ContextWithTenant(req.Context(), &auth.Tenant{ID: "t1"})
+	ctx = auth.ContextWithUser(ctx, &auth.User{
 		ID:   "user-1",
-		Role: "org_admin",
+		Role: "admin",
 	})
 	req = req.WithContext(ctx)
 
@@ -240,9 +241,10 @@ func TestGetUsageAdmin_WithTeamFilter(t *testing.T) {
 	h := newTestUsageHandler(ms, as, nil)
 
 	req := httptest.NewRequest(http.MethodGet, "/api/v1/admin/usage?team=team-a", nil)
-	ctx := auth.ContextWithUser(req.Context(), &auth.User{
+	ctx := auth.ContextWithTenant(req.Context(), &auth.Tenant{ID: "t1"})
+	ctx = auth.ContextWithUser(ctx, &auth.User{
 		ID:   "user-1",
-		Role: "org_admin",
+		Role: "admin",
 	})
 	req = req.WithContext(ctx)
 
@@ -266,7 +268,8 @@ func TestGetUsageAdmin_StoreError(t *testing.T) {
 	h := newTestUsageHandler(ms, &fakeUsageAgentStore{}, nil)
 
 	req := httptest.NewRequest(http.MethodGet, "/api/v1/admin/usage", nil)
-	ctx := auth.ContextWithUser(req.Context(), &auth.User{ID: "user-1", Role: "org_admin"})
+	ctx := auth.ContextWithTenant(req.Context(), &auth.Tenant{ID: "t1"})
+	ctx = auth.ContextWithUser(ctx, &auth.User{ID: "user-1", Role: "admin"})
 	req = req.WithContext(ctx)
 
 	rec := httptest.NewRecorder()
@@ -293,7 +296,7 @@ func TestListTransactions_AgentScoped(t *testing.T) {
 	h := newTestUsageHandler(ms, &fakeUsageAgentStore{}, nil)
 
 	req := httptest.NewRequest(http.MethodGet, "/api/v1/usage/transactions", nil)
-	ctx := auth.ContextWithAgent(req.Context(), &auth.Agent{ID: "agent-1", Name: "test", Team: "team-a"})
+	ctx := auth.ContextWithAgent(req.Context(), &auth.Agent{ID: "agent-1", Name: "test", Team: "team-a", TenantID: "t1"})
 	req = req.WithContext(ctx)
 
 	rec := httptest.NewRecorder()
@@ -341,9 +344,10 @@ func TestListTransactions_AdminWithFilters(t *testing.T) {
 
 	req := httptest.NewRequest(http.MethodGet,
 		"/api/v1/admin/usage/transactions?agent_id=agent-5&team=team-b&tool_id=tool-x&limit=10", nil)
-	ctx := auth.ContextWithUser(req.Context(), &auth.User{
+	ctx := auth.ContextWithTenant(req.Context(), &auth.Tenant{ID: "t1"})
+	ctx = auth.ContextWithUser(ctx, &auth.User{
 		ID:   "user-1",
-		Role: "org_admin",
+		Role: "admin",
 	})
 	req = req.WithContext(ctx)
 
@@ -376,7 +380,7 @@ func TestListTransactions_NoCursor(t *testing.T) {
 	h := newTestUsageHandler(ms, &fakeUsageAgentStore{}, nil)
 
 	req := httptest.NewRequest(http.MethodGet, "/api/v1/usage/transactions", nil)
-	ctx := auth.ContextWithAgent(req.Context(), &auth.Agent{ID: "agent-1"})
+	ctx := auth.ContextWithAgent(req.Context(), &auth.Agent{ID: "agent-1", TenantID: "t1"})
 	req = req.WithContext(ctx)
 
 	rec := httptest.NewRecorder()
@@ -401,7 +405,7 @@ func TestListTransactions_StoreError(t *testing.T) {
 	h := newTestUsageHandler(ms, &fakeUsageAgentStore{}, nil)
 
 	req := httptest.NewRequest(http.MethodGet, "/api/v1/usage/transactions", nil)
-	ctx := auth.ContextWithAgent(req.Context(), &auth.Agent{ID: "agent-1"})
+	ctx := auth.ContextWithAgent(req.Context(), &auth.Agent{ID: "agent-1", TenantID: "t1"})
 	req = req.WithContext(ctx)
 
 	rec := httptest.NewRecorder()
@@ -426,7 +430,8 @@ func TestGetToolCallCounts_Success(t *testing.T) {
 	h := newTestUsageHandler(ms, &fakeUsageAgentStore{}, nil)
 
 	req := httptest.NewRequest(http.MethodGet, "/api/v1/admin/usage/tools/calls", nil)
-	ctx := auth.ContextWithUser(req.Context(), &auth.User{ID: "user-1", Role: "org_admin"})
+	ctx := auth.ContextWithTenant(req.Context(), &auth.Tenant{ID: "t1"})
+	ctx = auth.ContextWithUser(ctx, &auth.User{ID: "user-1", Role: "admin"})
 	req = req.WithContext(ctx)
 
 	rec := httptest.NewRecorder()
@@ -456,6 +461,7 @@ func TestGetToolCallCounts_StoreError(t *testing.T) {
 	h := newTestUsageHandler(ms, &fakeUsageAgentStore{}, nil)
 
 	req := httptest.NewRequest(http.MethodGet, "/api/v1/admin/usage/tools/calls", nil)
+	req = req.WithContext(auth.ContextWithTenant(req.Context(), &auth.Tenant{ID: "t1"}))
 	rec := httptest.NewRecorder()
 	h.GetToolCallCounts(rec, req)
 
@@ -482,7 +488,8 @@ func TestGetSubToolCallCounts_Success(t *testing.T) {
 	r.Get("/api/v1/admin/usage/tools/{id}/calls", h.GetSubToolCallCounts)
 
 	req := httptest.NewRequest(http.MethodGet, "/api/v1/admin/usage/tools/tool-abc/calls", nil)
-	ctx := auth.ContextWithUser(req.Context(), &auth.User{ID: "user-1", Role: "org_admin"})
+	ctx := auth.ContextWithTenant(req.Context(), &auth.Tenant{ID: "t1"})
+	ctx = auth.ContextWithUser(ctx, &auth.User{ID: "user-1", Role: "admin"})
 	req = req.WithContext(ctx)
 
 	rec := httptest.NewRecorder()
@@ -512,6 +519,7 @@ func TestGetSubToolCallCounts_MissingID(t *testing.T) {
 
 	// Call directly without chi routing so id param is empty.
 	req := httptest.NewRequest(http.MethodGet, "/api/v1/admin/usage/tools//calls", nil)
+	req = req.WithContext(auth.ContextWithTenant(req.Context(), &auth.Tenant{ID: "t1"}))
 	rec := httptest.NewRecorder()
 	h.GetSubToolCallCounts(rec, req)
 
@@ -554,7 +562,8 @@ func TestGetTransactionDetail_Found(t *testing.T) {
 	r.Get("/api/v1/admin/usage/transactions/{id}", h.GetTransactionDetail)
 
 	req := httptest.NewRequest(http.MethodGet, "/api/v1/admin/usage/transactions/tx-123", nil)
-	ctx := auth.ContextWithUser(req.Context(), &auth.User{ID: "user-1", Role: "org_admin"})
+	ctx := auth.ContextWithTenant(req.Context(), &auth.Tenant{ID: "t1"})
+	ctx = auth.ContextWithUser(ctx, &auth.User{ID: "user-1", Role: "admin"})
 	req = req.WithContext(ctx)
 
 	rec := httptest.NewRecorder()
@@ -602,7 +611,8 @@ func TestGetTransactionDetail_NotFound(t *testing.T) {
 	r.Get("/api/v1/admin/usage/transactions/{id}", h.GetTransactionDetail)
 
 	req := httptest.NewRequest(http.MethodGet, "/api/v1/admin/usage/transactions/tx-999", nil)
-	ctx := auth.ContextWithUser(req.Context(), &auth.User{ID: "user-1", Role: "org_admin"})
+	ctx := auth.ContextWithTenant(req.Context(), &auth.Tenant{ID: "t1"})
+	ctx = auth.ContextWithUser(ctx, &auth.User{ID: "user-1", Role: "admin"})
 	req = req.WithContext(ctx)
 
 	rec := httptest.NewRecorder()
@@ -629,7 +639,8 @@ func TestGetTransactionDetail_NoBodyStore(t *testing.T) {
 	r.Get("/api/v1/admin/usage/transactions/{id}", h.GetTransactionDetail)
 
 	req := httptest.NewRequest(http.MethodGet, "/api/v1/admin/usage/transactions/tx-456", nil)
-	ctx := auth.ContextWithUser(req.Context(), &auth.User{ID: "user-1", Role: "org_admin"})
+	ctx := auth.ContextWithTenant(req.Context(), &auth.Tenant{ID: "t1"})
+	ctx = auth.ContextWithUser(ctx, &auth.User{ID: "user-1", Role: "admin"})
 	req = req.WithContext(ctx)
 
 	rec := httptest.NewRecorder()

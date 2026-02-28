@@ -25,11 +25,11 @@ func NewStore(pool *pgxpool.Pool) *Store {
 func (s *Store) Create(ctx context.Context, in CreateAgentInput) (*Agent, error) {
 	a := &Agent{}
 	err := s.pool.QueryRow(ctx,
-		`INSERT INTO agents (name, api_key_hash, api_key_prefix, team, rate_limit, allowlist_mode)
-		 VALUES ($1, $2, $3, $4, $5, $6)
-		 RETURNING id, name, api_key_hash, api_key_prefix, team, rate_limit, allowlist_mode, created_at`,
-		in.Name, in.APIKeyHash, in.APIKeyPrefix, in.Team, in.RateLimit, false,
-	).Scan(&a.ID, &a.Name, &a.APIKeyHash, &a.APIKeyPrefix, &a.Team, &a.RateLimit, &a.AllowlistMode, &a.CreatedAt)
+		`INSERT INTO agents (name, api_key_hash, api_key_prefix, team, rate_limit, allowlist_mode, tenant_id)
+		 VALUES ($1, $2, $3, $4, $5, $6, $7)
+		 RETURNING id, name, api_key_hash, api_key_prefix, team, rate_limit, allowlist_mode, tenant_id, created_at`,
+		in.Name, in.APIKeyHash, in.APIKeyPrefix, in.Team, in.RateLimit, false, in.TenantID,
+	).Scan(&a.ID, &a.Name, &a.APIKeyHash, &a.APIKeyPrefix, &a.Team, &a.RateLimit, &a.AllowlistMode, &a.TenantID, &a.CreatedAt)
 	if err != nil {
 		return nil, fmt.Errorf("creating agent: %w", err)
 	}
@@ -37,13 +37,13 @@ func (s *Store) Create(ctx context.Context, in CreateAgentInput) (*Agent, error)
 }
 
 // GetByID retrieves an active (non-archived) agent by its primary key.
-func (s *Store) GetByID(ctx context.Context, id string) (*Agent, error) {
+func (s *Store) GetByID(ctx context.Context, tenantID, id string) (*Agent, error) {
 	a := &Agent{}
 	err := s.pool.QueryRow(ctx,
-		`SELECT id, name, api_key_hash, api_key_prefix, team, rate_limit, allowlist_mode, created_at
-		 FROM agents WHERE id = $1 AND archived_at IS NULL`,
-		id,
-	).Scan(&a.ID, &a.Name, &a.APIKeyHash, &a.APIKeyPrefix, &a.Team, &a.RateLimit, &a.AllowlistMode, &a.CreatedAt)
+		`SELECT id, name, api_key_hash, api_key_prefix, team, rate_limit, allowlist_mode, tenant_id, created_at
+		 FROM agents WHERE id = $1 AND tenant_id = $2 AND archived_at IS NULL`,
+		id, tenantID,
+	).Scan(&a.ID, &a.Name, &a.APIKeyHash, &a.APIKeyPrefix, &a.Team, &a.RateLimit, &a.AllowlistMode, &a.TenantID, &a.CreatedAt)
 	if err != nil {
 		return nil, fmt.Errorf("getting agent by id: %w", err)
 	}
@@ -52,13 +52,15 @@ func (s *Store) GetByID(ctx context.Context, id string) (*Agent, error) {
 
 
 // GetByKeyHash retrieves an agent by its API key hash, used for authentication.
+// Intentionally cross-tenant: the API key hash is globally unique and the tenant
+// is unknown at lookup time. The auth middleware verifies tenant match after lookup.
 func (s *Store) GetByKeyHash(ctx context.Context, hash string) (*Agent, error) {
 	a := &Agent{}
 	err := s.pool.QueryRow(ctx,
-		`SELECT id, name, api_key_hash, api_key_prefix, team, rate_limit, allowlist_mode, created_at
+		`SELECT id, name, api_key_hash, api_key_prefix, team, rate_limit, allowlist_mode, tenant_id, created_at
 		 FROM agents WHERE api_key_hash = $1 AND archived_at IS NULL`,
 		hash,
-	).Scan(&a.ID, &a.Name, &a.APIKeyHash, &a.APIKeyPrefix, &a.Team, &a.RateLimit, &a.AllowlistMode, &a.CreatedAt)
+	).Scan(&a.ID, &a.Name, &a.APIKeyHash, &a.APIKeyPrefix, &a.Team, &a.RateLimit, &a.AllowlistMode, &a.TenantID, &a.CreatedAt)
 	if err != nil {
 		return nil, fmt.Errorf("getting agent by key hash: %w", err)
 	}
@@ -68,7 +70,7 @@ func (s *Store) GetByKeyHash(ctx context.Context, hash string) (*Agent, error) {
 // List returns a page of agents ordered by created_at DESC, id DESC using
 // cursor-based pagination. It returns the agents, the next cursor (empty if no
 // more results), and any error.
-func (s *Store) List(ctx context.Context, params AgentListParams) ([]*Agent, string, error) {
+func (s *Store) List(ctx context.Context, tenantID string, params AgentListParams) ([]*Agent, string, error) {
 	limit := params.Limit
 	if limit <= 0 {
 		limit = 20
@@ -83,21 +85,21 @@ func (s *Store) List(ctx context.Context, params AgentListParams) ([]*Agent, str
 			return nil, "", fmt.Errorf("invalid cursor: %w", cerr)
 		}
 		rows, err = s.pool.Query(ctx,
-			`SELECT id, name, api_key_hash, api_key_prefix, team, rate_limit, allowlist_mode, created_at
+			`SELECT id, name, api_key_hash, api_key_prefix, team, rate_limit, allowlist_mode, tenant_id, created_at
 			 FROM agents
-			 WHERE archived_at IS NULL AND (created_at, id) < ($1, $2)
+			 WHERE archived_at IS NULL AND tenant_id = $1 AND (created_at, id) < ($2, $3)
 			 ORDER BY created_at DESC, id DESC
-			 LIMIT $3`,
-			cursorTime, cursorID, limit+1,
+			 LIMIT $4`,
+			tenantID, cursorTime, cursorID, limit+1,
 		)
 	} else {
 		rows, err = s.pool.Query(ctx,
-			`SELECT id, name, api_key_hash, api_key_prefix, team, rate_limit, allowlist_mode, created_at
+			`SELECT id, name, api_key_hash, api_key_prefix, team, rate_limit, allowlist_mode, tenant_id, created_at
 			 FROM agents
-			 WHERE archived_at IS NULL
+			 WHERE archived_at IS NULL AND tenant_id = $1
 			 ORDER BY created_at DESC, id DESC
-			 LIMIT $1`,
-			limit+1,
+			 LIMIT $2`,
+			tenantID, limit+1,
 		)
 	}
 	if err != nil {
@@ -108,7 +110,7 @@ func (s *Store) List(ctx context.Context, params AgentListParams) ([]*Agent, str
 	var agents []*Agent
 	for rows.Next() {
 		a := &Agent{}
-		if err := rows.Scan(&a.ID, &a.Name, &a.APIKeyHash, &a.APIKeyPrefix, &a.Team, &a.RateLimit, &a.AllowlistMode, &a.CreatedAt); err != nil {
+		if err := rows.Scan(&a.ID, &a.Name, &a.APIKeyHash, &a.APIKeyPrefix, &a.Team, &a.RateLimit, &a.AllowlistMode, &a.TenantID, &a.CreatedAt); err != nil {
 			return nil, "", fmt.Errorf("scanning agent row: %w", err)
 		}
 		agents = append(agents, a)
@@ -129,7 +131,7 @@ func (s *Store) List(ctx context.Context, params AgentListParams) ([]*Agent, str
 
 // ListByTeams returns a page of agents filtered by any of the given teams,
 // ordered by created_at DESC, id DESC using cursor-based pagination.
-func (s *Store) ListByTeams(ctx context.Context, teams []string, params AgentListParams) ([]*Agent, string, error) {
+func (s *Store) ListByTeams(ctx context.Context, tenantID string, teams []string, params AgentListParams) ([]*Agent, string, error) {
 	limit := params.Limit
 	if limit <= 0 {
 		limit = 20
@@ -144,21 +146,21 @@ func (s *Store) ListByTeams(ctx context.Context, teams []string, params AgentLis
 			return nil, "", fmt.Errorf("invalid cursor: %w", cerr)
 		}
 		rows, err = s.pool.Query(ctx,
-			`SELECT id, name, api_key_hash, api_key_prefix, team, rate_limit, allowlist_mode, created_at
+			`SELECT id, name, api_key_hash, api_key_prefix, team, rate_limit, allowlist_mode, tenant_id, created_at
 			 FROM agents
-			 WHERE team = ANY($1) AND archived_at IS NULL AND (created_at, id) < ($2, $3)
+			 WHERE team = ANY($1) AND archived_at IS NULL AND tenant_id = $2 AND (created_at, id) < ($3, $4)
 			 ORDER BY created_at DESC, id DESC
-			 LIMIT $4`,
-			teams, cursorTime, cursorID, limit+1,
+			 LIMIT $5`,
+			teams, tenantID, cursorTime, cursorID, limit+1,
 		)
 	} else {
 		rows, err = s.pool.Query(ctx,
-			`SELECT id, name, api_key_hash, api_key_prefix, team, rate_limit, allowlist_mode, created_at
+			`SELECT id, name, api_key_hash, api_key_prefix, team, rate_limit, allowlist_mode, tenant_id, created_at
 			 FROM agents
-			 WHERE team = ANY($1) AND archived_at IS NULL
+			 WHERE team = ANY($1) AND archived_at IS NULL AND tenant_id = $2
 			 ORDER BY created_at DESC, id DESC
-			 LIMIT $2`,
-			teams, limit+1,
+			 LIMIT $3`,
+			teams, tenantID, limit+1,
 		)
 	}
 	if err != nil {
@@ -169,7 +171,7 @@ func (s *Store) ListByTeams(ctx context.Context, teams []string, params AgentLis
 	var agents []*Agent
 	for rows.Next() {
 		a := &Agent{}
-		if err := rows.Scan(&a.ID, &a.Name, &a.APIKeyHash, &a.APIKeyPrefix, &a.Team, &a.RateLimit, &a.AllowlistMode, &a.CreatedAt); err != nil {
+		if err := rows.Scan(&a.ID, &a.Name, &a.APIKeyHash, &a.APIKeyPrefix, &a.Team, &a.RateLimit, &a.AllowlistMode, &a.TenantID, &a.CreatedAt); err != nil {
 			return nil, "", fmt.Errorf("scanning agent row: %w", err)
 		}
 		agents = append(agents, a)
@@ -189,13 +191,13 @@ func (s *Store) ListByTeams(ctx context.Context, teams []string, params AgentLis
 }
 
 // ListIDsByTeam returns all agent IDs for the given team.
-func (s *Store) ListIDsByTeam(ctx context.Context, team string) ([]string, error) {
-	return s.ListIDsByTeams(ctx, []string{team})
+func (s *Store) ListIDsByTeam(ctx context.Context, tenantID string, team string) ([]string, error) {
+	return s.ListIDsByTeams(ctx, tenantID, []string{team})
 }
 
 // ListIDsByTeams returns all agent IDs for the given teams.
-func (s *Store) ListIDsByTeams(ctx context.Context, teams []string) ([]string, error) {
-	rows, err := s.pool.Query(ctx, `SELECT id FROM agents WHERE team = ANY($1) AND archived_at IS NULL`, teams)
+func (s *Store) ListIDsByTeams(ctx context.Context, tenantID string, teams []string) ([]string, error) {
+	rows, err := s.pool.Query(ctx, `SELECT id FROM agents WHERE team = ANY($1) AND archived_at IS NULL AND tenant_id = $2`, teams, tenantID)
 	if err != nil {
 		return nil, fmt.Errorf("listing agent ids by teams: %w", err)
 	}
@@ -213,13 +215,13 @@ func (s *Store) ListIDsByTeams(ctx context.Context, teams []string) ([]string, e
 }
 
 // RegenerateKey updates the api_key_hash and api_key_prefix for the given agent.
-func (s *Store) RegenerateKey(ctx context.Context, id, newHash, newPrefix string) (*Agent, error) {
+func (s *Store) RegenerateKey(ctx context.Context, tenantID string, id, newHash, newPrefix string) (*Agent, error) {
 	a := &Agent{}
 	err := s.pool.QueryRow(ctx,
-		`UPDATE agents SET api_key_hash = $1, api_key_prefix = $2 WHERE id = $3
-		 RETURNING id, name, api_key_hash, api_key_prefix, team, rate_limit, allowlist_mode, created_at`,
-		newHash, newPrefix, id,
-	).Scan(&a.ID, &a.Name, &a.APIKeyHash, &a.APIKeyPrefix, &a.Team, &a.RateLimit, &a.AllowlistMode, &a.CreatedAt)
+		`UPDATE agents SET api_key_hash = $1, api_key_prefix = $2 WHERE id = $3 AND tenant_id = $4
+		 RETURNING id, name, api_key_hash, api_key_prefix, team, rate_limit, allowlist_mode, tenant_id, created_at`,
+		newHash, newPrefix, id, tenantID,
+	).Scan(&a.ID, &a.Name, &a.APIKeyHash, &a.APIKeyPrefix, &a.Team, &a.RateLimit, &a.AllowlistMode, &a.TenantID, &a.CreatedAt)
 	if err != nil {
 		return nil, fmt.Errorf("regenerating agent key: %w", err)
 	}
@@ -228,7 +230,7 @@ func (s *Store) RegenerateKey(ctx context.Context, id, newHash, newPrefix string
 
 // Update performs a partial update on the agent with the given id and returns
 // the updated record.
-func (s *Store) Update(ctx context.Context, id string, in UpdateAgentInput) (*Agent, error) {
+func (s *Store) Update(ctx context.Context, tenantID, id string, in UpdateAgentInput) (*Agent, error) {
 	var setClauses []string
 	var args []any
 	argIdx := 1
@@ -255,19 +257,22 @@ func (s *Store) Update(ctx context.Context, id string, in UpdateAgentInput) (*Ag
 	}
 
 	if len(setClauses) == 0 {
-		return s.GetByID(ctx, id)
+		return s.GetByID(ctx, tenantID, id)
 	}
 
 	args = append(args, id)
+	idIdx := argIdx
+	argIdx++
+	args = append(args, tenantID)
 	query := fmt.Sprintf(
-		`UPDATE agents SET %s WHERE id = $%d
-		 RETURNING id, name, api_key_hash, api_key_prefix, team, rate_limit, allowlist_mode, created_at`,
-		strings.Join(setClauses, ", "), argIdx,
+		`UPDATE agents SET %s WHERE id = $%d AND tenant_id = $%d
+		 RETURNING id, name, api_key_hash, api_key_prefix, team, rate_limit, allowlist_mode, tenant_id, created_at`,
+		strings.Join(setClauses, ", "), idIdx, argIdx,
 	)
 
 	a := &Agent{}
 	err := s.pool.QueryRow(ctx, query, args...).
-		Scan(&a.ID, &a.Name, &a.APIKeyHash, &a.APIKeyPrefix, &a.Team, &a.RateLimit, &a.AllowlistMode, &a.CreatedAt)
+		Scan(&a.ID, &a.Name, &a.APIKeyHash, &a.APIKeyPrefix, &a.Team, &a.RateLimit, &a.AllowlistMode, &a.TenantID, &a.CreatedAt)
 	if err != nil {
 		return nil, fmt.Errorf("updating agent: %w", err)
 	}
@@ -275,8 +280,8 @@ func (s *Store) Update(ctx context.Context, id string, in UpdateAgentInput) (*Ag
 }
 
 // Archive soft-deletes an agent by setting archived_at.
-func (s *Store) Archive(ctx context.Context, id string) error {
-	tag, err := s.pool.Exec(ctx, `UPDATE agents SET archived_at = now() WHERE id = $1 AND archived_at IS NULL`, id)
+func (s *Store) Archive(ctx context.Context, tenantID, id string) error {
+	tag, err := s.pool.Exec(ctx, `UPDATE agents SET archived_at = now() WHERE id = $1 AND tenant_id = $2 AND archived_at IS NULL`, id, tenantID)
 	if err != nil {
 		return fmt.Errorf("archiving agent: %w", err)
 	}

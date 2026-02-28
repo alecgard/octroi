@@ -26,7 +26,7 @@ type fakeToolStore struct {
 	tools map[string]*registry.Tool
 }
 
-func (f *fakeToolStore) GetByID(_ context.Context, id string) (*registry.Tool, error) {
+func (f *fakeToolStore) GetByID(_ context.Context, _, id string) (*registry.Tool, error) {
 	t, ok := f.tools[id]
 	if !ok {
 		return nil, fmt.Errorf("tool not found: %s", id)
@@ -34,7 +34,7 @@ func (f *fakeToolStore) GetByID(_ context.Context, id string) (*registry.Tool, e
 	return t, nil
 }
 
-func (f *fakeToolStore) GetByIDIncludeArchived(_ context.Context, id string) (*registry.Tool, error) {
+func (f *fakeToolStore) GetByIDIncludeArchived(_ context.Context, _, id string) (*registry.Tool, error) {
 	t, ok := f.tools[id]
 	if !ok {
 		return nil, fmt.Errorf("tool not found: %s", id)
@@ -47,11 +47,11 @@ type fakeBudgetChecker struct {
 	globalAllowed bool
 }
 
-func (f *fakeBudgetChecker) CheckBudget(_ context.Context, _, _ string) (bool, float64, float64, error) {
+func (f *fakeBudgetChecker) CheckBudget(_ context.Context, _, _, _ string) (bool, float64, float64, error) {
 	return f.agentAllowed, 100, 1000, nil
 }
 
-func (f *fakeBudgetChecker) CheckToolGlobalBudget(_ context.Context, _ string) (bool, float64, error) {
+func (f *fakeBudgetChecker) CheckToolGlobalBudget(_ context.Context, _, _ string) (bool, float64, error) {
 	return f.globalAllowed, 5000, nil
 }
 
@@ -59,7 +59,7 @@ type fakeRateLimiter struct {
 	allowed bool
 }
 
-func (f *fakeRateLimiter) CheckToolRateLimit(_ context.Context, _, _, _ string) (bool, int, int, time.Time, error) {
+func (f *fakeRateLimiter) CheckToolRateLimit(_ context.Context, _, _, _, _ string) (bool, int, int, time.Time, error) {
 	return f.allowed, 100, 50, time.Now().Add(time.Minute), nil
 }
 
@@ -99,11 +99,11 @@ type fakePermissionChecker struct {
 	subToolAllowed bool
 }
 
-func (f *fakePermissionChecker) IsAllowed(_ context.Context, _, _ string) (bool, error) {
+func (f *fakePermissionChecker) IsAllowed(_ context.Context, _, _, _ string) (bool, error) {
 	return f.allowed, nil
 }
 
-func (f *fakePermissionChecker) IsSubToolAllowed(_ context.Context, _, _, _ string) (bool, error) {
+func (f *fakePermissionChecker) IsSubToolAllowed(_ context.Context, _, _, _, _ string) (bool, error) {
 	return f.subToolAllowed, nil
 }
 
@@ -121,7 +121,7 @@ func defaultTool() *registry.Tool {
 }
 
 func defaultAgent() AgentInfo {
-	return AgentInfo{ID: "agent-1", Name: "test-agent", Team: "team-1"}
+	return AgentInfo{ID: "agent-1", Name: "test-agent", Team: "team-1", TenantID: "t1"}
 }
 
 func newGovernedCaller(

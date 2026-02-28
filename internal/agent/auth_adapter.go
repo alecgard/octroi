@@ -27,5 +27,6 @@ func (a *AuthAdapter) GetByKeyHash(ctx context.Context, hash string) (*auth.Agen
 		Name:      ag.Name,
 		Team:      ag.Team,
 		RateLimit: ag.RateLimit,
+		TenantID:  ag.TenantID,
 	}, nil
 }

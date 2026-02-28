@@ -25,7 +25,7 @@ type fakeTeamsAgentStore struct {
 	err    error
 }
 
-func (f *fakeTeamsAgentStore) List(_ context.Context, _ agent.AgentListParams) ([]*agent.Agent, string, error) {
+func (f *fakeTeamsAgentStore) List(_ context.Context, _ string, _ agent.AgentListParams) ([]*agent.Agent, string, error) {
 	return f.agents, "", f.err
 }
 
@@ -38,7 +38,7 @@ func newFakeTeamsUserStore() *fakeTeamsUserStore {
 	return &fakeTeamsUserStore{users: make(map[string]*user.User)}
 }
 
-func (f *fakeTeamsUserStore) List(_ context.Context) ([]*user.User, error) {
+func (f *fakeTeamsUserStore) List(_ context.Context, _ string) ([]*user.User, error) {
 	if f.listErr != nil {
 		return nil, f.listErr
 	}
@@ -49,7 +49,7 @@ func (f *fakeTeamsUserStore) List(_ context.Context) ([]*user.User, error) {
 	return list, nil
 }
 
-func (f *fakeTeamsUserStore) GetByID(_ context.Context, id string) (*user.User, error) {
+func (f *fakeTeamsUserStore) GetByID(_ context.Context, _ string, id string) (*user.User, error) {
 	u, ok := f.users[id]
 	if !ok {
 		return nil, fmt.Errorf("user not found")
@@ -57,7 +57,7 @@ func (f *fakeTeamsUserStore) GetByID(_ context.Context, id string) (*user.User, 
 	return u, nil
 }
 
-func (f *fakeTeamsUserStore) Update(_ context.Context, id string, in user.UpdateUserInput) (*user.User, error) {
+func (f *fakeTeamsUserStore) Update(_ context.Context, _, id string, in user.UpdateUserInput) (*user.User, error) {
 	u, ok := f.users[id]
 	if !ok {
 		return nil, fmt.Errorf("user not found")
@@ -83,19 +83,21 @@ func (f *fakeTeamsUserStore) Update(_ context.Context, id string, in user.Update
 
 func adminUser() *auth.User {
 	return &auth.User{
-		ID:    "admin-1",
-		Email: "admin@test.com",
-		Role:  "org_admin",
-		Teams: []auth.TeamMembership{{Team: "team-a", Role: "admin"}},
+		ID:       "admin-1",
+		TenantID: "t1",
+		Email:    "admin@test.com",
+		Role:     "admin",
+		Teams:    []auth.TeamMembership{{Team: "team-a", Role: "admin"}},
 	}
 }
 
 func teamsMemberUser() *auth.User {
 	return &auth.User{
-		ID:    "user-1",
-		Email: "user@test.com",
-		Role:  "member",
-		Teams: []auth.TeamMembership{{Team: "team-a", Role: "admin"}},
+		ID:       "user-1",
+		TenantID: "t1",
+		Email:    "user@test.com",
+		Role:     "member",
+		Teams:    []auth.TeamMembership{{Team: "team-a", Role: "admin"}},
 	}
 }
 
@@ -103,6 +105,12 @@ func setupTeamsRouter(agentStore *fakeTeamsAgentStore, userStore *fakeTeamsUserS
 	h := newTeamsHandler(agentStore, userStore)
 	r := chi.NewRouter()
 
+	r.Use(func(next http.Handler) http.Handler {
+		return http.HandlerFunc(func(w http.ResponseWriter, req *http.Request) {
+			ctx := auth.ContextWithTenant(req.Context(), &auth.Tenant{ID: "t1"})
+			next.ServeHTTP(w, req.WithContext(ctx))
+		})
+	})
 	if caller != nil {
 		r.Use(func(next http.Handler) http.Handler {
 			return http.HandlerFunc(func(w http.ResponseWriter, req *http.Request) {
@@ -440,12 +448,13 @@ func TestAddTeamMember_Forbidden(t *testing.T) {
 		CreatedAt: time.Now().UTC(),
 	}
 
-	// Caller is a member of team-a but not admin, and is not org_admin.
+	// Caller is a member of team-a but not admin, and is not admin.
 	caller := &auth.User{
-		ID:    "user-2",
-		Email: "user2@test.com",
-		Role:  "member",
-		Teams: []auth.TeamMembership{{Team: "team-a", Role: "member"}},
+		ID:       "user-2",
+		TenantID: "t1",
+		Email:    "user2@test.com",
+		Role:     "member",
+		Teams:    []auth.TeamMembership{{Team: "team-a", Role: "member"}},
 	}
 	router := setupTeamsRouter(agentStore, userStore, caller)
 
@@ -645,10 +654,11 @@ func TestRemoveTeamMember_Forbidden(t *testing.T) {
 
 	// Caller is a regular member of team-a, cannot manage.
 	caller := &auth.User{
-		ID:    "user-2",
-		Email: "user2@test.com",
-		Role:  "member",
-		Teams: []auth.TeamMembership{{Team: "team-a", Role: "member"}},
+		ID:       "user-2",
+		TenantID: "t1",
+		Email:    "user2@test.com",
+		Role:     "member",
+		Teams:    []auth.TeamMembership{{Team: "team-a", Role: "member"}},
 	}
 	router := setupTeamsRouter(agentStore, userStore, caller)
 

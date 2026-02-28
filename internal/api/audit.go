@@ -58,6 +58,11 @@ func auditLog(r *http.Request, action string, resourceType string, resourceID st
 			details[key] = detail[i+1]
 		}
 
+		var tenantID string
+		if t := auth.TenantFromContext(r.Context()); t != nil {
+			tenantID = t.ID
+		}
+
 		entry := audit.Entry{
 			UserID:       userID,
 			Action:       action,
@@ -66,6 +71,7 @@ func auditLog(r *http.Request, action string, resourceType string, resourceID st
 			Details:      details,
 			IP:           clientIP(r),
 			RequestID:    RequestIDFromContext(r.Context()),
+			TenantID:     tenantID,
 		}
 
 		go func() {

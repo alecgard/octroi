@@ -29,11 +29,11 @@ func NewBodyStore(pool *pgxpool.Pool) *BodyStore {
 }
 
 // Insert stores request and response bodies for a transaction.
-func (s *BodyStore) Insert(ctx context.Context, transactionID string, reqBody, respBody []byte) error {
+func (s *BodyStore) Insert(ctx context.Context, tenantID string, transactionID string, reqBody, respBody []byte) error {
 	_, err := s.pool.Exec(ctx,
-		`INSERT INTO request_bodies (transaction_id, request_body, response_body)
-		 VALUES ($1, $2, $3)`,
-		transactionID, reqBody, respBody,
+		`INSERT INTO request_bodies (transaction_id, request_body, response_body, tenant_id)
+		 VALUES ($1, $2, $3, $4)`,
+		transactionID, reqBody, respBody, tenantID,
 	)
 	if err != nil {
 		return fmt.Errorf("inserting request body: %w", err)
@@ -42,12 +42,12 @@ func (s *BodyStore) Insert(ctx context.Context, transactionID string, reqBody, r
 }
 
 // GetByTransactionID retrieves the request body record for a transaction.
-func (s *BodyStore) GetByTransactionID(ctx context.Context, transactionID string) (*RequestBody, error) {
+func (s *BodyStore) GetByTransactionID(ctx context.Context, tenantID string, transactionID string) (*RequestBody, error) {
 	var rb RequestBody
 	err := s.pool.QueryRow(ctx,
 		`SELECT id, transaction_id, request_body, response_body, created_at
-		 FROM request_bodies WHERE transaction_id = $1`,
-		transactionID,
+		 FROM request_bodies WHERE transaction_id = $1 AND tenant_id = $2`,
+		transactionID, tenantID,
 	).Scan(&rb.ID, &rb.TransactionID, &rb.RequestBody, &rb.ResponseBody, &rb.CreatedAt)
 	if err != nil {
 		if err == pgx.ErrNoRows {
@@ -59,6 +59,7 @@ func (s *BodyStore) GetByTransactionID(ctx context.Context, transactionID string
 }
 
 // PurgeOlderThan deletes request body records older than the given retention duration.
+// Intentionally operates across all tenants as a global retention policy.
 func (s *BodyStore) PurgeOlderThan(ctx context.Context, retention time.Duration) (int64, error) {
 	cutoff := time.Now().Add(-retention)
 	tag, err := s.pool.Exec(ctx,

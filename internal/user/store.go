@@ -30,7 +30,7 @@ func NewStore(pool *pgxpool.Pool) *Store {
 func scanUser(scan func(dest ...any) error) (*User, error) {
 	u := &User{}
 	var teamsJSON []byte
-	err := scan(&u.ID, &u.Email, &u.PasswordHash, &u.Name, &teamsJSON, &u.Role, &u.CreatedAt)
+	err := scan(&u.ID, &u.Email, &u.PasswordHash, &u.Name, &teamsJSON, &u.Role, &u.TenantID, &u.CreatedAt)
 	if err != nil {
 		return nil, err
 	}
@@ -72,10 +72,10 @@ func (s *Store) Create(ctx context.Context, in CreateUserInput) (*User, error) {
 
 	u, err := scanUser(func(dest ...any) error {
 		return s.pool.QueryRow(ctx,
-			`INSERT INTO users (email, password_hash, name, teams, role)
-			 VALUES ($1, $2, $3, $4, $5)
-			 RETURNING id, email, password_hash, name, teams, role, created_at`,
-			in.Email, string(hash), in.Name, teamsJSON, role,
+			`INSERT INTO users (email, password_hash, name, teams, role, tenant_id)
+			 VALUES ($1, $2, $3, $4, $5, $6)
+			 RETURNING id, email, password_hash, name, teams, role, tenant_id, created_at`,
+			in.Email, string(hash), in.Name, teamsJSON, role, in.TenantID,
 		).Scan(dest...)
 	})
 	if err != nil {
@@ -85,11 +85,11 @@ func (s *Store) Create(ctx context.Context, in CreateUserInput) (*User, error) {
 }
 
 // GetByID retrieves an active (non-archived) user by primary key.
-func (s *Store) GetByID(ctx context.Context, id string) (*User, error) {
+func (s *Store) GetByID(ctx context.Context, tenantID, id string) (*User, error) {
 	u, err := scanUser(func(dest ...any) error {
 		return s.pool.QueryRow(ctx,
-			`SELECT id, email, password_hash, name, teams, role, created_at
-			 FROM users WHERE id = $1 AND archived_at IS NULL`, id,
+			`SELECT id, email, password_hash, name, teams, role, tenant_id, created_at
+			 FROM users WHERE id = $1 AND tenant_id = $2 AND archived_at IS NULL`, id, tenantID,
 		).Scan(dest...)
 	})
 	if err != nil {
@@ -99,11 +99,11 @@ func (s *Store) GetByID(ctx context.Context, id string) (*User, error) {
 }
 
 // GetByEmail retrieves a user by email address.
-func (s *Store) GetByEmail(ctx context.Context, email string) (*User, error) {
+func (s *Store) GetByEmail(ctx context.Context, tenantID, email string) (*User, error) {
 	u, err := scanUser(func(dest ...any) error {
 		return s.pool.QueryRow(ctx,
-			`SELECT id, email, password_hash, name, teams, role, created_at
-			 FROM users WHERE email = $1 AND archived_at IS NULL`, email,
+			`SELECT id, email, password_hash, name, teams, role, tenant_id, created_at
+			 FROM users WHERE email = $1 AND tenant_id = $2 AND archived_at IS NULL`, email, tenantID,
 		).Scan(dest...)
 	})
 	if err != nil {
@@ -113,10 +113,10 @@ func (s *Store) GetByEmail(ctx context.Context, email string) (*User, error) {
 }
 
 // List returns all users ordered by created_at DESC.
-func (s *Store) List(ctx context.Context) ([]*User, error) {
+func (s *Store) List(ctx context.Context, tenantID string) ([]*User, error) {
 	rows, err := s.pool.Query(ctx,
-		`SELECT id, email, password_hash, name, teams, role, created_at
-		 FROM users WHERE archived_at IS NULL ORDER BY created_at DESC`)
+		`SELECT id, email, password_hash, name, teams, role, tenant_id, created_at
+		 FROM users WHERE tenant_id = $1 AND archived_at IS NULL ORDER BY created_at DESC`, tenantID)
 	if err != nil {
 		return nil, fmt.Errorf("listing users: %w", err)
 	}
@@ -134,7 +134,7 @@ func (s *Store) List(ctx context.Context) ([]*User, error) {
 }
 
 // Update performs a partial update on the user with the given id.
-func (s *Store) Update(ctx context.Context, id string, in UpdateUserInput) (*User, error) {
+func (s *Store) Update(ctx context.Context, tenantID, id string, in UpdateUserInput) (*User, error) {
 	var setClauses []string
 	var args []any
 	argIdx := 1
@@ -174,14 +174,14 @@ func (s *Store) Update(ctx context.Context, id string, in UpdateUserInput) (*Use
 	}
 
 	if len(setClauses) == 0 {
-		return s.GetByID(ctx, id)
+		return s.GetByID(ctx, tenantID, id)
 	}
 
-	args = append(args, id)
+	args = append(args, id, tenantID)
 	query := fmt.Sprintf(
-		`UPDATE users SET %s WHERE id = $%d
-		 RETURNING id, email, password_hash, name, teams, role, created_at`,
-		strings.Join(setClauses, ", "), argIdx,
+		`UPDATE users SET %s WHERE id = $%d AND tenant_id = $%d
+		 RETURNING id, email, password_hash, name, teams, role, tenant_id, created_at`,
+		strings.Join(setClauses, ", "), argIdx, argIdx+1,
 	)
 
 	u, err := scanUser(func(dest ...any) error {
@@ -194,8 +194,8 @@ func (s *Store) Update(ctx context.Context, id string, in UpdateUserInput) (*Use
 }
 
 // Archive soft-deletes a user by setting archived_at and invalidating their sessions.
-func (s *Store) Archive(ctx context.Context, id string) error {
-	tag, err := s.pool.Exec(ctx, `UPDATE users SET archived_at = now() WHERE id = $1 AND archived_at IS NULL`, id)
+func (s *Store) Archive(ctx context.Context, tenantID, id string) error {
+	tag, err := s.pool.Exec(ctx, `UPDATE users SET archived_at = now() WHERE id = $1 AND tenant_id = $2 AND archived_at IS NULL`, id, tenantID)
 	if err != nil {
 		return fmt.Errorf("archiving user: %w", err)
 	}
@@ -203,7 +203,7 @@ func (s *Store) Archive(ctx context.Context, id string) error {
 		return fmt.Errorf("user not found")
 	}
 	// Invalidate all active sessions for the archived user.
-	_, err = s.pool.Exec(ctx, `DELETE FROM sessions WHERE user_id = $1`, id)
+	_, err = s.pool.Exec(ctx, `DELETE FROM sessions WHERE user_id = $1 AND tenant_id = $2`, id, tenantID)
 	if err != nil {
 		return fmt.Errorf("cleaning sessions for archived user: %w", err)
 	}
@@ -217,7 +217,7 @@ func CheckPassword(u *User, password string) bool {
 
 // CreateSession creates a new session for the given user. It returns the
 // opaque plaintext token (to be sent to the client) and the stored session.
-func (s *Store) CreateSession(ctx context.Context, userID string) (string, *Session, error) {
+func (s *Store) CreateSession(ctx context.Context, tenantID, userID string) (string, *Session, error) {
 	b := make([]byte, 32)
 	if _, err := rand.Read(b); err != nil {
 		return "", nil, fmt.Errorf("generating session token: %w", err)
@@ -230,10 +230,10 @@ func (s *Store) CreateSession(ctx context.Context, userID string) (string, *Sess
 
 	sess := &Session{}
 	err := s.pool.QueryRow(ctx,
-		`INSERT INTO sessions (token_hash, user_id, created_at, expires_at)
-		 VALUES ($1, $2, $3, $4)
+		`INSERT INTO sessions (token_hash, user_id, tenant_id, created_at, expires_at)
+		 VALUES ($1, $2, $3, $4, $5)
 		 RETURNING token_hash, user_id, created_at, expires_at`,
-		tokenHash, userID, now, expiresAt,
+		tokenHash, userID, tenantID, now, expiresAt,
 	).Scan(&sess.TokenHash, &sess.UserID, &sess.CreatedAt, &sess.ExpiresAt)
 	if err != nil {
 		return "", nil, fmt.Errorf("creating session: %w", err)
@@ -244,27 +244,30 @@ func (s *Store) CreateSession(ctx context.Context, userID string) (string, *Sess
 
 // GetSessionUser looks up a session by its plaintext token and returns the
 // associated user. Returns nil if the session is expired or not found.
-func (s *Store) GetSessionUser(ctx context.Context, plaintext string) (*User, error) {
+func (s *Store) GetSessionUser(ctx context.Context, tenantID, plaintext string) (*User, error) {
 	tokenHash := hashToken(plaintext)
 
 	u, err := scanUser(func(dest ...any) error {
 		return s.pool.QueryRow(ctx,
-			`SELECT u.id, u.email, u.password_hash, u.name, u.teams, u.role, u.created_at
+			`SELECT u.id, u.email, u.password_hash, u.name, u.teams, u.role, u.tenant_id, u.created_at
 			 FROM sessions s JOIN users u ON s.user_id = u.id
-			 WHERE s.token_hash = $1 AND s.expires_at > now()`,
-			tokenHash,
+			 WHERE s.token_hash = $1 AND s.tenant_id = $2 AND s.expires_at > now()`,
+			tokenHash, tenantID,
 		).Scan(dest...)
 	})
 	if err != nil {
 		return nil, fmt.Errorf("getting session user: %w", err)
 	}
+	if tenantID != "" && u.TenantID != tenantID {
+		return nil, fmt.Errorf("getting session user: tenant mismatch")
+	}
 	return u, nil
 }
 
 // DeleteSession removes a session by its plaintext token.
-func (s *Store) DeleteSession(ctx context.Context, plaintext string) error {
+func (s *Store) DeleteSession(ctx context.Context, tenantID, plaintext string) error {
 	tokenHash := hashToken(plaintext)
-	_, err := s.pool.Exec(ctx, `DELETE FROM sessions WHERE token_hash = $1`, tokenHash)
+	_, err := s.pool.Exec(ctx, `DELETE FROM sessions WHERE token_hash = $1 AND tenant_id = $2`, tokenHash, tenantID)
 	if err != nil {
 		return fmt.Errorf("deleting session: %w", err)
 	}

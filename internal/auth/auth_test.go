@@ -118,11 +118,13 @@ func TestAgentAuthMiddleware(t *testing.T) {
 	plaintext := "octroi_validkey1234567890abcdefgh"
 	hash := HashKey(plaintext)
 
+	tenantID := "tenant-1"
 	store := &mockAgentLookup{
 		agents: map[string]*Agent{
-			hash: {ID: "agent-1", Name: "TestAgent", Team: "platform", RateLimit: 60},
+			hash: {ID: "agent-1", Name: "TestAgent", Team: "platform", RateLimit: 60, TenantID: tenantID},
 		},
 	}
+	tenant := &Tenant{ID: tenantID, Name: "Test Tenant", Slug: "test"}
 	svc := NewService(store)
 
 	okHandler := http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
@@ -174,6 +176,7 @@ func TestAgentAuthMiddleware(t *testing.T) {
 	for _, tt := range tests {
 		t.Run(tt.name, func(t *testing.T) {
 			req := httptest.NewRequest(http.MethodGet, "/", nil)
+			req = req.WithContext(ContextWithTenant(req.Context(), tenant))
 			if tt.authHeader != "" {
 				req.Header.Set("Authorization", tt.authHeader)
 			}

@@ -8,6 +8,8 @@ import (
 	"github.com/jackc/pgx/v5/pgxpool"
 )
 
+const testTenantID = "00000000-0000-0000-0000-000000000001"
+
 func setupPermissionTestDB(t *testing.T) (*pgxpool.Pool, func()) {
 	t.Helper()
 	url := os.Getenv("OCTROI_DATABASE_URL")
@@ -33,8 +35,8 @@ func createTestTool(t *testing.T, pool *pgxpool.Pool, name string) string {
 	t.Helper()
 	var id string
 	err := pool.QueryRow(context.Background(),
-		`INSERT INTO tools (name, description, endpoint) VALUES ($1, $2, $3) RETURNING id`,
-		name, "test tool", "http://localhost:9999",
+		`INSERT INTO tools (name, description, endpoint, tenant_id) VALUES ($1, $2, $3, $4) RETURNING id`,
+		name, "test tool", "http://localhost:9999", testTenantID,
 	).Scan(&id)
 	if err != nil {
 		t.Fatalf("creating test tool: %v", err)
@@ -63,6 +65,7 @@ func TestPermissionStore_IsAllowed_NoAllowlist(t *testing.T) {
 		APIKeyPrefix: "octroi_permte",
 		Team:         "test",
 		RateLimit:    60,
+		TenantID:     testTenantID,
 	})
 	if err != nil {
 		t.Fatalf("creating agent: %v", err)
@@ -70,7 +73,7 @@ func TestPermissionStore_IsAllowed_NoAllowlist(t *testing.T) {
 	defer pool.Exec(ctx, "DELETE FROM agents WHERE id = $1", a.ID)
 
 	// With allowlist_mode=false, any tool should be allowed.
-	allowed, err := permStore.IsAllowed(ctx, a.ID, "00000000-0000-0000-0000-000000000001")
+	allowed, err := permStore.IsAllowed(ctx, testTenantID, a.ID, "00000000-0000-0000-0000-000000000001")
 	if err != nil {
 		t.Fatalf("IsAllowed: %v", err)
 	}
@@ -94,6 +97,7 @@ func TestPermissionStore_IsAllowed_WithAllowlist(t *testing.T) {
 		APIKeyPrefix: "octroi_permal",
 		Team:         "test",
 		RateLimit:    60,
+		TenantID:     testTenantID,
 	})
 	if err != nil {
 		t.Fatalf("creating agent: %v", err)
@@ -101,7 +105,7 @@ func TestPermissionStore_IsAllowed_WithAllowlist(t *testing.T) {
 	defer pool.Exec(ctx, "DELETE FROM agents WHERE id = $1", a.ID)
 
 	enabled := true
-	_, err = agentStore.Update(ctx, a.ID, UpdateAgentInput{AllowlistMode: &enabled})
+	_, err = agentStore.Update(ctx, testTenantID, a.ID, UpdateAgentInput{AllowlistMode: &enabled})
 	if err != nil {
 		t.Fatalf("enabling allowlist: %v", err)
 	}
@@ -111,7 +115,7 @@ func TestPermissionStore_IsAllowed_WithAllowlist(t *testing.T) {
 	fakeToolID := "00000000-0000-0000-0000-000000000099"
 
 	// Should be denied (no permission row exists).
-	allowed, err := permStore.IsAllowed(ctx, a.ID, fakeToolID)
+	allowed, err := permStore.IsAllowed(ctx, testTenantID, a.ID, fakeToolID)
 	if err != nil {
 		t.Fatalf("IsAllowed: %v", err)
 	}
@@ -134,6 +138,7 @@ func TestPermissionStore_SetAndList(t *testing.T) {
 		APIKeyPrefix: "octroi_permsl",
 		Team:         "test",
 		RateLimit:    60,
+		TenantID:     testTenantID,
 	})
 	if err != nil {
 		t.Fatalf("creating agent: %v", err)
@@ -143,7 +148,7 @@ func TestPermissionStore_SetAndList(t *testing.T) {
 	}()
 
 	// List should be empty initially.
-	perms, err := permStore.ListByAgent(ctx, a.ID)
+	perms, err := permStore.ListByAgent(ctx, testTenantID, a.ID)
 	if err != nil {
 		t.Fatalf("ListByAgent: %v", err)
 	}
@@ -166,6 +171,7 @@ func TestPermissionStore_IsSubToolAllowed_NoAllowlist(t *testing.T) {
 		APIKeyPrefix: "octroi_subno1",
 		Team:         "test",
 		RateLimit:    60,
+		TenantID:     testTenantID,
 	})
 	if err != nil {
 		t.Fatalf("creating agent: %v", err)
@@ -173,7 +179,7 @@ func TestPermissionStore_IsSubToolAllowed_NoAllowlist(t *testing.T) {
 	defer pool.Exec(ctx, "DELETE FROM agents WHERE id = $1", a.ID)
 
 	// Without allowlist mode, any sub-tool should be allowed.
-	allowed, err := permStore.IsSubToolAllowed(ctx, a.ID, "00000000-0000-0000-0000-000000000001", "search_code")
+	allowed, err := permStore.IsSubToolAllowed(ctx, testTenantID, a.ID, "00000000-0000-0000-0000-000000000001", "search_code")
 	if err != nil {
 		t.Fatalf("IsSubToolAllowed: %v", err)
 	}
@@ -196,6 +202,7 @@ func TestPermissionStore_IsSubToolAllowed_ParentDenied(t *testing.T) {
 		APIKeyPrefix: "octroi_subde1",
 		Team:         "test",
 		RateLimit:    60,
+		TenantID:     testTenantID,
 	})
 	if err != nil {
 		t.Fatalf("creating agent: %v", err)
@@ -203,7 +210,7 @@ func TestPermissionStore_IsSubToolAllowed_ParentDenied(t *testing.T) {
 	defer pool.Exec(ctx, "DELETE FROM agents WHERE id = $1", a.ID)
 
 	enabled := true
-	_, err = agentStore.Update(ctx, a.ID, UpdateAgentInput{AllowlistMode: &enabled})
+	_, err = agentStore.Update(ctx, testTenantID, a.ID, UpdateAgentInput{AllowlistMode: &enabled})
 	if err != nil {
 		t.Fatalf("enabling allowlist: %v", err)
 	}
@@ -212,7 +219,7 @@ func TestPermissionStore_IsSubToolAllowed_ParentDenied(t *testing.T) {
 	defer deleteTestTool(t, pool, toolID)
 
 	// No permission row → denied.
-	allowed, err := permStore.IsSubToolAllowed(ctx, a.ID, toolID, "search_code")
+	allowed, err := permStore.IsSubToolAllowed(ctx, testTenantID, a.ID, toolID, "search_code")
 	if err != nil {
 		t.Fatalf("IsSubToolAllowed: %v", err)
 	}
@@ -221,12 +228,12 @@ func TestPermissionStore_IsSubToolAllowed_ParentDenied(t *testing.T) {
 	}
 
 	// Set parent allowed=false.
-	if err := permStore.SetWithSubTools(ctx, a.ID, toolID, false, nil); err != nil {
+	if err := permStore.SetWithSubTools(ctx, testTenantID, a.ID, toolID, false, nil); err != nil {
 		t.Fatalf("Set: %v", err)
 	}
-	defer permStore.Delete(ctx, a.ID, toolID)
+	defer permStore.Delete(ctx, testTenantID, a.ID, toolID)
 
-	allowed, err = permStore.IsSubToolAllowed(ctx, a.ID, toolID, "search_code")
+	allowed, err = permStore.IsSubToolAllowed(ctx, testTenantID, a.ID, toolID, "search_code")
 	if err != nil {
 		t.Fatalf("IsSubToolAllowed: %v", err)
 	}
@@ -249,6 +256,7 @@ func TestPermissionStore_IsSubToolAllowed_EmptySubTools(t *testing.T) {
 		APIKeyPrefix: "octroi_subem1",
 		Team:         "test",
 		RateLimit:    60,
+		TenantID:     testTenantID,
 	})
 	if err != nil {
 		t.Fatalf("creating agent: %v", err)
@@ -256,7 +264,7 @@ func TestPermissionStore_IsSubToolAllowed_EmptySubTools(t *testing.T) {
 	defer pool.Exec(ctx, "DELETE FROM agents WHERE id = $1", a.ID)
 
 	enabled := true
-	_, err = agentStore.Update(ctx, a.ID, UpdateAgentInput{AllowlistMode: &enabled})
+	_, err = agentStore.Update(ctx, testTenantID, a.ID, UpdateAgentInput{AllowlistMode: &enabled})
 	if err != nil {
 		t.Fatalf("enabling allowlist: %v", err)
 	}
@@ -265,12 +273,12 @@ func TestPermissionStore_IsSubToolAllowed_EmptySubTools(t *testing.T) {
 	defer deleteTestTool(t, pool, toolID)
 
 	// Set allowed=true with empty sub_tools → all sub-tools allowed.
-	if err := permStore.SetWithSubTools(ctx, a.ID, toolID, true, nil); err != nil {
+	if err := permStore.SetWithSubTools(ctx, testTenantID, a.ID, toolID, true, nil); err != nil {
 		t.Fatalf("SetWithSubTools: %v", err)
 	}
-	defer permStore.Delete(ctx, a.ID, toolID)
+	defer permStore.Delete(ctx, testTenantID, a.ID, toolID)
 
-	allowed, err := permStore.IsSubToolAllowed(ctx, a.ID, toolID, "any_sub_tool")
+	allowed, err := permStore.IsSubToolAllowed(ctx, testTenantID, a.ID, toolID, "any_sub_tool")
 	if err != nil {
 		t.Fatalf("IsSubToolAllowed: %v", err)
 	}
@@ -293,6 +301,7 @@ func TestPermissionStore_IsSubToolAllowed_Membership(t *testing.T) {
 		APIKeyPrefix: "octroi_subme1",
 		Team:         "test",
 		RateLimit:    60,
+		TenantID:     testTenantID,
 	})
 	if err != nil {
 		t.Fatalf("creating agent: %v", err)
@@ -300,7 +309,7 @@ func TestPermissionStore_IsSubToolAllowed_Membership(t *testing.T) {
 	defer pool.Exec(ctx, "DELETE FROM agents WHERE id = $1", a.ID)
 
 	enabled := true
-	_, err = agentStore.Update(ctx, a.ID, UpdateAgentInput{AllowlistMode: &enabled})
+	_, err = agentStore.Update(ctx, testTenantID, a.ID, UpdateAgentInput{AllowlistMode: &enabled})
 	if err != nil {
 		t.Fatalf("enabling allowlist: %v", err)
 	}
@@ -309,13 +318,13 @@ func TestPermissionStore_IsSubToolAllowed_Membership(t *testing.T) {
 	defer deleteTestTool(t, pool, toolID)
 
 	// Set allowed=true with specific sub_tools.
-	if err := permStore.SetWithSubTools(ctx, a.ID, toolID, true, []string{"search_code", "read_file"}); err != nil {
+	if err := permStore.SetWithSubTools(ctx, testTenantID, a.ID, toolID, true, []string{"search_code", "read_file"}); err != nil {
 		t.Fatalf("SetWithSubTools: %v", err)
 	}
-	defer permStore.Delete(ctx, a.ID, toolID)
+	defer permStore.Delete(ctx, testTenantID, a.ID, toolID)
 
 	// Allowed sub-tool.
-	allowed, err := permStore.IsSubToolAllowed(ctx, a.ID, toolID, "search_code")
+	allowed, err := permStore.IsSubToolAllowed(ctx, testTenantID, a.ID, toolID, "search_code")
 	if err != nil {
 		t.Fatalf("IsSubToolAllowed: %v", err)
 	}
@@ -324,7 +333,7 @@ func TestPermissionStore_IsSubToolAllowed_Membership(t *testing.T) {
 	}
 
 	// Denied sub-tool.
-	allowed, err = permStore.IsSubToolAllowed(ctx, a.ID, toolID, "push_commits")
+	allowed, err = permStore.IsSubToolAllowed(ctx, testTenantID, a.ID, toolID, "push_commits")
 	if err != nil {
 		t.Fatalf("IsSubToolAllowed: %v", err)
 	}
@@ -333,7 +342,7 @@ func TestPermissionStore_IsSubToolAllowed_Membership(t *testing.T) {
 	}
 
 	// Empty subTool name → allowed (means no sub-tool filtering).
-	allowed, err = permStore.IsSubToolAllowed(ctx, a.ID, toolID, "")
+	allowed, err = permStore.IsSubToolAllowed(ctx, testTenantID, a.ID, toolID, "")
 	if err != nil {
 		t.Fatalf("IsSubToolAllowed: %v", err)
 	}
@@ -356,6 +365,7 @@ func TestPermissionStore_SetWithSubTools_RoundTrip(t *testing.T) {
 		APIKeyPrefix: "octroi_subrt1",
 		Team:         "test",
 		RateLimit:    60,
+		TenantID:     testTenantID,
 	})
 	if err != nil {
 		t.Fatalf("creating agent: %v", err)
@@ -366,13 +376,13 @@ func TestPermissionStore_SetWithSubTools_RoundTrip(t *testing.T) {
 	defer deleteTestTool(t, pool, toolID)
 
 	subTools := []string{"tool_a", "tool_b", "tool_c"}
-	if err := permStore.SetWithSubTools(ctx, a.ID, toolID, true, subTools); err != nil {
+	if err := permStore.SetWithSubTools(ctx, testTenantID, a.ID, toolID, true, subTools); err != nil {
 		t.Fatalf("SetWithSubTools: %v", err)
 	}
-	defer permStore.Delete(ctx, a.ID, toolID)
+	defer permStore.Delete(ctx, testTenantID, a.ID, toolID)
 
 	// Verify via ListByAgent.
-	perms, err := permStore.ListByAgent(ctx, a.ID)
+	perms, err := permStore.ListByAgent(ctx, testTenantID, a.ID)
 	if err != nil {
 		t.Fatalf("ListByAgent: %v", err)
 	}
@@ -394,10 +404,10 @@ func TestPermissionStore_SetWithSubTools_RoundTrip(t *testing.T) {
 	}
 
 	// Update to fewer sub-tools.
-	if err := permStore.SetWithSubTools(ctx, a.ID, toolID, true, []string{"tool_a"}); err != nil {
+	if err := permStore.SetWithSubTools(ctx, testTenantID, a.ID, toolID, true, []string{"tool_a"}); err != nil {
 		t.Fatalf("SetWithSubTools update: %v", err)
 	}
-	perms, err = permStore.ListByAgent(ctx, a.ID)
+	perms, err = permStore.ListByAgent(ctx, testTenantID, a.ID)
 	if err != nil {
 		t.Fatalf("ListByAgent: %v", err)
 	}

@@ -12,7 +12,7 @@ import (
 
 // auditLogStore defines the audit store methods used by the handler.
 type auditLogStore interface {
-	List(ctx context.Context, params audit.ListParams) ([]audit.Entry, string, error)
+	List(ctx context.Context, tenantID string, params audit.ListParams) ([]audit.Entry, string, error)
 }
 
 type auditHandler struct {
@@ -47,7 +47,11 @@ func (h *auditHandler) ListAuditLog(w http.ResponseWriter, r *http.Request) {
 		}
 	}
 
-	entries, nextCursor, err := h.store.List(r.Context(), params)
+	tenant := mustTenant(w, r)
+	if tenant == nil {
+		return
+	}
+	entries, nextCursor, err := h.store.List(r.Context(), tenant.ID, params)
 	if err != nil {
 		writeError(w, http.StatusInternalServerError, "internal_error", "failed to list audit log")
 		return

@@ -17,8 +17,8 @@ func NewAuthAdapter(store *Store) *AuthAdapter {
 }
 
 // LookupSession looks up a session token and returns the associated auth.User.
-func (a *AuthAdapter) LookupSession(ctx context.Context, token string) (*auth.User, error) {
-	u, err := a.store.GetSessionUser(ctx, token)
+func (a *AuthAdapter) LookupSession(ctx context.Context, tenantID, token string) (*auth.User, error) {
+	u, err := a.store.GetSessionUser(ctx, tenantID, token)
 	if err != nil {
 		return nil, err
 	}
@@ -30,10 +30,11 @@ func (a *AuthAdapter) LookupSession(ctx context.Context, token string) (*auth.Us
 		}
 	}
 	return &auth.User{
-		ID:    u.ID,
-		Email: u.Email,
-		Name:  u.Name,
-		Teams: teams,
-		Role:  u.Role,
+		ID:       u.ID,
+		Email:    u.Email,
+		Name:     u.Name,
+		Teams:    teams,
+		Role:     u.Role,
+		TenantID: u.TenantID,
 	}, nil
 }

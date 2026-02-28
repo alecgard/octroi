@@ -28,9 +28,10 @@ type ToolCaller interface {
 // AgentInfo carries the agent identity extracted from auth middleware,
 // used by the governance layer for policy evaluation.
 type AgentInfo struct {
-	ID   string
-	Name string
-	Team string
+	ID       string
+	Name     string
+	Team     string
+	TenantID string
 }
 
 // UpstreamClient connects to an upstream MCP server and provides tool

@@ -34,6 +34,8 @@ func TestStore_InsertAndList(t *testing.T) {
 	store := NewStore(pool)
 	ctx := context.Background()
 
+	tenantID := "00000000-0000-0000-0000-000000000001"
+
 	// Insert a test entry.
 	entry := Entry{
 		Action:       "test_action",
@@ -42,6 +44,7 @@ func TestStore_InsertAndList(t *testing.T) {
 		Details:      map[string]any{"key": "value"},
 		IP:           "127.0.0.1",
 		RequestID:    "req-test-001",
+		TenantID:     tenantID,
 	}
 	if err := store.Insert(ctx, entry); err != nil {
 		t.Fatalf("insert failed: %v", err)
@@ -51,7 +54,7 @@ func TestStore_InsertAndList(t *testing.T) {
 	defer pool.Exec(ctx, "DELETE FROM audit_log WHERE resource_id = 'test-id-123'")
 
 	// List and verify.
-	entries, _, err := store.List(ctx, ListParams{ResourceType: "test_resource", Limit: 10})
+	entries, _, err := store.List(ctx, tenantID, ListParams{ResourceType: "test_resource", Limit: 10})
 	if err != nil {
 		t.Fatalf("list failed: %v", err)
 	}
@@ -79,11 +82,14 @@ func TestStore_ListWithTimeFilter(t *testing.T) {
 	store := NewStore(pool)
 	ctx := context.Background()
 
+	tenantID := "00000000-0000-0000-0000-000000000001"
+
 	entry := Entry{
 		Action:       "time_test",
 		ResourceType: "test_time",
 		ResourceID:   "time-test-001",
 		Details:      map[string]any{},
+		TenantID:     tenantID,
 	}
 	if err := store.Insert(ctx, entry); err != nil {
 		t.Fatalf("insert failed: %v", err)
@@ -92,7 +98,7 @@ func TestStore_ListWithTimeFilter(t *testing.T) {
 
 	// Query with future "from" should return nothing.
 	future := time.Now().Add(1 * time.Hour)
-	entries, _, err := store.List(ctx, ListParams{From: &future, ResourceType: "test_time"})
+	entries, _, err := store.List(ctx, tenantID, ListParams{From: &future, ResourceType: "test_time"})
 	if err != nil {
 		t.Fatalf("list failed: %v", err)
 	}

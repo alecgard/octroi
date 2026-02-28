@@ -19,15 +19,15 @@ func NewBudgetStore(pool *pgxpool.Pool) *BudgetStore {
 }
 
 // Set upserts a budget for the given agent/tool combination.
-func (s *BudgetStore) Set(ctx context.Context, in CreateBudgetInput) (*Budget, error) {
+func (s *BudgetStore) Set(ctx context.Context, tenantID string, in CreateBudgetInput) (*Budget, error) {
 	b := &Budget{}
 	err := s.pool.QueryRow(ctx,
-		`INSERT INTO agent_tool_budgets (agent_id, tool_id, daily_limit, monthly_limit)
-		 VALUES ($1, $2, $3, $4)
-		 ON CONFLICT (agent_id, tool_id)
+		`INSERT INTO agent_tool_budgets (agent_id, tool_id, daily_limit, monthly_limit, tenant_id)
+		 VALUES ($1, $2, $3, $4, $5)
+		 ON CONFLICT (agent_id, tool_id, tenant_id)
 		 DO UPDATE SET daily_limit = EXCLUDED.daily_limit, monthly_limit = EXCLUDED.monthly_limit
 		 RETURNING id, agent_id, tool_id, daily_limit, monthly_limit`,
-		in.AgentID, in.ToolID, in.DailyLimit, in.MonthlyLimit,
+		in.AgentID, in.ToolID, in.DailyLimit, in.MonthlyLimit, tenantID,
 	).Scan(&b.ID, &b.AgentID, &b.ToolID, &b.DailyLimit, &b.MonthlyLimit)
 	if err != nil {
 		return nil, fmt.Errorf("upserting budget: %w", err)
@@ -36,13 +36,13 @@ func (s *BudgetStore) Set(ctx context.Context, in CreateBudgetInput) (*Budget, e
 }
 
 // Get retrieves a budget for the given agent and tool.
-func (s *BudgetStore) Get(ctx context.Context, agentID, toolID string) (*Budget, error) {
+func (s *BudgetStore) Get(ctx context.Context, tenantID string, agentID, toolID string) (*Budget, error) {
 	b := &Budget{}
 	err := s.pool.QueryRow(ctx,
 		`SELECT id, agent_id, tool_id, daily_limit, monthly_limit
 		 FROM agent_tool_budgets
-		 WHERE agent_id = $1 AND tool_id = $2`,
-		agentID, toolID,
+		 WHERE agent_id = $1 AND tool_id = $2 AND tenant_id = $3`,
+		agentID, toolID, tenantID,
 	).Scan(&b.ID, &b.AgentID, &b.ToolID, &b.DailyLimit, &b.MonthlyLimit)
 	if err != nil {
 		return nil, fmt.Errorf("getting budget: %w", err)
@@ -51,13 +51,13 @@ func (s *BudgetStore) Get(ctx context.Context, agentID, toolID string) (*Budget,
 }
 
 // ListByAgent returns all budgets for the given agent.
-func (s *BudgetStore) ListByAgent(ctx context.Context, agentID string) ([]*Budget, error) {
+func (s *BudgetStore) ListByAgent(ctx context.Context, tenantID string, agentID string) ([]*Budget, error) {
 	rows, err := s.pool.Query(ctx,
 		`SELECT id, agent_id, tool_id, daily_limit, monthly_limit
 		 FROM agent_tool_budgets
-		 WHERE agent_id = $1
+		 WHERE agent_id = $1 AND tenant_id = $2
 		 ORDER BY tool_id`,
-		agentID,
+		agentID, tenantID,
 	)
 	if err != nil {
 		return nil, fmt.Errorf("listing budgets: %w", err)
@@ -81,8 +81,8 @@ func (s *BudgetStore) ListByAgent(ctx context.Context, agentID string) ([]*Budge
 // CheckBudget verifies whether the agent is within its daily and monthly budget
 // for the given tool. A limit of 0 means unlimited. It returns whether the
 // request is allowed, plus the remaining daily and monthly amounts.
-func (s *BudgetStore) CheckBudget(ctx context.Context, agentID, toolID string) (allowed bool, remainingDaily float64, remainingMonthly float64, err error) {
-	budget, err := s.Get(ctx, agentID, toolID)
+func (s *BudgetStore) CheckBudget(ctx context.Context, tenantID string, agentID, toolID string) (allowed bool, remainingDaily float64, remainingMonthly float64, err error) {
+	budget, err := s.Get(ctx, tenantID, agentID, toolID)
 	if err != nil {
 		return false, 0, 0, fmt.Errorf("checking budget: %w", err)
 	}
@@ -96,8 +96,8 @@ func (s *BudgetStore) CheckBudget(ctx context.Context, agentID, toolID string) (
 	err = s.pool.QueryRow(ctx,
 		`SELECT COALESCE(SUM(cost), 0)
 		 FROM transactions
-		 WHERE agent_id = $1 AND tool_id = $2 AND timestamp >= $3`,
-		agentID, toolID, startOfDay,
+		 WHERE agent_id = $1 AND tool_id = $2 AND timestamp >= $3 AND tenant_id = $4`,
+		agentID, toolID, startOfDay, tenantID,
 	).Scan(&dailySpend)
 	if err != nil {
 		return false, 0, 0, fmt.Errorf("summing daily spend: %w", err)
@@ -106,8 +106,8 @@ func (s *BudgetStore) CheckBudget(ctx context.Context, agentID, toolID string) (
 	err = s.pool.QueryRow(ctx,
 		`SELECT COALESCE(SUM(cost), 0)
 		 FROM transactions
-		 WHERE agent_id = $1 AND tool_id = $2 AND timestamp >= $3`,
-		agentID, toolID, startOfMonth,
+		 WHERE agent_id = $1 AND tool_id = $2 AND timestamp >= $3 AND tenant_id = $4`,
+		agentID, toolID, startOfMonth, tenantID,
 	).Scan(&monthlySpend)
 	if err != nil {
 		return false, 0, 0, fmt.Errorf("summing monthly spend: %w", err)
@@ -140,13 +140,13 @@ func (s *BudgetStore) CheckBudget(ctx context.Context, agentID, toolID string) (
 
 // CheckToolGlobalBudget checks whether the total spend for a tool across all
 // agents is within the tool's configured budget_limit and budget_window.
-func (s *BudgetStore) CheckToolGlobalBudget(ctx context.Context, toolID string) (allowed bool, remaining float64, err error) {
+func (s *BudgetStore) CheckToolGlobalBudget(ctx context.Context, tenantID string, toolID string) (allowed bool, remaining float64, err error) {
 	var budgetLimit float64
 	var budgetWindow string
 
 	err = s.pool.QueryRow(ctx,
-		`SELECT budget_limit, budget_window FROM tools WHERE id = $1`,
-		toolID,
+		`SELECT budget_limit, budget_window FROM tools WHERE id = $1 AND tenant_id = $2`,
+		toolID, tenantID,
 	).Scan(&budgetLimit, &budgetWindow)
 	if err != nil {
 		return false, 0, fmt.Errorf("getting tool budget config: %w", err)
@@ -173,8 +173,8 @@ func (s *BudgetStore) CheckToolGlobalBudget(ctx context.Context, toolID string) 
 	err = s.pool.QueryRow(ctx,
 		`SELECT COALESCE(SUM(cost), 0)
 		 FROM transactions
-		 WHERE tool_id = $1 AND timestamp >= $2`,
-		toolID, windowStart,
+		 WHERE tool_id = $1 AND timestamp >= $2 AND tenant_id = $3`,
+		toolID, windowStart, tenantID,
 	).Scan(&totalSpend)
 	if err != nil {
 		return false, 0, fmt.Errorf("summing tool global spend: %w", err)

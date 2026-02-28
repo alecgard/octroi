@@ -14,10 +14,10 @@ import (
 // userStorer is the subset of *user.Store used by usersHandler.
 type userStorer interface {
 	Create(ctx context.Context, in user.CreateUserInput) (*user.User, error)
-	List(ctx context.Context) ([]*user.User, error)
-	GetByID(ctx context.Context, id string) (*user.User, error)
-	Update(ctx context.Context, id string, in user.UpdateUserInput) (*user.User, error)
-	Archive(ctx context.Context, id string) error
+	List(ctx context.Context, tenantID string) ([]*user.User, error)
+	GetByID(ctx context.Context, tenantID, id string) (*user.User, error)
+	Update(ctx context.Context, tenantID, id string, in user.UpdateUserInput) (*user.User, error)
+	Archive(ctx context.Context, tenantID, id string) error
 }
 
 // usersHandler groups user management HTTP handlers (admin only).
@@ -33,7 +33,7 @@ func newUsersHandler(store *user.Store) *usersHandler {
 // would not leave any team without an admin. It compares the user's current
 // teams to newTeams and checks affected teams. Returns the team name that
 // would be left without an admin, or "" if safe.
-func checkLastTeamAdmin(ctx context.Context, store userStorer, userID string, current, proposed []user.TeamMembership) (string, error) {
+func checkLastTeamAdmin(ctx context.Context, store userStorer, tenantID, userID string, current, proposed []user.TeamMembership) (string, error) {
 	// Find teams where this user is currently admin but either removed or demoted.
 	type change struct{ team string }
 	var affected []change
@@ -57,7 +57,7 @@ func checkLastTeamAdmin(ctx context.Context, store userStorer, userID string, cu
 		return "", nil
 	}
 
-	allUsers, err := store.List(ctx)
+	allUsers, err := store.List(ctx, tenantID)
 	if err != nil {
 		return "", err
 	}
@@ -97,10 +97,16 @@ func (h *usersHandler) CreateUser(w http.ResponseWriter, r *http.Request) {
 		writeError(w, http.StatusUnprocessableEntity, "validation_error", "password is required")
 		return
 	}
-	if req.Role != "" && req.Role != "org_admin" && req.Role != "member" {
-		writeError(w, http.StatusUnprocessableEntity, "validation_error", "role must be org_admin or member")
+	if req.Role != "" && req.Role != "admin" && req.Role != "member" {
+		writeError(w, http.StatusUnprocessableEntity, "validation_error", "role must be admin or member")
 		return
 	}
+
+	tenant := mustTenant(w, r)
+	if tenant == nil {
+		return
+	}
+	req.TenantID = tenant.ID
 
 	u, err := h.store.Create(r.Context(), req)
 	if err != nil {
@@ -115,7 +121,11 @@ func (h *usersHandler) CreateUser(w http.ResponseWriter, r *http.Request) {
 
 // ListUsers handles GET /api/v1/admin/users.
 func (h *usersHandler) ListUsers(w http.ResponseWriter, r *http.Request) {
-	users, err := h.store.List(r.Context())
+	tenant := mustTenant(w, r)
+	if tenant == nil {
+		return
+	}
+	users, err := h.store.List(r.Context(), tenant.ID)
 	if err != nil {
 		writeError(w, http.StatusInternalServerError, "internal_error", "failed to list users")
 		return
@@ -138,20 +148,25 @@ func (h *usersHandler) UpdateUser(w http.ResponseWriter, r *http.Request) {
 		return
 	}
 
+	tenant := mustTenant(w, r)
+	if tenant == nil {
+		return
+	}
+
 	var input user.UpdateUserInput
 	if err := readJSON(r, &input); err != nil {
 		writeError(w, http.StatusBadRequest, "invalid_body", "failed to parse request body")
 		return
 	}
 
-	if input.Role != nil && *input.Role != "org_admin" && *input.Role != "member" {
-		writeError(w, http.StatusUnprocessableEntity, "validation_error", "role must be org_admin or member")
+	if input.Role != nil && *input.Role != "admin" && *input.Role != "member" {
+		writeError(w, http.StatusUnprocessableEntity, "validation_error", "role must be admin or member")
 		return
 	}
 
 	// If teams are being changed, enforce last-admin constraint.
 	if input.Teams != nil {
-		existing, err := h.store.GetByID(r.Context(), id)
+		existing, err := h.store.GetByID(r.Context(), tenant.ID, id)
 		if err != nil {
 			if errors.Is(err, pgx.ErrNoRows) {
 				writeError(w, http.StatusNotFound, "not_found", "user not found")
@@ -161,7 +176,7 @@ func (h *usersHandler) UpdateUser(w http.ResponseWriter, r *http.Request) {
 			return
 		}
 
-		violating, err := checkLastTeamAdmin(r.Context(), h.store, id, existing.Teams, *input.Teams)
+		violating, err := checkLastTeamAdmin(r.Context(), h.store, tenant.ID, id, existing.Teams, *input.Teams)
 		if err != nil {
 			writeError(w, http.StatusInternalServerError, "internal_error", "failed to check team constraints")
 			return
@@ -172,7 +187,7 @@ func (h *usersHandler) UpdateUser(w http.ResponseWriter, r *http.Request) {
 		}
 	}
 
-	u, err := h.store.Update(r.Context(), id, input)
+	u, err := h.store.Update(r.Context(), tenant.ID, id, input)
 	if err != nil {
 		if errors.Is(err, pgx.ErrNoRows) {
 			writeError(w, http.StatusNotFound, "not_found", "user not found")
@@ -208,7 +223,7 @@ func (h *usersHandler) UpdateSelf(w http.ResponseWriter, r *http.Request) {
 		input.Name = req.Name
 	}
 
-	u, err := h.store.Update(r.Context(), caller.ID, input)
+	u, err := h.store.Update(r.Context(), caller.TenantID, caller.ID, input)
 	if err != nil {
 		writeError(w, http.StatusInternalServerError, "internal_error", "failed to update user")
 		return
@@ -245,7 +260,7 @@ func (h *usersHandler) ChangePassword(w http.ResponseWriter, r *http.Request) {
 	}
 
 	// Fetch user to verify current password.
-	u, err := h.store.GetByID(r.Context(), caller.ID)
+	u, err := h.store.GetByID(r.Context(), caller.TenantID, caller.ID)
 	if err != nil {
 		writeError(w, http.StatusInternalServerError, "internal_error", "failed to get user")
 		return
@@ -257,7 +272,7 @@ func (h *usersHandler) ChangePassword(w http.ResponseWriter, r *http.Request) {
 	}
 
 	input := user.UpdateUserInput{Password: &req.NewPassword}
-	if _, err := h.store.Update(r.Context(), caller.ID, input); err != nil {
+	if _, err := h.store.Update(r.Context(), caller.TenantID, caller.ID, input); err != nil {
 		writeError(w, http.StatusInternalServerError, "internal_error", "failed to update password")
 		return
 	}
@@ -275,8 +290,13 @@ func (h *usersHandler) DeleteUser(w http.ResponseWriter, r *http.Request) {
 		return
 	}
 
+	tenant := mustTenant(w, r)
+	if tenant == nil {
+		return
+	}
+
 	// Check if deleting this user would leave a team without an admin.
-	existing, err := h.store.GetByID(r.Context(), id)
+	existing, err := h.store.GetByID(r.Context(), tenant.ID, id)
 	if err != nil {
 		if errors.Is(err, pgx.ErrNoRows) {
 			writeError(w, http.StatusNotFound, "not_found", "user not found")
@@ -287,7 +307,7 @@ func (h *usersHandler) DeleteUser(w http.ResponseWriter, r *http.Request) {
 	}
 
 	// Deleting = removing all team memberships.
-	violating, err := checkLastTeamAdmin(r.Context(), h.store, id, existing.Teams, nil)
+	violating, err := checkLastTeamAdmin(r.Context(), h.store, tenant.ID, id, existing.Teams, nil)
 	if err != nil {
 		writeError(w, http.StatusInternalServerError, "internal_error", "failed to check team constraints")
 		return
@@ -297,7 +317,7 @@ func (h *usersHandler) DeleteUser(w http.ResponseWriter, r *http.Request) {
 		return
 	}
 
-	err = h.store.Archive(r.Context(), id)
+	err = h.store.Archive(r.Context(), tenant.ID, id)
 	if err != nil {
 		writeError(w, http.StatusInternalServerError, "internal_error", "failed to delete user")
 		return

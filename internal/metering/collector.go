@@ -10,7 +10,7 @@ import (
 // BatchInserter is the interface used by Collector to persist transactions.
 // It exists to allow testing without a real database.
 type BatchInserter interface {
-	BatchInsert(ctx context.Context, txns []Transaction) error
+	BatchInsert(ctx context.Context, tenantID string, txns []Transaction) error
 }
 
 // Collector buffers transactions in memory and periodically flushes them to the
@@ -107,13 +107,22 @@ func (c *Collector) flush() {
 	ctx, cancel := context.WithTimeout(context.Background(), 10*time.Second)
 	defer cancel()
 
+	// Group transactions by tenant for per-tenant inserts.
+	byTenant := make(map[string][]Transaction)
+	for _, tx := range batch {
+		byTenant[tx.TenantID] = append(byTenant[tx.TenantID], tx)
+	}
+
 	start := time.Now()
-	err := c.store.BatchInsert(ctx, batch)
+	var err error
+	for tenantID, txns := range byTenant {
+		if e := c.store.BatchInsert(ctx, tenantID, txns); e != nil {
+			slog.Error("failed to flush metering transactions", "tenant_id", tenantID, "count", len(txns), "error", e)
+			err = e
+		}
+	}
 	duration := time.Since(start)
 
-	if err != nil {
-		slog.Error("failed to flush metering transactions", "count", len(batch), "error", err)
-	}
 	if c.onFlush != nil {
 		c.onFlush(duration, err)
 	}

@@ -11,12 +11,12 @@ import (
 type mockStore struct {
 	mu       sync.Mutex
 	batches  [][]Transaction
-	insertFn func(ctx context.Context, txns []Transaction) error
+	insertFn func(ctx context.Context, tenantID string, txns []Transaction) error
 }
 
-func (m *mockStore) BatchInsert(ctx context.Context, txns []Transaction) error {
+func (m *mockStore) BatchInsert(ctx context.Context, tenantID string, txns []Transaction) error {
 	if m.insertFn != nil {
-		return m.insertFn(ctx, txns)
+		return m.insertFn(ctx, tenantID, txns)
 	}
 	m.mu.Lock()
 	defer m.mu.Unlock()

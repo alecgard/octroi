@@ -22,6 +22,7 @@ type Entry struct {
 	Details      map[string]any `json:"details"`
 	IP           string         `json:"ip"`
 	RequestID    string         `json:"request_id"`
+	TenantID     string         `json:"tenant_id"`
 }
 
 // ListParams controls listing and pagination of audit log entries.
@@ -51,23 +52,23 @@ func (s *Store) Insert(ctx context.Context, e Entry) error {
 	}
 
 	_, err = s.pool.Exec(ctx,
-		`INSERT INTO audit_log (user_id, action, resource_type, resource_id, details, ip, request_id)
-		 VALUES ($1, $2, $3, $4, $5, $6, $7)`,
-		e.UserID, e.Action, e.ResourceType, e.ResourceID, detailsJSON, e.IP, e.RequestID,
+		`INSERT INTO audit_log (user_id, action, resource_type, resource_id, details, ip, request_id, tenant_id)
+		 VALUES ($1, $2, $3, $4, $5, $6, $7, $8)`,
+		e.UserID, e.Action, e.ResourceType, e.ResourceID, detailsJSON, e.IP, e.RequestID, e.TenantID,
 	)
 	return err
 }
 
 // List returns audit log entries with cursor pagination, newest first.
-func (s *Store) List(ctx context.Context, params ListParams) ([]Entry, string, error) {
+func (s *Store) List(ctx context.Context, tenantID string, params ListParams) ([]Entry, string, error) {
 	limit := params.Limit
 	if limit <= 0 {
 		limit = 50
 	}
 
-	args := []interface{}{}
-	argIdx := 1
-	whereClauses := []string{}
+	args := []interface{}{tenantID}
+	argIdx := 2
+	whereClauses := []string{fmt.Sprintf("tenant_id = $1")}
 
 	if params.Cursor != "" {
 		cursorTime, cursorID, err := decodeCursor(params.Cursor)
@@ -102,7 +103,7 @@ func (s *Store) List(ctx context.Context, params ListParams) ([]Entry, string, e
 	}
 
 	query := fmt.Sprintf(
-		`SELECT id, timestamp, user_id, action, resource_type, resource_id, details, ip, request_id
+		`SELECT id, timestamp, user_id, action, resource_type, resource_id, details, ip, request_id, tenant_id
 		 FROM audit_log %s
 		 ORDER BY timestamp DESC, id DESC
 		 LIMIT $%d`, where, argIdx)
@@ -118,7 +119,7 @@ func (s *Store) List(ctx context.Context, params ListParams) ([]Entry, string, e
 	for rows.Next() {
 		var e Entry
 		var detailsJSON []byte
-		err := rows.Scan(&e.ID, &e.Timestamp, &e.UserID, &e.Action, &e.ResourceType, &e.ResourceID, &detailsJSON, &e.IP, &e.RequestID)
+		err := rows.Scan(&e.ID, &e.Timestamp, &e.UserID, &e.Action, &e.ResourceType, &e.ResourceID, &detailsJSON, &e.IP, &e.RequestID, &e.TenantID)
 		if err != nil {
 			return nil, "", fmt.Errorf("scanning audit log row: %w", err)
 		}

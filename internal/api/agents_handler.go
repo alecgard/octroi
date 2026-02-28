@@ -15,18 +15,18 @@ import (
 // agentStore defines the agent store methods used by the agents handler.
 type agentStore interface {
 	Create(ctx context.Context, in agent.CreateAgentInput) (*agent.Agent, error)
-	GetByID(ctx context.Context, id string) (*agent.Agent, error)
-	Update(ctx context.Context, id string, in agent.UpdateAgentInput) (*agent.Agent, error)
-	Archive(ctx context.Context, id string) error
-	List(ctx context.Context, params agent.AgentListParams) ([]*agent.Agent, string, error)
-	RegenerateKey(ctx context.Context, id, newHash, newPrefix string) (*agent.Agent, error)
+	GetByID(ctx context.Context, tenantID, id string) (*agent.Agent, error)
+	Update(ctx context.Context, tenantID, id string, in agent.UpdateAgentInput) (*agent.Agent, error)
+	Archive(ctx context.Context, tenantID, id string) error
+	List(ctx context.Context, tenantID string, params agent.AgentListParams) ([]*agent.Agent, string, error)
+	RegenerateKey(ctx context.Context, tenantID, id, newHash, newPrefix string) (*agent.Agent, error)
 }
 
 // agentBudgetStore defines the budget store methods used by the agents handler.
 type agentBudgetStore interface {
-	Set(ctx context.Context, in agent.CreateBudgetInput) (*agent.Budget, error)
-	Get(ctx context.Context, agentID, toolID string) (*agent.Budget, error)
-	ListByAgent(ctx context.Context, agentID string) ([]*agent.Budget, error)
+	Set(ctx context.Context, tenantID string, in agent.CreateBudgetInput) (*agent.Budget, error)
+	Get(ctx context.Context, tenantID, agentID, toolID string) (*agent.Budget, error)
+	ListByAgent(ctx context.Context, tenantID, agentID string) ([]*agent.Budget, error)
 }
 
 // agentsHandler groups agent-related HTTP handlers.
@@ -69,12 +69,18 @@ func (h *agentsHandler) CreateAgent(w http.ResponseWriter, r *http.Request) {
 		return
 	}
 
+	tenant := mustTenant(w, r)
+	if tenant == nil {
+		return
+	}
+
 	input := agent.CreateAgentInput{
 		Name:         req.Name,
 		APIKeyHash:   apiKey.Hash,
 		APIKeyPrefix: apiKey.Prefix,
 		Team:         req.Team,
 		RateLimit:    req.RateLimit,
+		TenantID:     tenant.ID,
 	}
 
 	ag, err := h.store.Create(r.Context(), input)
@@ -105,13 +111,18 @@ func (h *agentsHandler) UpdateAgent(w http.ResponseWriter, r *http.Request) {
 		return
 	}
 
+	tenant := mustTenant(w, r)
+	if tenant == nil {
+		return
+	}
+
 	var input agent.UpdateAgentInput
 	if err := readJSON(r, &input); err != nil {
 		writeError(w, http.StatusBadRequest, "invalid_body", "failed to parse request body")
 		return
 	}
 
-	ag, err := h.store.Update(r.Context(), id, input)
+	ag, err := h.store.Update(r.Context(), tenant.ID, id, input)
 	if err != nil {
 		if errors.Is(err, pgx.ErrNoRows) {
 			writeError(w, http.StatusNotFound, "not_found", "agent not found")
@@ -134,12 +145,17 @@ func (h *agentsHandler) DeleteAgent(w http.ResponseWriter, r *http.Request) {
 		return
 	}
 
+	tenant := mustTenant(w, r)
+	if tenant == nil {
+		return
+	}
+
 	var agentName string
-	if ag, err := h.store.GetByID(r.Context(), id); err == nil {
+	if ag, err := h.store.GetByID(r.Context(), tenant.ID, id); err == nil {
 		agentName = ag.Name
 	}
 
-	err := h.store.Archive(r.Context(), id)
+	err := h.store.Archive(r.Context(), tenant.ID, id)
 	if err != nil {
 		writeError(w, http.StatusInternalServerError, "internal_error", "failed to delete agent")
 		return
@@ -152,6 +168,11 @@ func (h *agentsHandler) DeleteAgent(w http.ResponseWriter, r *http.Request) {
 
 // ListAgents handles GET /api/v1/agents (admin).
 func (h *agentsHandler) ListAgents(w http.ResponseWriter, r *http.Request) {
+	tenant := mustTenant(w, r)
+	if tenant == nil {
+		return
+	}
+
 	params := agent.AgentListParams{
 		Cursor: r.URL.Query().Get("cursor"),
 	}
@@ -164,7 +185,7 @@ func (h *agentsHandler) ListAgents(w http.ResponseWriter, r *http.Request) {
 		params.Limit = l
 	}
 
-	agents, nextCursor, err := h.store.List(r.Context(), params)
+	agents, nextCursor, err := h.store.List(r.Context(), tenant.ID, params)
 	if err != nil {
 		writeError(w, http.StatusInternalServerError, "internal_error", "failed to list agents")
 		return
@@ -189,7 +210,7 @@ func (h *agentsHandler) GetSelfAgent(w http.ResponseWriter, r *http.Request) {
 	}
 
 	// Fetch the full agent record from the store.
-	ag, err := h.store.GetByID(r.Context(), authAgent.ID)
+	ag, err := h.store.GetByID(r.Context(), authAgent.TenantID, authAgent.ID)
 	if err != nil {
 		writeError(w, http.StatusInternalServerError, "internal_error", "failed to get agent")
 		return
@@ -206,13 +227,18 @@ func (h *agentsHandler) RegenerateKey(w http.ResponseWriter, r *http.Request) {
 		return
 	}
 
+	tenant := mustTenant(w, r)
+	if tenant == nil {
+		return
+	}
+
 	apiKey, plaintext, err := auth.GenerateAPIKey()
 	if err != nil {
 		writeError(w, http.StatusInternalServerError, "internal_error", "failed to generate api key")
 		return
 	}
 
-	ag, err := h.store.RegenerateKey(r.Context(), id, apiKey.Hash, apiKey.Prefix)
+	ag, err := h.store.RegenerateKey(r.Context(), tenant.ID, id, apiKey.Hash, apiKey.Prefix)
 	if err != nil {
 		if errors.Is(err, pgx.ErrNoRows) {
 			writeError(w, http.StatusNotFound, "not_found", "agent not found")
@@ -245,6 +271,11 @@ func (h *agentsHandler) SetBudget(w http.ResponseWriter, r *http.Request) {
 		return
 	}
 
+	tenant := mustTenant(w, r)
+	if tenant == nil {
+		return
+	}
+
 	var input struct {
 		DailyLimit   float64 `json:"daily_limit"`
 		MonthlyLimit float64 `json:"monthly_limit"`
@@ -254,7 +285,7 @@ func (h *agentsHandler) SetBudget(w http.ResponseWriter, r *http.Request) {
 		return
 	}
 
-	budget, err := h.budgetStore.Set(r.Context(), agent.CreateBudgetInput{
+	budget, err := h.budgetStore.Set(r.Context(), tenant.ID, agent.CreateBudgetInput{
 		AgentID:      agentID,
 		ToolID:       toolID,
 		DailyLimit:   input.DailyLimit,
@@ -279,7 +310,12 @@ func (h *agentsHandler) GetBudget(w http.ResponseWriter, r *http.Request) {
 		return
 	}
 
-	budget, err := h.budgetStore.Get(r.Context(), agentID, toolID)
+	tenant := mustTenant(w, r)
+	if tenant == nil {
+		return
+	}
+
+	budget, err := h.budgetStore.Get(r.Context(), tenant.ID, agentID, toolID)
 	if err != nil {
 		if errors.Is(err, pgx.ErrNoRows) {
 			writeError(w, http.StatusNotFound, "not_found", "budget not found")
@@ -300,7 +336,12 @@ func (h *agentsHandler) ListBudgets(w http.ResponseWriter, r *http.Request) {
 		return
 	}
 
-	budgets, err := h.budgetStore.ListByAgent(r.Context(), agentID)
+	tenant := mustTenant(w, r)
+	if tenant == nil {
+		return
+	}
+
+	budgets, err := h.budgetStore.ListByAgent(r.Context(), tenant.ID, agentID)
 	if err != nil {
 		writeError(w, http.StatusInternalServerError, "internal_error", "failed to list budgets")
 		return

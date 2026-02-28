@@ -53,7 +53,7 @@ Dev and prod use separate ports and Docker volumes so they can run simultaneousl
 
 | | Dev | Prod |
 |---|---|---|
-| Server | localhost:8080 | localhost:9080 |
+| Server | local.localhost:8080 | local.localhost:9080 |
 | Postgres | localhost:5433 | localhost:5434 |
 | Config | `configs/octroi.dev.yaml` | `configs/octroi.prod.yaml` |
 
@@ -74,7 +74,7 @@ Octroi has six core subsystems:
 - **Registry** — Tool providers register API endpoints; agents discover them via search or the well-known manifest. Tools can be registered in **Service** mode (static endpoint URL) or **API** mode (template endpoint with variable substitution, e.g. `https://{instance}.atlassian.net/rest/api/3`).
 - **Proxy** — Receives agent requests, strips the gateway prefix, resolves template variables for API-mode tools, injects tool credentials, and forwards to the upstream API.
 - **Metering** — Every proxied request is logged asynchronously (agent, tool, timestamp, latency, status, cost, sizes) using batched writes. Supports both flat per-request pricing and upstream-reported costs via the `X-Octroi-Cost` header.
-- **Auth** — Agents authenticate with `octroi_`-prefixed API keys (SHA-256 hashed at rest). Users authenticate via email/password sessions with role-based access (org_admin / member).
+- **Auth** — Agents authenticate with `octroi_`-prefixed API keys (SHA-256 hashed at rest). Users authenticate via email/password sessions with role-based access (admin / member).
 - **Rate Limiting** — In-memory token bucket per agent and per tool, with optional per-tool overrides scoped to teams or individual agents. The stricter limit wins. Returns standard `X-RateLimit-*` headers.
 - **Budget Enforcement** — Per-agent per-tool budgets (daily/monthly) and global per-tool budget caps. Requests are rejected with HTTP 403 when a budget is exceeded.
 
@@ -296,7 +296,7 @@ See `configs/octroi.dev.yaml` for a complete example.
 | PUT | `/api/v1/member/users/me` | Update own profile |
 | PUT | `/api/v1/member/users/me/password` | Change own password |
 
-### Admin (requires org_admin session)
+### Admin (requires admin session)
 
 | Method | Path | Description |
 |--------|------|-------------|
@@ -343,7 +343,7 @@ See `configs/octroi.dev.yaml` for a complete example.
 
 Octroi includes a built-in dashboard at `/ui` — a single embedded HTML page with no build step or external dependencies.
 
-Navigate to `http://localhost:8080/ui` and log in with your email and password.
+Navigate to `http://local.localhost:8080/ui` and log in with your email and password.
 
 The dashboard has seven tabs:
 

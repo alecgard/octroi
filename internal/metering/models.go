@@ -21,6 +21,7 @@ type Transaction struct {
 	AgentName    string    `json:"agent_name"`
 	ToolName     string    `json:"tool_name"`
 	Channel      string    `json:"channel"`
+	TenantID     string    `json:"tenant_id"`
 }
 
 // UsageSummary holds aggregate metrics for a set of transactions.

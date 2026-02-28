@@ -50,7 +50,7 @@ func (f *fakeAuthUserStore) addUser(email, password, name, role string) *user.Us
 	return u
 }
 
-func (f *fakeAuthUserStore) GetByEmail(_ context.Context, email string) (*user.User, error) {
+func (f *fakeAuthUserStore) GetByEmail(_ context.Context, _, email string) (*user.User, error) {
 	u, ok := f.users[email]
 	if !ok {
 		return nil, fmt.Errorf("not found")
@@ -58,7 +58,7 @@ func (f *fakeAuthUserStore) GetByEmail(_ context.Context, email string) (*user.U
 	return u, nil
 }
 
-func (f *fakeAuthUserStore) CreateSession(_ context.Context, userID string) (string, *user.Session, error) {
+func (f *fakeAuthUserStore) CreateSession(_ context.Context, _, userID string) (string, *user.Session, error) {
 	tok := f.nextTok
 	f.sessions[tok] = userID
 	sess := &user.Session{
@@ -69,7 +69,7 @@ func (f *fakeAuthUserStore) CreateSession(_ context.Context, userID string) (str
 	return tok, sess, nil
 }
 
-func (f *fakeAuthUserStore) DeleteSession(_ context.Context, token string) error {
+func (f *fakeAuthUserStore) DeleteSession(_ context.Context, _, token string) error {
 	delete(f.sessions, token)
 	return nil
 }
@@ -81,6 +81,12 @@ func (f *fakeAuthUserStore) DeleteSession(_ context.Context, token string) error
 func authTestRouter(store authUserStore) http.Handler {
 	h := newAuthHandler(store)
 	r := chi.NewRouter()
+	r.Use(func(next http.Handler) http.Handler {
+		return http.HandlerFunc(func(w http.ResponseWriter, req *http.Request) {
+			ctx := auth.ContextWithTenant(req.Context(), &auth.Tenant{ID: "t1"})
+			next.ServeHTTP(w, req.WithContext(ctx))
+		})
+	})
 	r.Post("/api/v1/auth/login", h.Login)
 	r.Get("/api/v1/auth/me", h.Me)
 	r.Post("/api/v1/auth/logout", h.Logout)
@@ -93,7 +99,7 @@ func authTestRouter(store authUserStore) http.Handler {
 
 func TestLogin_Success(t *testing.T) {
 	store := newFakeAuthUserStore()
-	store.addUser("alice@example.com", "s3cret", "Alice", "org_admin")
+	store.addUser("alice@example.com", "s3cret", "Alice", "admin")
 	router := authTestRouter(store)
 
 	body := `{"email":"alice@example.com","password":"s3cret"}`
@@ -124,8 +130,8 @@ func TestLogin_Success(t *testing.T) {
 	if u["name"] != "Alice" {
 		t.Errorf("expected name=Alice, got %v", u["name"])
 	}
-	if u["role"] != "org_admin" {
-		t.Errorf("expected role=org_admin, got %v", u["role"])
+	if u["role"] != "admin" {
+		t.Errorf("expected role=admin, got %v", u["role"])
 	}
 }
 
@@ -219,7 +225,7 @@ func TestMe_Success(t *testing.T) {
 		Email: "alice@example.com",
 		Name:  "Alice",
 		Teams: []auth.TeamMembership{{Team: "eng", Role: "admin"}},
-		Role:  "org_admin",
+		Role:  "admin",
 	}
 
 	req := httptest.NewRequest(http.MethodGet, "/api/v1/auth/me", nil)
@@ -244,8 +250,8 @@ func TestMe_Success(t *testing.T) {
 	if resp["name"] != "Alice" {
 		t.Errorf("expected name=Alice, got %v", resp["name"])
 	}
-	if resp["role"] != "org_admin" {
-		t.Errorf("expected role=org_admin, got %v", resp["role"])
+	if resp["role"] != "admin" {
+		t.Errorf("expected role=admin, got %v", resp["role"])
 	}
 }
 

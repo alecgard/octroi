@@ -96,13 +96,16 @@ jobs:
       - name: Create admin user
         run: ./octroi ensure-admin --config configs/octroi.e2e.yaml 2>/dev/null || true
 
+      - name: Create rival tenant (for cross-tenant tests)
+        run: OCTROI_TENANT_NAME=rival OCTROI_TENANT_SLUG=rival ./octroi ensure-admin --config configs/octroi.e2e.yaml 2>/dev/null || true
+
       - name: Start server
         run: |
           OCTROI_DEV=1 ./octroi serve --config configs/octroi.e2e.yaml &
           sleep 3
 
       - name: Seed data
-        run: timeout 30 scripts/seed.sh http://localhost:9091 || true
+        run: timeout 30 scripts/seed.sh http://local.localhost:9091 || true
 
       - name: Install Playwright
         working-directory: e2e
@@ -114,7 +117,7 @@ jobs:
         working-directory: e2e
         run: npx playwright test
         env:
-          BASE_URL: http://localhost:9091
+          BASE_URL: http://local.localhost:9091
 
       - uses: actions/upload-artifact@v4
         if: always()

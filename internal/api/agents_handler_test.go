@@ -46,7 +46,7 @@ func (f *fakeAgentStore) Create(_ context.Context, in agent.CreateAgentInput) (*
 	return a, nil
 }
 
-func (f *fakeAgentStore) GetByID(_ context.Context, id string) (*agent.Agent, error) {
+func (f *fakeAgentStore) GetByID(_ context.Context, _, id string) (*agent.Agent, error) {
 	a, ok := f.agents[id]
 	if !ok {
 		return nil, pgx.ErrNoRows
@@ -54,7 +54,7 @@ func (f *fakeAgentStore) GetByID(_ context.Context, id string) (*agent.Agent, er
 	return a, nil
 }
 
-func (f *fakeAgentStore) Update(_ context.Context, id string, in agent.UpdateAgentInput) (*agent.Agent, error) {
+func (f *fakeAgentStore) Update(_ context.Context, _, id string, in agent.UpdateAgentInput) (*agent.Agent, error) {
 	a, ok := f.agents[id]
 	if !ok {
 		return nil, pgx.ErrNoRows
@@ -74,7 +74,7 @@ func (f *fakeAgentStore) Update(_ context.Context, id string, in agent.UpdateAge
 	return a, nil
 }
 
-func (f *fakeAgentStore) Archive(_ context.Context, id string) error {
+func (f *fakeAgentStore) Archive(_ context.Context, _, id string) error {
 	if _, ok := f.agents[id]; !ok {
 		return fmt.Errorf("agent not found")
 	}
@@ -82,7 +82,7 @@ func (f *fakeAgentStore) Archive(_ context.Context, id string) error {
 	return nil
 }
 
-func (f *fakeAgentStore) List(_ context.Context, _ agent.AgentListParams) ([]*agent.Agent, string, error) {
+func (f *fakeAgentStore) List(_ context.Context, _ string, _ agent.AgentListParams) ([]*agent.Agent, string, error) {
 	var list []*agent.Agent
 	for _, a := range f.agents {
 		list = append(list, a)
@@ -90,7 +90,7 @@ func (f *fakeAgentStore) List(_ context.Context, _ agent.AgentListParams) ([]*ag
 	return list, "", nil
 }
 
-func (f *fakeAgentStore) RegenerateKey(_ context.Context, id, newHash, newPrefix string) (*agent.Agent, error) {
+func (f *fakeAgentStore) RegenerateKey(_ context.Context, _, id, newHash, newPrefix string) (*agent.Agent, error) {
 	a, ok := f.agents[id]
 	if !ok {
 		return nil, pgx.ErrNoRows
@@ -115,7 +115,7 @@ func newFakeBudgetStore() *fakeBudgetStore {
 	}
 }
 
-func (f *fakeBudgetStore) Set(_ context.Context, in agent.CreateBudgetInput) (*agent.Budget, error) {
+func (f *fakeBudgetStore) Set(_ context.Context, _ string, in agent.CreateBudgetInput) (*agent.Budget, error) {
 	key := in.AgentID + "|" + in.ToolID
 	if b, ok := f.budgets[key]; ok {
 		b.DailyLimit = in.DailyLimit
@@ -134,7 +134,7 @@ func (f *fakeBudgetStore) Set(_ context.Context, in agent.CreateBudgetInput) (*a
 	return b, nil
 }
 
-func (f *fakeBudgetStore) Get(_ context.Context, agentID, toolID string) (*agent.Budget, error) {
+func (f *fakeBudgetStore) Get(_ context.Context, _, agentID, toolID string) (*agent.Budget, error) {
 	key := agentID + "|" + toolID
 	b, ok := f.budgets[key]
 	if !ok {
@@ -143,7 +143,7 @@ func (f *fakeBudgetStore) Get(_ context.Context, agentID, toolID string) (*agent
 	return b, nil
 }
 
-func (f *fakeBudgetStore) ListByAgent(_ context.Context, agentID string) ([]*agent.Budget, error) {
+func (f *fakeBudgetStore) ListByAgent(_ context.Context, _, agentID string) ([]*agent.Budget, error) {
 	var list []*agent.Budget
 	for _, b := range f.budgets {
 		if b.AgentID == agentID {
@@ -164,10 +164,11 @@ func setupAdminAgentsRouter(store *fakeAgentStore, budgetStore *fakeBudgetStore)
 	r := chi.NewRouter()
 	r.Use(func(next http.Handler) http.Handler {
 		return http.HandlerFunc(func(w http.ResponseWriter, req *http.Request) {
-			ctx := auth.ContextWithUser(req.Context(), &auth.User{
+			ctx := auth.ContextWithTenant(req.Context(), &auth.Tenant{ID: "t1"})
+			ctx = auth.ContextWithUser(ctx, &auth.User{
 				ID:    "admin-1",
 				Email: "admin@test.com",
-				Role:  "org_admin",
+				Role:  "admin",
 			})
 			next.ServeHTTP(w, req.WithContext(ctx))
 		})
@@ -196,10 +197,12 @@ func setupAgentAuthRouter(store *fakeAgentStore) http.Handler {
 				return
 			}
 			// Default test agent context.
-			ctx := auth.ContextWithAgent(req.Context(), &auth.Agent{
-				ID:   "agent-1",
-				Name: "test-agent",
-				Team: "eng",
+			ctx := auth.ContextWithTenant(req.Context(), &auth.Tenant{ID: "t1"})
+			ctx = auth.ContextWithAgent(ctx, &auth.Agent{
+				ID:       "agent-1",
+				Name:     "test-agent",
+				Team:     "eng",
+				TenantID: "t1",
 			})
 			next.ServeHTTP(w, req.WithContext(ctx))
 		})

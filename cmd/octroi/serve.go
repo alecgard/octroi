@@ -23,6 +23,7 @@ import (
 	"github.com/alecgard/octroi/internal/proxy"
 	"github.com/alecgard/octroi/internal/ratelimit"
 	"github.com/alecgard/octroi/internal/registry"
+	"github.com/alecgard/octroi/internal/tenant"
 	"github.com/alecgard/octroi/internal/user"
 	"github.com/alecgard/octroi/internal/webhook"
 	"github.com/jackc/pgx/v5/pgxpool"
@@ -34,10 +35,10 @@ type bodyRecorderAdapter struct {
 	store *metering.BodyStore
 }
 
-func (a *bodyRecorderAdapter) RecordBody(ctx context.Context, transactionID string, reqBody, respBody []byte) {
+func (a *bodyRecorderAdapter) RecordBody(ctx context.Context, tenantID, transactionID string, reqBody, respBody []byte) {
 	insertCtx, cancel := context.WithTimeout(ctx, 5*time.Second)
 	defer cancel()
-	if err := a.store.Insert(insertCtx, transactionID, reqBody, respBody); err != nil {
+	if err := a.store.Insert(insertCtx, tenantID, transactionID, reqBody, respBody); err != nil {
 		slog.Warn("failed to record request body", "transaction_id", transactionID, "error", err)
 	}
 }
@@ -49,7 +50,7 @@ type toolRegistryAdapter struct {
 }
 
 func (a *toolRegistryAdapter) List(ctx context.Context) ([]*registry.Tool, error) {
-	return a.store.ListEnabled(ctx)
+	return a.store.ListAllEnabled(ctx)
 }
 
 // circuitBreakerAdapter adapts circuitbreaker.Registry to the proxy.CircuitBreakerChecker interface.
@@ -115,6 +116,8 @@ func runServe(cmd *cobra.Command, args []string) error {
 		return fmt.Errorf("initializing encryption: %w", err)
 	}
 	slog.Info("auth_config encryption enabled")
+
+	tenantStore := tenant.NewStore(pool)
 
 	toolStore := registry.NewStore(pool, cipher)
 	toolService := registry.NewService(toolStore)
@@ -209,7 +212,7 @@ func runServe(cmd *cobra.Command, args []string) error {
 	aggregator := mcp.NewAggregator(&toolRegistryAdapter{store: toolStore})
 
 	// Load MCP tools from the tools table and create clients.
-	enabledTools, err := toolStore.ListEnabled(ctx)
+	enabledTools, err := toolStore.ListAllEnabled(ctx)
 	if err != nil {
 		slog.Warn("failed to list enabled tools", "error", err)
 	} else {
@@ -244,6 +247,7 @@ func runServe(cmd *cobra.Command, args []string) error {
 
 	router := api.NewRouter(api.RouterDeps{
 		DBPool:             pool,
+		TenantStore:        tenantStore,
 		ToolService:        toolService,
 		ToolStore:          toolStore,
 		AgentStore:         agentStore,

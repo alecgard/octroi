@@ -17,11 +17,11 @@ import (
 // toolServicer abstracts the registry.Service methods used by toolsHandler,
 // enabling test fakes without a database.
 type toolServicer interface {
-	Create(ctx context.Context, input registry.CreateToolInput) (*registry.Tool, error)
-	GetByID(ctx context.Context, id string) (*registry.Tool, error)
-	List(ctx context.Context, params registry.ToolListParams) ([]*registry.Tool, string, error)
-	Update(ctx context.Context, id string, input registry.UpdateToolInput) (*registry.Tool, error)
-	Delete(ctx context.Context, id string) error
+	Create(ctx context.Context, tenantID string, input registry.CreateToolInput) (*registry.Tool, error)
+	GetByID(ctx context.Context, tenantID string, id string) (*registry.Tool, error)
+	List(ctx context.Context, tenantID string, params registry.ToolListParams) ([]*registry.Tool, string, error)
+	Update(ctx context.Context, tenantID string, id string, input registry.UpdateToolInput) (*registry.Tool, error)
+	Delete(ctx context.Context, tenantID string, id string) error
 }
 
 // toolsHandler groups tool-related HTTP handlers.
@@ -35,13 +35,18 @@ func newToolsHandler(svc toolServicer) *toolsHandler {
 
 // CreateTool handles POST /api/v1/tools (admin).
 func (h *toolsHandler) CreateTool(w http.ResponseWriter, r *http.Request) {
+	tenant := mustTenant(w, r)
+	if tenant == nil {
+		return
+	}
+
 	var input registry.CreateToolInput
 	if err := readJSON(r, &input); err != nil {
 		writeError(w, http.StatusBadRequest, "invalid_body", "failed to parse request body")
 		return
 	}
 
-	tool, err := h.service.Create(r.Context(), input)
+	tool, err := h.service.Create(r.Context(), tenant.ID, input)
 	if err != nil {
 		if isValidationError(err) {
 			writeError(w, http.StatusUnprocessableEntity, "validation_error", err.Error())
@@ -65,13 +70,18 @@ func (h *toolsHandler) UpdateTool(w http.ResponseWriter, r *http.Request) {
 		return
 	}
 
+	tenant := mustTenant(w, r)
+	if tenant == nil {
+		return
+	}
+
 	var input registry.UpdateToolInput
 	if err := readJSON(r, &input); err != nil {
 		writeError(w, http.StatusBadRequest, "invalid_body", "failed to parse request body")
 		return
 	}
 
-	tool, err := h.service.Update(r.Context(), id, input)
+	tool, err := h.service.Update(r.Context(), tenant.ID, id, input)
 	if err != nil {
 		if errors.Is(err, pgx.ErrNoRows) {
 			writeError(w, http.StatusNotFound, "not_found", "tool not found")
@@ -98,13 +108,18 @@ func (h *toolsHandler) DeleteTool(w http.ResponseWriter, r *http.Request) {
 		return
 	}
 
+	tenant := mustTenant(w, r)
+	if tenant == nil {
+		return
+	}
+
 	// Fetch tool name before deleting for audit trail.
 	var toolName string
-	if tool, err := h.service.GetByID(r.Context(), id); err == nil {
+	if tool, err := h.service.GetByID(r.Context(), tenant.ID, id); err == nil {
 		toolName = tool.Name
 	}
 
-	err := h.service.Delete(r.Context(), id)
+	err := h.service.Delete(r.Context(), tenant.ID, id)
 	if err != nil {
 		if errors.Is(err, pgx.ErrNoRows) {
 			writeError(w, http.StatusNotFound, "not_found", "tool not found")
@@ -135,9 +150,13 @@ func parseToolListParams(r *http.Request) registry.ToolListParams {
 
 // ListTools handles GET /api/v1/tools (public).
 func (h *toolsHandler) ListTools(w http.ResponseWriter, r *http.Request) {
+	tenant := mustTenant(w, r)
+	if tenant == nil {
+		return
+	}
 	params := parseToolListParams(r)
 
-	tools, nextCursor, err := h.service.List(r.Context(), params)
+	tools, nextCursor, err := h.service.List(r.Context(), tenant.ID, params)
 	if err != nil {
 		writeError(w, http.StatusInternalServerError, "internal_error", "failed to list tools")
 		return
@@ -161,7 +180,12 @@ func (h *toolsHandler) GetTool(w http.ResponseWriter, r *http.Request) {
 		return
 	}
 
-	tool, err := h.service.GetByID(r.Context(), id)
+	tenant := mustTenant(w, r)
+	if tenant == nil {
+		return
+	}
+
+	tool, err := h.service.GetByID(r.Context(), tenant.ID, id)
 	if err != nil {
 		if errors.Is(err, pgx.ErrNoRows) {
 			writeError(w, http.StatusNotFound, "not_found", "tool not found")
@@ -177,9 +201,13 @@ func (h *toolsHandler) GetTool(w http.ResponseWriter, r *http.Request) {
 
 // AdminListTools handles GET /api/v1/admin/tools (admin view with endpoint/auth_config).
 func (h *toolsHandler) AdminListTools(w http.ResponseWriter, r *http.Request) {
+	tenant := mustTenant(w, r)
+	if tenant == nil {
+		return
+	}
 	params := parseToolListParams(r)
 
-	tools, nextCursor, err := h.service.List(r.Context(), params)
+	tools, nextCursor, err := h.service.List(r.Context(), tenant.ID, params)
 	if err != nil {
 		writeError(w, http.StatusInternalServerError, "internal_error", "failed to list tools")
 		return
@@ -207,7 +235,12 @@ func (h *toolsHandler) RefreshMCPTools(agg *mcp.Aggregator) http.HandlerFunc {
 			return
 		}
 
-		tool, err := h.service.GetByID(r.Context(), id)
+		tenant := mustTenant(w, r)
+		if tenant == nil {
+			return
+		}
+
+		tool, err := h.service.GetByID(r.Context(), tenant.ID, id)
 		if err != nil {
 			if errors.Is(err, pgx.ErrNoRows) {
 				writeError(w, http.StatusNotFound, "not_found", "tool not found")
@@ -225,7 +258,7 @@ func (h *toolsHandler) RefreshMCPTools(agg *mcp.Aggregator) http.HandlerFunc {
 		// server startup), create a new client and register it.
 		if !agg.HasUpstream(id) {
 			// Re-read from DB to get the latest endpoint (may have been updated).
-			fresh, err := h.service.GetByID(r.Context(), id)
+			fresh, err := h.service.GetByID(r.Context(), tenant.ID, id)
 			if err != nil {
 				writeError(w, http.StatusInternalServerError, "internal_error", "failed to reload tool")
 				return
@@ -264,7 +297,12 @@ func (h *toolsHandler) ListMCPTools(agg *mcp.Aggregator) http.HandlerFunc {
 			return
 		}
 
-		tool, err := h.service.GetByID(r.Context(), id)
+		tenant := mustTenant(w, r)
+		if tenant == nil {
+			return
+		}
+
+		tool, err := h.service.GetByID(r.Context(), tenant.ID, id)
 		if err != nil {
 			if errors.Is(err, pgx.ErrNoRows) {
 				writeError(w, http.StatusNotFound, "not_found", "tool not found")

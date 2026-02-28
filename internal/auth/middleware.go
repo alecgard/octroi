@@ -69,6 +69,23 @@ func AgentAuthMiddleware(svc *Service, callbacks ...func()) func(http.Handler) h
 				return
 			}
 
+			// Verify tenant match — require tenant context for all agent auth.
+			t := TenantFromContext(r.Context())
+			if t == nil {
+				if onFailure != nil {
+					onFailure()
+				}
+				writeForbidden(w, "tenant context required")
+				return
+			}
+			if agent.TenantID != t.ID {
+				if onFailure != nil {
+					onFailure()
+				}
+				writeForbidden(w, "tenant mismatch")
+				return
+			}
+
 			if onSuccess != nil {
 				onSuccess()
 			}
@@ -78,7 +95,7 @@ func AgentAuthMiddleware(svc *Service, callbacks ...func()) func(http.Handler) h
 	}
 }
 
-// AdminSessionMiddleware validates the session token and requires org_admin role.
+// AdminSessionMiddleware validates the session token and requires admin role.
 func AdminSessionMiddleware(sessions SessionLookup, callbacks ...func()) func(http.Handler) http.Handler {
 	var onFailure, onSuccess func()
 	if len(callbacks) > 0 {
@@ -89,6 +106,10 @@ func AdminSessionMiddleware(sessions SessionLookup, callbacks ...func()) func(ht
 	}
 	return func(next http.Handler) http.Handler {
 		return http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
+			if sessions == nil {
+				writeUnauthorized(w, "session auth not configured")
+				return
+			}
 			token := ExtractBearerToken(r)
 			if token == "" {
 				if onFailure != nil {
@@ -98,7 +119,16 @@ func AdminSessionMiddleware(sessions SessionLookup, callbacks ...func()) func(ht
 				return
 			}
 
-			user, err := sessions.LookupSession(r.Context(), token)
+			// Require tenant context for all session auth.
+			t := TenantFromContext(r.Context())
+			if t == nil {
+				if onFailure != nil {
+					onFailure()
+				}
+				writeForbidden(w, "tenant context required")
+				return
+			}
+			user, err := sessions.LookupSession(r.Context(), t.ID, token)
 			if err != nil || user == nil {
 				if onFailure != nil {
 					onFailure()
@@ -106,7 +136,14 @@ func AdminSessionMiddleware(sessions SessionLookup, callbacks ...func()) func(ht
 				writeUnauthorized(w, "invalid or expired session")
 				return
 			}
-			if user.Role != "org_admin" {
+			if user.TenantID != t.ID {
+				if onFailure != nil {
+					onFailure()
+				}
+				writeForbidden(w, "tenant mismatch")
+				return
+			}
+			if user.Role != "admin" {
 				if onFailure != nil {
 					onFailure()
 				}
@@ -158,6 +195,10 @@ func MemberAuthMiddleware(sessions SessionLookup, callbacks ...func()) func(http
 	}
 	return func(next http.Handler) http.Handler {
 		return http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
+			if sessions == nil {
+				writeUnauthorized(w, "session auth not configured")
+				return
+			}
 			token := ExtractBearerToken(r)
 			if token == "" {
 				if onFailure != nil {
@@ -167,12 +208,28 @@ func MemberAuthMiddleware(sessions SessionLookup, callbacks ...func()) func(http
 				return
 			}
 
-			user, err := sessions.LookupSession(r.Context(), token)
+			// Require tenant context for all session auth.
+			t := TenantFromContext(r.Context())
+			if t == nil {
+				if onFailure != nil {
+					onFailure()
+				}
+				writeForbidden(w, "tenant context required")
+				return
+			}
+			user, err := sessions.LookupSession(r.Context(), t.ID, token)
 			if err != nil || user == nil {
 				if onFailure != nil {
 					onFailure()
 				}
 				writeUnauthorized(w, "invalid or expired session")
+				return
+			}
+			if user.TenantID != t.ID {
+				if onFailure != nil {
+					onFailure()
+				}
+				writeForbidden(w, "tenant mismatch")
 				return
 			}
 

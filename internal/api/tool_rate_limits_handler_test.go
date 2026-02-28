@@ -28,11 +28,11 @@ func newFakeRateLimitStore() *fakeRateLimitStore {
 	return &fakeRateLimitStore{overrides: make(map[string][]ratelimit.ToolRateOverride)}
 }
 
-func (f *fakeRateLimitStore) ListByTool(_ context.Context, toolID string) ([]ratelimit.ToolRateOverride, error) {
+func (f *fakeRateLimitStore) ListByTool(_ context.Context, _, toolID string) ([]ratelimit.ToolRateOverride, error) {
 	return f.overrides[toolID], nil
 }
 
-func (f *fakeRateLimitStore) Set(_ context.Context, toolID, scope, scopeID string, rate int) error {
+func (f *fakeRateLimitStore) Set(_ context.Context, _, toolID, scope, scopeID string, rate int) error {
 	f.overrides[toolID] = append(f.overrides[toolID], ratelimit.ToolRateOverride{
 		ID:        "override-1",
 		ToolID:    toolID,
@@ -43,7 +43,7 @@ func (f *fakeRateLimitStore) Set(_ context.Context, toolID, scope, scopeID strin
 	return nil
 }
 
-func (f *fakeRateLimitStore) Delete(_ context.Context, toolID, scope, scopeID string) error {
+func (f *fakeRateLimitStore) Delete(_ context.Context, _, toolID, scope, scopeID string) error {
 	overrides, ok := f.overrides[toolID]
 	if !ok {
 		return pgx.ErrNoRows
@@ -65,7 +65,7 @@ func newFakeRateLimitToolStore() *fakeRateLimitToolStore {
 	return &fakeRateLimitToolStore{tools: make(map[string]*registry.Tool)}
 }
 
-func (f *fakeRateLimitToolStore) GetByID(_ context.Context, id string) (*registry.Tool, error) {
+func (f *fakeRateLimitToolStore) GetByID(_ context.Context, _, id string) (*registry.Tool, error) {
 	t, ok := f.tools[id]
 	if !ok {
 		return nil, pgx.ErrNoRows
@@ -82,9 +82,10 @@ func setupRateLimitsRouter(rlStore *fakeRateLimitStore, toolStore *fakeRateLimit
 	r := chi.NewRouter()
 	r.Use(func(next http.Handler) http.Handler {
 		return http.HandlerFunc(func(w http.ResponseWriter, req *http.Request) {
-			ctx := auth.ContextWithUser(req.Context(), &auth.User{
+			ctx := auth.ContextWithTenant(req.Context(), &auth.Tenant{ID: "t1"})
+			ctx = auth.ContextWithUser(ctx, &auth.User{
 				ID:   "admin-1",
-				Role: "org_admin",
+				Role: "admin",
 			})
 			next.ServeHTTP(w, req.WithContext(ctx))
 		})

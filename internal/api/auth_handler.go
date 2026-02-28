@@ -11,9 +11,9 @@ import (
 
 // authUserStore is the subset of user.Store methods used by authHandler.
 type authUserStore interface {
-	GetByEmail(ctx context.Context, email string) (*user.User, error)
-	CreateSession(ctx context.Context, userID string) (string, *user.Session, error)
-	DeleteSession(ctx context.Context, plaintext string) error
+	GetByEmail(ctx context.Context, tenantID, email string) (*user.User, error)
+	CreateSession(ctx context.Context, tenantID, userID string) (string, *user.Session, error)
+	DeleteSession(ctx context.Context, tenantID, plaintext string) error
 }
 
 // authHandler groups authentication HTTP handlers.
@@ -41,7 +41,12 @@ func (h *authHandler) Login(w http.ResponseWriter, r *http.Request) {
 		return
 	}
 
-	u, err := h.store.GetByEmail(r.Context(), req.Email)
+	tenant := mustTenant(w, r)
+	if tenant == nil {
+		return
+	}
+
+	u, err := h.store.GetByEmail(r.Context(), tenant.ID, req.Email)
 	if err != nil {
 		writeError(w, http.StatusUnauthorized, "unauthorized", "invalid email or password")
 		return
@@ -52,7 +57,7 @@ func (h *authHandler) Login(w http.ResponseWriter, r *http.Request) {
 		return
 	}
 
-	token, _, err := h.store.CreateSession(r.Context(), u.ID)
+	token, _, err := h.store.CreateSession(r.Context(), tenant.ID, u.ID)
 	if err != nil {
 		writeError(w, http.StatusInternalServerError, "internal_error", "failed to create session")
 		return
@@ -67,15 +72,24 @@ func (h *authHandler) Login(w http.ResponseWriter, r *http.Request) {
 		"request_id", RequestIDFromContext(r.Context()),
 	)
 
+	userResp := map[string]interface{}{
+		"id":    u.ID,
+		"email": u.Email,
+		"name":  u.Name,
+		"teams": u.Teams,
+		"role":  u.Role,
+	}
+	if t := auth.TenantFromContext(r.Context()); t != nil {
+		userResp["tenant"] = map[string]string{
+			"id":   t.ID,
+			"name": t.Name,
+			"slug": t.Slug,
+			"plan": t.Plan,
+		}
+	}
 	writeJSON(w, http.StatusOK, map[string]interface{}{
 		"token": token,
-		"user": map[string]interface{}{
-			"id":    u.ID,
-			"email": u.Email,
-			"name":  u.Name,
-			"teams": u.Teams,
-			"role":  u.Role,
-		},
+		"user":  userResp,
 	})
 }
 
@@ -87,13 +101,22 @@ func (h *authHandler) Me(w http.ResponseWriter, r *http.Request) {
 		return
 	}
 
-	writeJSON(w, http.StatusOK, map[string]interface{}{
+	resp := map[string]interface{}{
 		"id":    u.ID,
 		"email": u.Email,
 		"name":  u.Name,
 		"teams": u.Teams,
 		"role":  u.Role,
-	})
+	}
+	if t := auth.TenantFromContext(r.Context()); t != nil {
+		resp["tenant"] = map[string]string{
+			"id":   t.ID,
+			"name": t.Name,
+			"slug": t.Slug,
+			"plan": t.Plan,
+		}
+	}
+	writeJSON(w, http.StatusOK, resp)
 }
 
 // Logout handles POST /api/v1/auth/logout.
@@ -106,7 +129,11 @@ func (h *authHandler) Logout(w http.ResponseWriter, r *http.Request) {
 
 	caller := auth.UserFromContext(r.Context())
 
-	_ = h.store.DeleteSession(r.Context(), token)
+	tenantID := ""
+	if t := auth.TenantFromContext(r.Context()); t != nil {
+		tenantID = t.ID
+	}
+	_ = h.store.DeleteSession(r.Context(), tenantID, token)
 
 	if caller != nil {
 		auditLog(r, "logout", "user", caller.ID)

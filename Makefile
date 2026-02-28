@@ -1,4 +1,4 @@
-.PHONY: dev prod-local db\:dev clean\:dev clean\:prod-local e2e e2e\:install e2e\:ui clean\:e2e setup hooks
+.PHONY: dev prod-local db\:dev clean\:dev clean\:prod-local tenant\:dev e2e e2e\:stack e2e\:install e2e\:ui clean\:e2e setup hooks
 
 DEV_CONFIG := configs/octroi.dev.yaml
 E2E_CONFIG := configs/octroi.e2e.yaml
@@ -25,6 +25,18 @@ db\:dev:
 clean\:dev:
 	docker compose -p $(DEV_PROJECT) down -v
 
+# --- dev: create a new tenant + admin in the dev DB (port 5433) ---
+#   Usage: make tenant:dev slug=acme
+tenant\:dev:
+ifndef slug
+	$(error slug is required – usage: make tenant:dev slug=acme)
+endif
+	@echo "Creating tenant '$(slug)' in dev DB (localhost:5433/octroi)..."
+	@set -a && . ./$(DEV_ENV) && set +a && \
+		OCTROI_TENANT_NAME=$(slug) OCTROI_TENANT_SLUG=$(slug) \
+		go run ./cmd/octroi ensure-admin --config $(DEV_CONFIG)
+	@echo "Done. Seed with: scripts/seed.sh http://$(slug).localhost:8080"
+
 # --- prod-local: everything in Docker (port 9080) ---
 prod-local:
 	@set -a && . ./$(PROD_ENV) && set +a && \
@@ -42,12 +54,27 @@ e2e:
 		(go run ./cmd/octroi ensure-admin --config $(E2E_CONFIG) 2>/dev/null || true) && \
 		(OCTROI_DEV=1 go run ./cmd/octroi serve --config $(E2E_CONFIG) &) && \
 		sleep 3 && \
-		(timeout 30 scripts/seed.sh http://localhost:9091 2>/dev/null || true) && \
-		cd e2e && BASE_URL=http://localhost:9091 npm test; \
+		(timeout 30 scripts/seed.sh http://local.localhost:9091 2>/dev/null || true) && \
+		cd e2e && BASE_URL=http://local.localhost:9091 npm test; \
 		STATUS=$$?; \
 		kill %1 2>/dev/null || true; \
 		docker compose -p $(E2E_PROJECT) -f docker-compose.e2e.yml down 2>/dev/null || true; \
 		exit $$STATUS
+
+e2e\:stack:
+	@set -a && . ./$(DEV_ENV) && set +a && \
+		docker compose -p $(E2E_PROJECT) -f docker-compose.e2e.yml up -d --wait && \
+		go run ./cmd/octroi migrate --config $(E2E_CONFIG) 2>/dev/null && \
+		(go run ./cmd/octroi ensure-admin --config $(E2E_CONFIG) 2>/dev/null || true) && \
+		(OCTROI_DEV=1 go run ./cmd/octroi serve --config $(E2E_CONFIG) &) && \
+		sleep 3 && \
+		(timeout 30 scripts/seed.sh http://local.localhost:9091 2>/dev/null || true) && \
+		echo "" && \
+		echo "E2E stack ready (Postgres :5435, server :9091)" && \
+		echo "Run tests:  cd e2e && BASE_URL=http://local.localhost:9091 npx playwright test" && \
+		echo "Cleanup:    make clean:e2e" && \
+		echo "Press Ctrl-C to stop the server." && \
+		wait
 
 e2e\:install:
 	cd e2e && npm install && npx playwright install chromium
@@ -59,8 +86,8 @@ e2e\:ui:
 		(go run ./cmd/octroi ensure-admin --config $(E2E_CONFIG) 2>/dev/null || true) && \
 		(OCTROI_DEV=1 go run ./cmd/octroi serve --config $(E2E_CONFIG) &) && \
 		sleep 3 && \
-		(timeout 30 scripts/seed.sh http://localhost:9091 2>/dev/null || true) && \
-		cd e2e && BASE_URL=http://localhost:9091 npx playwright test --ui; \
+		(timeout 30 scripts/seed.sh http://local.localhost:9091 2>/dev/null || true) && \
+		cd e2e && BASE_URL=http://local.localhost:9091 npx playwright test --ui; \
 		STATUS=$$?; \
 		kill %1 2>/dev/null || true; \
 		docker compose -p $(E2E_PROJECT) -f docker-compose.e2e.yml down 2>/dev/null || true; \

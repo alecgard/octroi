@@ -50,7 +50,7 @@ func TestBodyStore_InsertAndGet(t *testing.T) {
 
 	// Create a transaction first.
 	txID := "10000000-0000-0000-0000-b0d7fe510001"
-	err = meterStore.BatchInsert(ctx, []Transaction{{
+	err = meterStore.BatchInsert(ctx, "00000000-0000-0000-0000-000000000001", []Transaction{{
 		ID:        txID,
 		AgentID:   agentID,
 		ToolID:    toolID,
@@ -70,12 +70,12 @@ func TestBodyStore_InsertAndGet(t *testing.T) {
 	reqBody := []byte(`{"query":"test"}`)
 	respBody := []byte(`{"result":"ok"}`)
 
-	err = bodyStore.Insert(ctx, txID, reqBody, respBody)
+	err = bodyStore.Insert(ctx, "00000000-0000-0000-0000-000000000001", txID, reqBody, respBody)
 	if err != nil {
 		t.Fatalf("inserting body: %v", err)
 	}
 
-	rb, err := bodyStore.GetByTransactionID(ctx, txID)
+	rb, err := bodyStore.GetByTransactionID(ctx, "00000000-0000-0000-0000-000000000001", txID)
 	if err != nil {
 		t.Fatalf("getting body: %v", err)
 	}
@@ -95,7 +95,7 @@ func TestBodyStore_GetByTransactionID_NotFound(t *testing.T) {
 	defer cleanup()
 
 	bodyStore := NewBodyStore(pool)
-	rb, err := bodyStore.GetByTransactionID(context.Background(), "10000000-0000-0000-0000-000000000099")
+	rb, err := bodyStore.GetByTransactionID(context.Background(), "00000000-0000-0000-0000-000000000001", "10000000-0000-0000-0000-000000000099")
 	if err != nil {
 		t.Fatalf("unexpected error: %v", err)
 	}

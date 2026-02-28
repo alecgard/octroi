@@ -37,7 +37,7 @@ type fakePermAgentStore struct {
 	agents map[string]*agent.Agent
 }
 
-func (f *fakePermAgentStore) GetByID(_ context.Context, id string) (*agent.Agent, error) {
+func (f *fakePermAgentStore) GetByID(_ context.Context, _ string, id string) (*agent.Agent, error) {
 	a, ok := f.agents[id]
 	if !ok {
 		return nil, fmt.Errorf("agent not found")
@@ -45,7 +45,7 @@ func (f *fakePermAgentStore) GetByID(_ context.Context, id string) (*agent.Agent
 	return a, nil
 }
 
-func (f *fakePermAgentStore) Update(_ context.Context, id string, in agent.UpdateAgentInput) (*agent.Agent, error) {
+func (f *fakePermAgentStore) Update(_ context.Context, _ string, id string, in agent.UpdateAgentInput) (*agent.Agent, error) {
 	a, ok := f.agents[id]
 	if !ok {
 		return nil, fmt.Errorf("agent not found")
@@ -69,7 +69,7 @@ func newFakePermStore() *fakePermStore {
 	}
 }
 
-func (f *fakePermStore) ListByAgent(_ context.Context, agentID string) ([]agent.Permission, error) {
+func (f *fakePermStore) ListByAgent(_ context.Context, _ string, agentID string) ([]agent.Permission, error) {
 	if f.err != nil {
 		return nil, f.err
 	}
@@ -80,7 +80,7 @@ func (f *fakePermStore) ListByAgent(_ context.Context, agentID string) ([]agent.
 	return result, nil
 }
 
-func (f *fakePermStore) SetWithSubTools(_ context.Context, agentID, toolID string, allowed bool, subTools []string) error {
+func (f *fakePermStore) SetWithSubTools(_ context.Context, _, agentID, toolID string, allowed bool, subTools []string) error {
 	if f.err != nil {
 		return f.err
 	}
@@ -91,15 +91,15 @@ func (f *fakePermStore) SetWithSubTools(_ context.Context, agentID, toolID strin
 	return nil
 }
 
-func (f *fakePermStore) SetBulk(_ context.Context, agentID string, permissions map[string]bool) error {
+func (f *fakePermStore) SetBulk(_ context.Context, _ string, agentID string, permissions map[string]bool) error {
 	return f.err
 }
 
-func (f *fakePermStore) SetBulkWithSubTools(_ context.Context, agentID string, permissions map[string]agent.BulkPermission) error {
+func (f *fakePermStore) SetBulkWithSubTools(_ context.Context, _ string, agentID string, permissions map[string]agent.BulkPermission) error {
 	return f.err
 }
 
-func (f *fakePermStore) Delete(_ context.Context, agentID, toolID string) error {
+func (f *fakePermStore) Delete(_ context.Context, _, agentID, toolID string) error {
 	if f.err != nil {
 		return f.err
 	}
@@ -115,10 +115,11 @@ func setupPermissionsRouter(store *fakePermStore, agentStore *fakePermAgentStore
 	r := chi.NewRouter()
 	r.Use(func(next http.Handler) http.Handler {
 		return http.HandlerFunc(func(w http.ResponseWriter, req *http.Request) {
-			ctx := auth.ContextWithUser(req.Context(), &auth.User{
+			ctx := auth.ContextWithTenant(req.Context(), &auth.Tenant{ID: "t1"})
+			ctx = auth.ContextWithUser(ctx, &auth.User{
 				ID:    "admin-1",
 				Email: "admin@test.com",
-				Role:  "org_admin",
+				Role:  "admin",
 			})
 			next.ServeHTTP(w, req.WithContext(ctx))
 		})
@@ -133,7 +134,8 @@ func TestPermissionsHandler_ListPermissions(t *testing.T) {
 	r := chi.NewRouter()
 	r.Use(func(next http.Handler) http.Handler {
 		return http.HandlerFunc(func(w http.ResponseWriter, req *http.Request) {
-			ctx := auth.ContextWithUser(req.Context(), &auth.User{ID: "u1", Email: "admin@test.com", Role: "org_admin"})
+			ctx := auth.ContextWithTenant(req.Context(), &auth.Tenant{ID: "t1"})
+			ctx = auth.ContextWithUser(ctx, &auth.User{ID: "u1", Email: "admin@test.com", Role: "admin"})
 			next.ServeHTTP(w, req.WithContext(ctx))
 		})
 	})
@@ -255,10 +257,11 @@ func TestDeletePermission_MissingParams(t *testing.T) {
 	r := chi.NewRouter()
 	r.Use(func(next http.Handler) http.Handler {
 		return http.HandlerFunc(func(w http.ResponseWriter, req *http.Request) {
-			ctx := auth.ContextWithUser(req.Context(), &auth.User{
+			ctx := auth.ContextWithTenant(req.Context(), &auth.Tenant{ID: "t1"})
+			ctx = auth.ContextWithUser(ctx, &auth.User{
 				ID:    "admin-1",
 				Email: "admin@test.com",
-				Role:  "org_admin",
+				Role:  "admin",
 			})
 			next.ServeHTTP(w, req.WithContext(ctx))
 		})

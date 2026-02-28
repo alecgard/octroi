@@ -57,7 +57,7 @@ func (f *fakeUserStore) Create(_ context.Context, in user.CreateUserInput) (*use
 	return u, nil
 }
 
-func (f *fakeUserStore) List(_ context.Context) ([]*user.User, error) {
+func (f *fakeUserStore) List(_ context.Context, _ string) ([]*user.User, error) {
 	var out []*user.User
 	for _, u := range f.users {
 		if u.ArchivedAt == nil {
@@ -67,7 +67,7 @@ func (f *fakeUserStore) List(_ context.Context) ([]*user.User, error) {
 	return out, nil
 }
 
-func (f *fakeUserStore) GetByID(_ context.Context, id string) (*user.User, error) {
+func (f *fakeUserStore) GetByID(_ context.Context, _, id string) (*user.User, error) {
 	u, ok := f.users[id]
 	if !ok || u.ArchivedAt != nil {
 		return nil, pgx.ErrNoRows
@@ -75,7 +75,7 @@ func (f *fakeUserStore) GetByID(_ context.Context, id string) (*user.User, error
 	return u, nil
 }
 
-func (f *fakeUserStore) Update(_ context.Context, id string, in user.UpdateUserInput) (*user.User, error) {
+func (f *fakeUserStore) Update(_ context.Context, _, id string, in user.UpdateUserInput) (*user.User, error) {
 	u, ok := f.users[id]
 	if !ok || u.ArchivedAt != nil {
 		return nil, pgx.ErrNoRows
@@ -102,7 +102,7 @@ func (f *fakeUserStore) Update(_ context.Context, id string, in user.UpdateUserI
 	return u, nil
 }
 
-func (f *fakeUserStore) Archive(_ context.Context, id string) error {
+func (f *fakeUserStore) Archive(_ context.Context, _, id string) error {
 	u, ok := f.users[id]
 	if !ok || u.ArchivedAt != nil {
 		return fmt.Errorf("user not found")
@@ -133,16 +133,18 @@ func usersRouter(h *usersHandler) *chi.Mux {
 }
 
 func adminCtx() context.Context {
-	return auth.ContextWithUser(context.Background(), &auth.User{
+	ctx := auth.ContextWithTenant(context.Background(), &auth.Tenant{ID: "t1"})
+	return auth.ContextWithUser(ctx, &auth.User{
 		ID:    "admin-1",
 		Email: "admin@test.com",
-		Role:  "org_admin",
+		Role:  "admin",
 		Teams: []auth.TeamMembership{{Team: "team-a", Role: "admin"}},
 	})
 }
 
 func memberCtx(id string) context.Context {
-	return auth.ContextWithUser(context.Background(), &auth.User{
+	ctx := auth.ContextWithTenant(context.Background(), &auth.Tenant{ID: "t1"})
+	return auth.ContextWithUser(ctx, &auth.User{
 		ID:    id,
 		Email: "member@test.com",
 		Role:  "member",
@@ -299,7 +301,7 @@ func TestListUsers_WithUsers(t *testing.T) {
 		ID:    "u1",
 		Email: "alice@example.com",
 		Name:  "Alice",
-		Role:  "org_admin",
+		Role:  "admin",
 		Teams: []user.TeamMembership{{Team: "team-a", Role: "admin"}},
 	})
 	store.seed(&user.User{
@@ -418,7 +420,7 @@ func TestUpdateUser_LastAdminConstraint(t *testing.T) {
 	store.seed(&user.User{
 		ID:    "u1",
 		Email: "admin@example.com",
-		Role:  "org_admin",
+		Role:  "admin",
 		Teams: []user.TeamMembership{{Team: "team-a", Role: "admin"}},
 	})
 	// u2 is a member of team-a (not admin).
@@ -595,13 +597,13 @@ func TestDeleteUser_Success(t *testing.T) {
 	store.seed(&user.User{
 		ID:    "u1",
 		Email: "target@example.com",
-		Role:  "org_admin",
+		Role:  "admin",
 		Teams: []user.TeamMembership{{Team: "team-a", Role: "admin"}},
 	})
 	store.seed(&user.User{
 		ID:    "u2",
 		Email: "other-admin@example.com",
-		Role:  "org_admin",
+		Role:  "admin",
 		Teams: []user.TeamMembership{{Team: "team-a", Role: "admin"}},
 	})
 	h := &usersHandler{store: store}
@@ -643,7 +645,7 @@ func TestDeleteUser_LastAdminConstraint(t *testing.T) {
 	store.seed(&user.User{
 		ID:    "u1",
 		Email: "sole-admin@example.com",
-		Role:  "org_admin",
+		Role:  "admin",
 		Teams: []user.TeamMembership{{Team: "team-a", Role: "admin"}},
 	})
 	store.seed(&user.User{

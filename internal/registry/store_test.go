@@ -321,7 +321,7 @@ func TestServiceCreateValidation(t *testing.T) {
 
 	for _, tt := range tests {
 		t.Run(tt.name, func(t *testing.T) {
-			_, err := svc.Create(nil, tt.input)
+			_, err := svc.Create(nil, "", tt.input)
 			if err != tt.wantErr {
 				t.Errorf("Service.Create() error = %v, wantErr = %v", err, tt.wantErr)
 			}
@@ -361,7 +361,7 @@ func TestServiceUpdateValidation(t *testing.T) {
 
 	for _, tt := range tests {
 		t.Run(tt.name, func(t *testing.T) {
-			_, err := svc.Update(nil, "some-id", tt.input)
+			_, err := svc.Update(nil, "", "some-id", tt.input)
 			if err != tt.wantErr {
 				t.Errorf("Service.Update() error = %v, wantErr = %v", err, tt.wantErr)
 			}

@@ -58,7 +58,7 @@ git clone https://github.com/alecgard/octroi.git && cd octroi
 make prod-local
 ```
 
-Open **http://localhost:9080/ui** and log in with `admin@octroi.dev` / `octroi`.
+Open **http://local.localhost:9080/ui** and log in with `admin@octroi.dev` / `octroi`.
 
 Tear down with `make clean:prod-local`.
 
@@ -74,7 +74,7 @@ Add to your `claude_desktop_config.json`:
 {
   "mcpServers": {
     "octroi": {
-      "url": "http://localhost:9090/mcp",
+      "url": "http://local.localhost:9090/mcp",
       "headers": {
         "Authorization": "Bearer octroi_YOUR_AGENT_KEY"
       }

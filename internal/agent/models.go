@@ -11,6 +11,7 @@ type Agent struct {
 	Team          string    `json:"team"`
 	RateLimit     int       `json:"rate_limit"`
 	AllowlistMode bool       `json:"allowlist_mode"`
+	TenantID      string     `json:"tenant_id"`
 	CreatedAt     time.Time  `json:"created_at"`
 	ArchivedAt    *time.Time `json:"archived_at,omitempty"`
 }
@@ -22,6 +23,7 @@ type CreateAgentInput struct {
 	APIKeyPrefix string `json:"api_key_prefix"`
 	Team         string `json:"team"`
 	RateLimit    int    `json:"rate_limit"`
+	TenantID     string `json:"tenant_id"`
 }
 
 // UpdateAgentInput holds optional fields for a partial agent update.

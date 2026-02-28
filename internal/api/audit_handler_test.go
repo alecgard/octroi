@@ -25,7 +25,7 @@ func newFakeAuditStore() *fakeAuditStore {
 	return &fakeAuditStore{}
 }
 
-func (f *fakeAuditStore) List(_ context.Context, params audit.ListParams) ([]audit.Entry, string, error) {
+func (f *fakeAuditStore) List(_ context.Context, _ string, params audit.ListParams) ([]audit.Entry, string, error) {
 	var filtered []audit.Entry
 	for _, e := range f.entries {
 		if params.ResourceType != "" && e.ResourceType != params.ResourceType {
@@ -48,9 +48,10 @@ func setupAuditRouter(store *fakeAuditStore) http.Handler {
 	r := chi.NewRouter()
 	r.Use(func(next http.Handler) http.Handler {
 		return http.HandlerFunc(func(w http.ResponseWriter, req *http.Request) {
-			ctx := auth.ContextWithUser(req.Context(), &auth.User{
+			ctx := auth.ContextWithTenant(req.Context(), &auth.Tenant{ID: "t1"})
+			ctx = auth.ContextWithUser(ctx, &auth.User{
 				ID:   "admin-1",
-				Role: "org_admin",
+				Role: "admin",
 			})
 			next.ServeHTTP(w, req.WithContext(ctx))
 		})

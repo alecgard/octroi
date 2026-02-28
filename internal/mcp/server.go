@@ -89,8 +89,9 @@ func agentInfoFromContext(ctx context.Context) AgentInfo {
 		return AgentInfo{}
 	}
 	return AgentInfo{
-		ID:   a.ID,
-		Name: a.Name,
-		Team: a.Team,
+		ID:       a.ID,
+		Name:     a.Name,
+		Team:     a.Team,
+		TenantID: a.TenantID,
 	}
 }
