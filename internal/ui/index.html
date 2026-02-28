@@ -222,18 +222,6 @@ tbody tr:hover { background: var(--surface); }
   opacity: 0; transition: opacity 0.2s;
 }
 .toast.show { opacity: 1; }
-/* Banner */
-.banner {
-  background: var(--surface);
-  border: 1px solid var(--border);
-  border-left: 3px solid var(--success);
-  padding: 8px 12px;
-  margin-bottom: 12px;
-  font-size: 12px;
-  display: none;
-}
-.banner.show { display: block; }
-.banner .key-value { font-weight: 700; color: var(--text); user-select: all; }
 /* Select (global) */
 select {
   appearance: none;
@@ -561,9 +549,6 @@ body.shift-held .txn-filter-pending { background: var(--surface2); }
 <div class="content" id="main-content" style="display:none">
   <!-- Agents Tab -->
   <div class="tab-panel active" id="tab-agents">
-    <div class="banner" id="agent-key-banner">
-      API key (shown once, copy now): <span class="key-value" id="agent-key-value"></span>
-    </div>
     <div style="display:flex;align-items:center;margin-bottom:8px;gap:8px">
       <h2 class="toolbar-title">Agents</h2>
       <input type="text" class="tab-search" id="agents-search" placeholder="Search agents..." oninput="renderAgents()">
@@ -2147,8 +2132,7 @@ async function submitAgent() {
       const res = await api('POST', apiBase() + '/agents', body);
       closeModal('agent-modal');
       if (res.api_key) {
-        document.getElementById('agent-key-value').textContent = res.api_key;
-        document.getElementById('agent-key-banner').classList.add('show');
+        await showNewKeyModal(res.api_key);
       }
     }
     loadAgents();
@@ -2162,11 +2146,10 @@ async function regenKeyFromModal() {
   if (!await appConfirm('Regenerate API key for "' + name + '"? The old key will continue working for 24 hours.', { title: 'Regenerate Key', okLabel: 'Regenerate' })) return;
   try {
     const res = await api('POST', apiBase() + '/agents/' + id + '/regenerate-key');
-    if (res.api_key) {
-      document.getElementById('agent-key-value').textContent = res.api_key;
-      document.getElementById('agent-key-banner').classList.add('show');
-    }
     closeModal('agent-modal');
+    if (res.api_key) {
+      await showNewKeyModal(res.api_key);
+    }
     loadAgents();
   } catch (e) { toast('Error: ' + e.message); }
 }
@@ -2182,6 +2165,15 @@ async function revokeOldKeyFromModal() {
     closeModal('agent-modal');
     loadAgents();
   } catch (e) { toast('Error: ' + e.message); }
+}
+
+function showNewKeyModal(apiKey) {
+  return appAlert(
+    '<p style="margin:0 0 8px">This key will only be shown once. Copy it now.</p>' +
+    '<code style="display:block;padding:10px;background:var(--surface);border-radius:4px;word-break:break-all;user-select:all;font-size:13px;cursor:pointer" onclick="navigator.clipboard.writeText(this.textContent).then(()=>document.getElementById(\'key-copied-msg\').style.display=\'block\')">' + esc(apiKey) + '</code>' +
+    '<p id="key-copied-msg" style="display:none;color:var(--green,#22c55e);font-size:11px;margin:6px 0 0">Copied to clipboard</p>',
+    { title: 'New API Key' }
+  );
 }
 
 async function deleteAgent(id, name) {
