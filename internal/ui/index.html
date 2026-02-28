@@ -3287,6 +3287,13 @@ function renderUsageChart(txns) {
     svg += `<text x="${x}" y="${H - MB + 14}" text-anchor="middle" class="chart-label">${fmtBucketLabel(d, bucketMs)}</text>`;
   }
 
+  // In live mode, draw a "Now" marker at the right edge of the chart.
+  if (usageMode === 'live') {
+    const nowX = ML + ((now - bucketStart) / (bucketEnd - bucketStart)) * chartW;
+    svg += `<line x1="${nowX}" y1="${MT}" x2="${nowX}" y2="${MT + chartH}" stroke="var(--text2)" stroke-width="1" stroke-dasharray="3,3" opacity="0.5"/>`;
+    svg += `<text x="${nowX}" y="${H - MB + 14}" text-anchor="middle" class="chart-label" style="font-weight:600">Now</text>`;
+  }
+
   svg += '</svg>';
 
   // Legend
