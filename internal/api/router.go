@@ -222,6 +222,10 @@ func NewRouter(deps RouterDeps) http.Handler {
 	// Well-known manifest.
 	r.Get("/.well-known/octroi.json", WellKnownHandler)
 
+	// Mock upstream (unauthenticated) — replaces Python mock servers for seed/dev.
+	r.HandleFunc("/mock/*", mockHandler)
+	r.HandleFunc("/mock", mockHandler)
+
 	// Public (unauthenticated) routes.
 	r.Get("/api/v1/tools", tools.ListTools)
 	r.Get("/api/v1/tools/{id}", tools.GetTool)

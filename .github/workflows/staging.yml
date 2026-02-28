@@ -76,10 +76,10 @@ jobs:
           echo "Timed out waiting for deploy"
           exit 1
 
-      - name: Seed data
+      - name: Seed data and generate traffic
         run: |
-          apk add --no-cache bash curl jq
-          timeout 30 bash scripts/seed.sh --tenant=local ${{ steps.domain.outputs.url }} || true
+          apk add --no-cache bash curl jq bc
+          timeout 120 bash scripts/seed.sh --tenant=local ${{ steps.domain.outputs.url }} || true
 
       - name: Comment on PR
         uses: marocchino/sticky-pull-request-comment@v2

@@ -9,7 +9,7 @@
 # before starting live traffic. Requires psql and bc in addition to the
 # base dependencies.
 #
-# Requires: curl, jq, python3 (+ psql, bc with --backfill)
+# Requires: curl, jq (+ psql, bc with --backfill)
 # Usage:    ./scripts/seed.sh [--backfill] [BASE_URL]
 #
 set -euo pipefail
@@ -638,113 +638,10 @@ if [[ $NUM_AGENTS -eq 0 || $NUM_TOOLS -eq 0 ]]; then
   exit 0
 fi
 
-# --- Start a mock upstream server -----------------------------------------
-# The proxy forwards requests to the tool's endpoint. We need a real listener
-# that returns HTTP 200 so the proxy can complete the round-trip.
+# --- Point all tools at the built-in /mock endpoint -----------------------
+# The Go server serves /mock (REST) and /mock/* (MCP) — no external process needed.
 
-MOCK_PORT=19876
-MOCK_MCP_PORT=19877
-
-# --- Mock REST upstream ---
-python3 -c "
-import socketserver, time, random
-from http.server import HTTPServer, BaseHTTPRequestHandler
-socketserver.TCPServer.allow_reuse_address = True
-class H(BaseHTTPRequestHandler):
-    def do_ANY(self):
-        time.sleep(random.uniform(0.01, 1.5))
-        self.send_response(200)
-        self.send_header('Content-Type','application/json')
-        if random.random() < 0.5:
-            cost = random.lognormvariate(-4.0, 1.5)
-            cost = min(cost, 2.0)
-            self.send_header('X-Octroi-Cost', f'{cost:.6f}')
-        self.end_headers()
-        self.wfile.write(b'{\"ok\":true}')
-    do_GET=do_POST=do_PUT=do_DELETE=do_PATCH=do_HEAD=do_ANY
-    def log_message(self, *a): pass
-HTTPServer(('0.0.0.0',$MOCK_PORT),H).serve_forever()
-" &
-MOCK_PID=$!
-
-# --- Mock MCP upstream (streamable-http, path-based routing) ---
-python3 -c "
-import json, socketserver, time, random
-from http.server import HTTPServer, BaseHTTPRequestHandler
-
-SERVERS = {
-    '/brave': {
-        'name': 'BraveSearch',
-        'tools': [
-            {'name':'brave_web_search','description':'Search the web using Brave Search','inputSchema':{'type':'object','properties':{'query':{'type':'string'},'count':{'type':'integer'}}}},
-            {'name':'brave_local_search','description':'Search for local businesses and places','inputSchema':{'type':'object','properties':{'query':{'type':'string'},'count':{'type':'integer'}}}},
-            {'name':'brave_news_search','description':'Search for recent news articles','inputSchema':{'type':'object','properties':{'query':{'type':'string'},'freshness':{'type':'string'}}}},
-        ],
-    },
-    '/deepwiki': {
-        'name': 'DeepWiki',
-        'tools': [
-            {'name':'read_wiki_structure','description':'Get documentation topics for a GitHub repo','inputSchema':{'type':'object','properties':{'repoName':{'type':'string'}}}},
-            {'name':'read_wiki_contents','description':'View full documentation page for a repo topic','inputSchema':{'type':'object','properties':{'repoName':{'type':'string'},'topic':{'type':'string'}}}},
-            {'name':'ask_question','description':'Ask a natural-language question about a repository','inputSchema':{'type':'object','properties':{'repoName':{'type':'string'},'question':{'type':'string'}}}},
-        ],
-    },
-}
-
-socketserver.TCPServer.allow_reuse_address = True
-class H(BaseHTTPRequestHandler):
-    def do_POST(self):
-        # Route by path prefix.
-        server = None
-        for prefix, s in SERVERS.items():
-            if self.path.startswith(prefix):
-                server = s
-                break
-        if not server:
-            self.send_response(404)
-            self.end_headers()
-            return
-
-
-
-        length = int(self.headers.get('Content-Length', 0))
-        body = json.loads(self.rfile.read(length)) if length else {}
-        method = body.get('method', '')
-        req_id = body.get('id')
-
-        if method == 'initialize':
-            result = {'protocolVersion':'2025-03-26','capabilities':{'tools':{'listChanged':False}},'serverInfo':{'name':server['name'],'version':'1.0.0'}}
-        elif method == 'notifications/initialized':
-            self.send_response(200)
-            self.end_headers()
-            return
-        elif method == 'tools/list':
-            result = {'tools': server['tools']}
-        elif method == 'tools/call':
-            time.sleep(random.uniform(0.01, 0.5))
-            result = {'content':[{'type':'text','text':json.dumps({'ok':True,'tool':body.get('params',{}).get('name','?')})}]}
-        else:
-            self.send_response(200)
-            self.end_headers()
-            return
-
-        resp = json.dumps({'jsonrpc':'2.0','id':req_id,'result':result})
-        self.send_response(200)
-        self.send_header('Content-Type','text/event-stream')
-        self.end_headers()
-        self.wfile.write(f'event: message\ndata: {resp}\n\n'.encode())
-
-    def log_message(self, *a): pass
-HTTPServer(('0.0.0.0',$MOCK_MCP_PORT),H).serve_forever()
-" &
-MOCK_MCP_PID=$!
-
-sleep 0.3
-echo "    Mock REST upstream listening on :${MOCK_PORT} (pid $MOCK_PID)"
-echo "    Mock MCP  upstream listening on :${MOCK_MCP_PORT} (pid $MOCK_MCP_PID)"
-trap 'kill $MOCK_PID $MOCK_MCP_PID 2>/dev/null; exit' EXIT INT TERM
-
-# --- Point all tools at the mock upstreams --------------------------------
+MOCK_BASE="http://localhost:${OCTROI_PORT:-8080}/mock"
 
 echo "==> Updating tool endpoints to mock upstreams (and raising budget limits)"
 for i in "${!TOOL_IDS[@]}"; do
@@ -758,12 +655,12 @@ for i in "${!TOOL_IDS[@]}"; do
       *)              mcp_path="/mcp" ;;
     esac
     api PUT "/api/v1/admin/tools/${tid}" \
-      "{\"endpoint\":\"http://localhost:${MOCK_MCP_PORT}${mcp_path}\",\"transport\":\"streamable-http\",\"budget_limit\":100000}" >/dev/null
-    echo "    ${TOOL_NAMES[$i]} -> http://localhost:${MOCK_MCP_PORT}${mcp_path} (MCP)"
+      "{\"endpoint\":\"${MOCK_BASE}${mcp_path}\",\"transport\":\"streamable-http\",\"budget_limit\":100000}" >/dev/null
+    echo "    ${TOOL_NAMES[$i]} -> ${MOCK_BASE}${mcp_path} (MCP)"
   else
     api PUT "/api/v1/admin/tools/${tid}" \
-      "{\"endpoint\":\"http://localhost:${MOCK_PORT}\",\"budget_limit\":100000}" >/dev/null
-    echo "    ${TOOL_NAMES[$i]} -> http://localhost:${MOCK_PORT}"
+      "{\"endpoint\":\"${MOCK_BASE}\",\"budget_limit\":100000}" >/dev/null
+    echo "    ${TOOL_NAMES[$i]} -> ${MOCK_BASE}"
   fi
 done
 
