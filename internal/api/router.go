@@ -380,6 +380,7 @@ func NewRouter(deps RouterDeps) http.Handler {
 		pr.Use(auth.AgentAuthMiddleware(deps.Auth, agentAuthFail, agentAuthSuccess))
 		pr.Use(ratelimit.Middleware(deps.Limiter, rateLimitReject))
 
+		pr.Handle("/{toolID}", deps.Proxy)
 		pr.Handle("/{toolID}/*", deps.Proxy)
 	})
 
