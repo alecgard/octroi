@@ -863,13 +863,20 @@ func TestCircuitBreakerRecordsResult(t *testing.T) {
 // --- MCP sub-tool permission tests ---
 
 type fakeMCPCaller struct {
-	called  bool
-	err     error
-	isError bool // if true, returns result with IsError=true
+	called       bool
+	err          error
+	isError      bool // if true, returns result with IsError=true
+	upstreamID   string
+	toolName     string
+	arguments    map[string]any
+	resultText   string
 }
 
-func (f *fakeMCPCaller) Call(_ context.Context, _ string, _ string, _ map[string]any) (*mcpgo.CallToolResult, error) {
+func (f *fakeMCPCaller) Call(_ context.Context, upstreamID string, toolName string, arguments map[string]any) (*mcpgo.CallToolResult, error) {
 	f.called = true
+	f.upstreamID = upstreamID
+	f.toolName = toolName
+	f.arguments = arguments
 	if f.err != nil {
 		return nil, f.err
 	}
@@ -877,7 +884,11 @@ func (f *fakeMCPCaller) Call(_ context.Context, _ string, _ string, _ map[string
 		r := mcpgo.NewToolResultError("upstream error")
 		return r, nil
 	}
-	return mcpgo.NewToolResultText("ok"), nil
+	text := "ok"
+	if f.resultText != "" {
+		text = f.resultText
+	}
+	return mcpgo.NewToolResultText(text), nil
 }
 
 // --- Webhook Dispatcher Fake ---
@@ -1173,5 +1184,266 @@ func TestMCPWebhookDispatched(t *testing.T) {
 	}
 	if wh.toolID != "tool-1" {
 		t.Errorf("expected webhook toolID tool-1, got %s", wh.toolID)
+	}
+}
+
+// --- HTTP-to-MCP proxy bridge tests ---
+
+func TestHTTPToMCPProxySuccess(t *testing.T) {
+	tool := newTestTool("http://localhost")
+	tool.Mode = "mcp"
+	store := &fakeToolStore{tools: map[string]*registry.Tool{"tool-1": tool}}
+	budgets := &fakeBudgetChecker{agentAllowed: true, globalAllowed: true}
+	collector := &fakeCollector{}
+	mcpUp := &fakeMCPCaller{resultText: `{"results":["a","b"]}`}
+	handler := NewHandler(store, budgets, collector, 5*time.Second, 1<<20)
+	handler.SetMCPCaller(mcpUp)
+
+	router := setupRouter(handler)
+
+	body := `{"query":"test search","limit":10}`
+	req := httptest.NewRequest("POST", "/proxy/tool-1/brave_search", bytes.NewReader([]byte(body)))
+	req.Header.Set("Content-Type", "application/json")
+	req = withAgent(req, newTestAgent())
+	rr := httptest.NewRecorder()
+	router.ServeHTTP(rr, req)
+
+	if rr.Code != http.StatusOK {
+		t.Fatalf("expected 200, got %d: %s", rr.Code, rr.Body.String())
+	}
+
+	// Verify MCP caller received the correct arguments.
+	if !mcpUp.called {
+		t.Fatal("expected MCP caller to be invoked")
+	}
+	if mcpUp.upstreamID != "tool-1" {
+		t.Errorf("expected upstreamID tool-1, got %s", mcpUp.upstreamID)
+	}
+	if mcpUp.toolName != "brave_search" {
+		t.Errorf("expected toolName brave_search, got %s", mcpUp.toolName)
+	}
+	if mcpUp.arguments["query"] != "test search" {
+		t.Errorf("expected query argument 'test search', got %v", mcpUp.arguments["query"])
+	}
+	if mcpUp.arguments["limit"] != float64(10) {
+		t.Errorf("expected limit argument 10, got %v", mcpUp.arguments["limit"])
+	}
+
+	// Verify response is JSON with the MCP result.
+	if rr.Header().Get("Content-Type") != "application/json" {
+		t.Errorf("expected Content-Type application/json, got %s", rr.Header().Get("Content-Type"))
+	}
+
+	// Verify transaction was recorded.
+	if len(collector.transactions) != 1 {
+		t.Fatalf("expected 1 transaction, got %d", len(collector.transactions))
+	}
+	tx := collector.transactions[0]
+	if tx.StatusCode != 200 {
+		t.Errorf("expected status 200, got %d", tx.StatusCode)
+	}
+	if !tx.Success {
+		t.Error("expected transaction to be marked as success")
+	}
+	if tx.Channel != "http" {
+		t.Errorf("expected channel http, got %s", tx.Channel)
+	}
+	if tx.AgentID != "agent-1" {
+		t.Errorf("expected agentID agent-1, got %s", tx.AgentID)
+	}
+}
+
+func TestHTTPToMCPProxyUpstreamError(t *testing.T) {
+	tool := newTestTool("http://localhost")
+	tool.Mode = "mcp"
+	store := &fakeToolStore{tools: map[string]*registry.Tool{"tool-1": tool}}
+	budgets := &fakeBudgetChecker{agentAllowed: true, globalAllowed: true}
+	collector := &fakeCollector{}
+	mcpUp := &fakeMCPCaller{err: fmt.Errorf("connection refused")}
+	handler := NewHandler(store, budgets, collector, 5*time.Second, 1<<20)
+	handler.SetMCPCaller(mcpUp)
+
+	router := setupRouter(handler)
+
+	req := httptest.NewRequest("POST", "/proxy/tool-1/search", bytes.NewReader([]byte(`{}`)))
+	req = withAgent(req, newTestAgent())
+	rr := httptest.NewRecorder()
+	router.ServeHTTP(rr, req)
+
+	if rr.Code != http.StatusBadGateway {
+		t.Fatalf("expected 502, got %d: %s", rr.Code, rr.Body.String())
+	}
+
+	var errResp proxyError
+	_ = json.NewDecoder(rr.Body).Decode(&errResp)
+	if errResp.Error.Code != "proxy_error" {
+		t.Errorf("expected error code proxy_error, got %s", errResp.Error.Code)
+	}
+
+	if len(collector.transactions) != 1 {
+		t.Fatalf("expected 1 transaction, got %d", len(collector.transactions))
+	}
+	if collector.transactions[0].Success {
+		t.Error("expected transaction to be marked as failed")
+	}
+}
+
+func TestHTTPToMCPProxyToolError(t *testing.T) {
+	tool := newTestTool("http://localhost")
+	tool.Mode = "mcp"
+	store := &fakeToolStore{tools: map[string]*registry.Tool{"tool-1": tool}}
+	budgets := &fakeBudgetChecker{agentAllowed: true, globalAllowed: true}
+	collector := &fakeCollector{}
+	mcpUp := &fakeMCPCaller{isError: true}
+	handler := NewHandler(store, budgets, collector, 5*time.Second, 1<<20)
+	handler.SetMCPCaller(mcpUp)
+
+	router := setupRouter(handler)
+
+	req := httptest.NewRequest("POST", "/proxy/tool-1/search", bytes.NewReader([]byte(`{"q":"fail"}`)))
+	req = withAgent(req, newTestAgent())
+	rr := httptest.NewRecorder()
+	router.ServeHTTP(rr, req)
+
+	// MCP tool errors return 500.
+	if rr.Code != http.StatusInternalServerError {
+		t.Fatalf("expected 500, got %d: %s", rr.Code, rr.Body.String())
+	}
+
+	// Response should still be JSON with the MCP result.
+	var result map[string]any
+	if err := json.NewDecoder(rr.Body).Decode(&result); err != nil {
+		t.Fatalf("expected valid JSON response: %v", err)
+	}
+	if result["isError"] != true {
+		t.Error("expected isError=true in response")
+	}
+
+	if len(collector.transactions) != 1 {
+		t.Fatalf("expected 1 transaction, got %d", len(collector.transactions))
+	}
+	if collector.transactions[0].Success {
+		t.Error("expected transaction to be marked as failed")
+	}
+	if collector.transactions[0].StatusCode != 500 {
+		t.Errorf("expected status 500, got %d", collector.transactions[0].StatusCode)
+	}
+}
+
+func TestHTTPToMCPProxyEmptyBody(t *testing.T) {
+	tool := newTestTool("http://localhost")
+	tool.Mode = "mcp"
+	store := &fakeToolStore{tools: map[string]*registry.Tool{"tool-1": tool}}
+	budgets := &fakeBudgetChecker{agentAllowed: true, globalAllowed: true}
+	collector := &fakeCollector{}
+	mcpUp := &fakeMCPCaller{}
+	handler := NewHandler(store, budgets, collector, 5*time.Second, 1<<20)
+	handler.SetMCPCaller(mcpUp)
+
+	router := setupRouter(handler)
+
+	// POST with no body — arguments should be nil.
+	req := httptest.NewRequest("POST", "/proxy/tool-1/list_items", nil)
+	req = withAgent(req, newTestAgent())
+	rr := httptest.NewRecorder()
+	router.ServeHTTP(rr, req)
+
+	if rr.Code != http.StatusOK {
+		t.Fatalf("expected 200, got %d: %s", rr.Code, rr.Body.String())
+	}
+	if !mcpUp.called {
+		t.Fatal("expected MCP caller to be invoked")
+	}
+	if mcpUp.arguments != nil {
+		t.Errorf("expected nil arguments for empty body, got %v", mcpUp.arguments)
+	}
+}
+
+func TestHTTPToMCPProxyInvalidJSON(t *testing.T) {
+	tool := newTestTool("http://localhost")
+	tool.Mode = "mcp"
+	store := &fakeToolStore{tools: map[string]*registry.Tool{"tool-1": tool}}
+	budgets := &fakeBudgetChecker{agentAllowed: true, globalAllowed: true}
+	collector := &fakeCollector{}
+	handler := NewHandler(store, budgets, collector, 5*time.Second, 1<<20)
+	handler.SetMCPCaller(&fakeMCPCaller{})
+
+	router := setupRouter(handler)
+
+	req := httptest.NewRequest("POST", "/proxy/tool-1/search", bytes.NewReader([]byte(`{not valid json`)))
+	req = withAgent(req, newTestAgent())
+	rr := httptest.NewRecorder()
+	router.ServeHTTP(rr, req)
+
+	if rr.Code != http.StatusBadRequest {
+		t.Fatalf("expected 400, got %d: %s", rr.Code, rr.Body.String())
+	}
+
+	var errResp proxyError
+	_ = json.NewDecoder(rr.Body).Decode(&errResp)
+	if errResp.Error.Code != "bad_request" {
+		t.Errorf("expected error code bad_request, got %s", errResp.Error.Code)
+	}
+}
+
+func TestHTTPToMCPProxyMissingSubTool(t *testing.T) {
+	tool := newTestTool("http://localhost")
+	tool.Mode = "mcp"
+	store := &fakeToolStore{tools: map[string]*registry.Tool{"tool-1": tool}}
+	budgets := &fakeBudgetChecker{agentAllowed: true, globalAllowed: true}
+	collector := &fakeCollector{}
+	handler := NewHandler(store, budgets, collector, 5*time.Second, 1<<20)
+	handler.SetMCPCaller(&fakeMCPCaller{})
+	handler.SetMCPToolLister(&fakeMCPToolLister{
+		tools: map[string][]mcpgo.Tool{
+			"tool-1": {{Name: "search"}},
+		},
+	})
+
+	router := setupRouter(handler)
+
+	// GET /proxy/tool-1 for an MCP tool should list sub-tools.
+	req := httptest.NewRequest("GET", "/proxy/tool-1", nil)
+	req = withAgent(req, newTestAgent())
+	rr := httptest.NewRecorder()
+	router.ServeHTTP(rr, req)
+
+	if rr.Code != http.StatusOK {
+		t.Fatalf("expected 200, got %d: %s", rr.Code, rr.Body.String())
+	}
+
+	var resp map[string]any
+	if err := json.NewDecoder(rr.Body).Decode(&resp); err != nil {
+		t.Fatalf("failed to decode response: %v", err)
+	}
+	if resp["tool_id"] != "tool-1" {
+		t.Errorf("expected tool_id tool-1, got %v", resp["tool_id"])
+	}
+}
+
+func TestHTTPToMCPProxyNoCaller(t *testing.T) {
+	tool := newTestTool("http://localhost")
+	tool.Mode = "mcp"
+	store := &fakeToolStore{tools: map[string]*registry.Tool{"tool-1": tool}}
+	budgets := &fakeBudgetChecker{agentAllowed: true, globalAllowed: true}
+	collector := &fakeCollector{}
+	handler := NewHandler(store, budgets, collector, 5*time.Second, 1<<20)
+	// Do NOT set MCPCaller — leave it nil.
+
+	router := setupRouter(handler)
+
+	req := httptest.NewRequest("POST", "/proxy/tool-1/search", bytes.NewReader([]byte(`{}`)))
+	req = withAgent(req, newTestAgent())
+	rr := httptest.NewRecorder()
+	router.ServeHTTP(rr, req)
+
+	if rr.Code != http.StatusBadGateway {
+		t.Fatalf("expected 502, got %d: %s", rr.Code, rr.Body.String())
+	}
+
+	var errResp proxyError
+	_ = json.NewDecoder(rr.Body).Decode(&errResp)
+	if errResp.Error.Message != "MCP proxy not configured" {
+		t.Errorf("expected 'MCP proxy not configured', got %s", errResp.Error.Message)
 	}
 }
