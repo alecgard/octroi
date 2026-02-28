@@ -63,7 +63,7 @@ func runEnsureAdmin(cmd *cobra.Command, args []string) error {
 		Password: "octroi",
 		Name:     "Admin",
 		Teams:    []user.TeamMembership{},
-		Role:     "org_admin",
+		Role:     "admin",
 		TenantID: t.ID,
 	}
 	_, err = userStore.GetByEmail(ctx, t.ID, input.Email)

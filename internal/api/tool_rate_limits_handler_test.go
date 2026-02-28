@@ -85,7 +85,7 @@ func setupRateLimitsRouter(rlStore *fakeRateLimitStore, toolStore *fakeRateLimit
 			ctx := auth.ContextWithTenant(req.Context(), &auth.Tenant{ID: "t1"})
 			ctx = auth.ContextWithUser(ctx, &auth.User{
 				ID:   "admin-1",
-				Role: "org_admin",
+				Role: "admin",
 			})
 			next.ServeHTTP(w, req.WithContext(ctx))
 		})

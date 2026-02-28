@@ -70,7 +70,7 @@ Rate limited to 5 attempts per IP per minute.
 ```
 POST /api/v1/auth/login
 Body: { "email": "admin@octroi.dev", "password": "octroi" }
-→ { "token": "abc123...", "user": { "id", "email", "name", "role": "org_admin", "teams": [] } }
+→ { "token": "abc123...", "user": { "id", "email", "name", "role": "admin", "teams": [] } }
 ```
 
 Store the token. All subsequent user calls use `Authorization: Bearer <token>`.
@@ -79,7 +79,7 @@ Store the token. All subsequent user calls use `Authorization: Bearer <token>`.
 
 ```
 GET /api/v1/auth/me
-→ { "id": "user-1", "email": "admin@octroi.dev", "name": "Admin", "role": "org_admin", "teams": [] }
+→ { "id": "user-1", "email": "admin@octroi.dev", "name": "Admin", "role": "admin", "teams": [] }
 ```
 
 Returns the authenticated user. Use this to verify a stored token is still valid.
@@ -606,7 +606,7 @@ Prometheus is for infrastructure monitoring only. Product analytics (cost, per-t
 ```
 GET /api/v1/admin/users
 → [{ "id": "user-1", "email": "admin@octroi.dev", "name": "Admin",
-     "role": "org_admin", "teams": [], ... },
+     "role": "admin", "teams": [], ... },
    { "id": "user-2", "email": "alice@co.com", "role": "member",
      "teams": [{ "team": "backend", "role": "admin" }], ... }]
 ```
@@ -631,7 +631,7 @@ Creating a user with a team that doesn't exist yet will create the team implicit
 
 ```
 PUT /api/v1/admin/users/user-3
-Body: { "name": "Robert", "role": "org_admin", "teams": [{ "team": "backend", "role": "admin" }] }
+Body: { "name": "Robert", "role": "admin", "teams": [{ "team": "backend", "role": "admin" }] }
 → updated user
 ```
 

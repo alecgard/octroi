@@ -29,7 +29,7 @@ Authorization: Bearer <session_token>
 | **Public** | No auth required |
 | **Agent** | Agent API key (+ per-agent rate limit) |
 | **Member** | User session (any role) |
-| **Admin** | User session with `org_admin` role |
+| **Admin** | User session with `admin` role |
 
 ---
 
@@ -173,7 +173,7 @@ MCP (Model Context Protocol) SSE endpoint. Agents connect to discover and call M
 
 ## Admin Endpoints (Admin Auth)
 
-All admin endpoints require a user session with `org_admin` role.
+All admin endpoints require a user session with `admin` role.
 
 ### Tools
 
@@ -575,7 +575,7 @@ Change own password.
 | `id` | UUID | Primary key |
 | `email` | string | Unique email |
 | `name` | string | Display name |
-| `role` | string | `org_admin` or `member` |
+| `role` | string | `admin` or `member` |
 | `teams` | array | Team memberships with roles |
 | `archived_at` | timestamp | Set when soft-deleted |
 

@@ -86,7 +86,7 @@ func adminUser() *auth.User {
 		ID:       "admin-1",
 		TenantID: "t1",
 		Email:    "admin@test.com",
-		Role:     "org_admin",
+		Role:     "admin",
 		Teams:    []auth.TeamMembership{{Team: "team-a", Role: "admin"}},
 	}
 }
@@ -448,7 +448,7 @@ func TestAddTeamMember_Forbidden(t *testing.T) {
 		CreatedAt: time.Now().UTC(),
 	}
 
-	// Caller is a member of team-a but not admin, and is not org_admin.
+	// Caller is a member of team-a but not admin, and is not admin.
 	caller := &auth.User{
 		ID:       "user-2",
 		TenantID: "t1",

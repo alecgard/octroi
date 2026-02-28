@@ -36,7 +36,7 @@ type User struct {
 	Email    string
 	Name     string
 	Teams    []TeamMembership
-	Role     string // "org_admin" or "member"
+	Role     string // "admin" or "member"
 	TenantID string
 }
 
@@ -59,9 +59,9 @@ func (u *User) IsTeamAdmin(team string) bool {
 	return false
 }
 
-// IsOrgAdmin returns true if the user has the org_admin role.
-func (u *User) IsOrgAdmin() bool {
-	return u.Role == "org_admin"
+// IsAdmin returns true if the user has the admin role.
+func (u *User) IsAdmin() bool {
+	return u.Role == "admin"
 }
 
 // InTeam returns true if the user is a member of the given team.
@@ -76,7 +76,7 @@ func (u *User) InTeam(team string) bool {
 
 // CanManageTeam returns true if the user can manage members of the given team.
 func (u *User) CanManageTeam(team string) bool {
-	return u.IsOrgAdmin() || u.IsTeamAdmin(team)
+	return u.IsAdmin() || u.IsTeamAdmin(team)
 }
 
 // AgentLookup is the interface for retrieving agents by their key hash.

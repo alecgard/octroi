@@ -119,7 +119,7 @@ func setupPermissionsRouter(store *fakePermStore, agentStore *fakePermAgentStore
 			ctx = auth.ContextWithUser(ctx, &auth.User{
 				ID:    "admin-1",
 				Email: "admin@test.com",
-				Role:  "org_admin",
+				Role:  "admin",
 			})
 			next.ServeHTTP(w, req.WithContext(ctx))
 		})
@@ -135,7 +135,7 @@ func TestPermissionsHandler_ListPermissions(t *testing.T) {
 	r.Use(func(next http.Handler) http.Handler {
 		return http.HandlerFunc(func(w http.ResponseWriter, req *http.Request) {
 			ctx := auth.ContextWithTenant(req.Context(), &auth.Tenant{ID: "t1"})
-			ctx = auth.ContextWithUser(ctx, &auth.User{ID: "u1", Email: "admin@test.com", Role: "org_admin"})
+			ctx = auth.ContextWithUser(ctx, &auth.User{ID: "u1", Email: "admin@test.com", Role: "admin"})
 			next.ServeHTTP(w, req.WithContext(ctx))
 		})
 	})
@@ -261,7 +261,7 @@ func TestDeletePermission_MissingParams(t *testing.T) {
 			ctx = auth.ContextWithUser(ctx, &auth.User{
 				ID:    "admin-1",
 				Email: "admin@test.com",
-				Role:  "org_admin",
+				Role:  "admin",
 			})
 			next.ServeHTTP(w, req.WithContext(ctx))
 		})

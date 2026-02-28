@@ -97,8 +97,8 @@ func (h *usersHandler) CreateUser(w http.ResponseWriter, r *http.Request) {
 		writeError(w, http.StatusUnprocessableEntity, "validation_error", "password is required")
 		return
 	}
-	if req.Role != "" && req.Role != "org_admin" && req.Role != "member" {
-		writeError(w, http.StatusUnprocessableEntity, "validation_error", "role must be org_admin or member")
+	if req.Role != "" && req.Role != "admin" && req.Role != "member" {
+		writeError(w, http.StatusUnprocessableEntity, "validation_error", "role must be admin or member")
 		return
 	}
 
@@ -159,8 +159,8 @@ func (h *usersHandler) UpdateUser(w http.ResponseWriter, r *http.Request) {
 		return
 	}
 
-	if input.Role != nil && *input.Role != "org_admin" && *input.Role != "member" {
-		writeError(w, http.StatusUnprocessableEntity, "validation_error", "role must be org_admin or member")
+	if input.Role != nil && *input.Role != "admin" && *input.Role != "member" {
+		writeError(w, http.StatusUnprocessableEntity, "validation_error", "role must be admin or member")
 		return
 	}
 

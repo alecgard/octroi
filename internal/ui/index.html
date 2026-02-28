@@ -734,7 +734,7 @@ body.shift-held .txn-filter-pending { background: var(--surface2); }
     </div>
   </div>
 
-  <!-- Users Tab (org_admin only) -->
+  <!-- Users Tab (admin only) -->
   <div class="tab-panel" id="tab-users">
     <div style="display:flex;align-items:center;margin-bottom:8px;gap:8px">
       <h2 class="toolbar-title">Users</h2>
@@ -1076,8 +1076,8 @@ body.shift-held .txn-filter-pending { background: var(--surface2); }
     <div class="form-group">
       <label>Role</label>
       <select id="user-role">
-        <option value="member">member</option>
-        <option value="org_admin">org_admin</option>
+        <option value="member">Member</option>
+        <option value="admin">Admin</option>
       </select>
     </div>
     </div>
@@ -1101,8 +1101,8 @@ body.shift-held .txn-filter-pending { background: var(--surface2); }
     <div class="form-group">
       <label>Team Role</label>
       <select id="add-member-role">
-        <option value="member">member</option>
-        <option value="admin">admin</option>
+        <option value="member">Member</option>
+        <option value="admin">Team Admin</option>
       </select>
     </div>
     </div>
@@ -1502,7 +1502,7 @@ function userInTeam(u, team) {
 
 function canManageTeam(team) {
   if (!currentUser) return false;
-  if (currentUser.role === 'org_admin') return true;
+  if (currentUser.role === 'admin') return true;
   if (!currentUser.teams) return false;
   return currentUser.teams.some(t => t.team === team && t.role === 'admin');
 }
@@ -1541,7 +1541,7 @@ async function doLogin() {
     authToken = data.token;
     authMode = 'session';
     currentUser = data.user;
-    isAdmin = currentUser.role === 'org_admin';
+    isAdmin = currentUser.role === 'admin';
     saveSession();
     enterApp();
   } catch (e) {
@@ -1562,9 +1562,8 @@ function enterApp() {
   const badgeEl = document.getElementById('topbar-role-badge');
   if (currentUser) {
     nameEl.textContent = currentUser.name || currentUser.email;
-    const roleLabel = currentUser.role === 'org_admin' ? 'org admin' : currentUser.role;
-    badgeEl.textContent = roleLabel;
-    badgeEl.className = 'role-badge' + (currentUser.role === 'org_admin' ? ' admin' : '');
+    badgeEl.textContent = currentUser.role;
+    badgeEl.className = 'role-badge' + (currentUser.role === 'admin' ? ' admin' : '');
     if (currentUser.tenant) {
       document.getElementById('topbar-tenant-name').textContent = currentUser.tenant.name;
     }
@@ -1627,7 +1626,7 @@ document.getElementById('login-email').addEventListener('keydown', e => { if (e.
   // Validate session before entering app
   api('GET', '/api/v1/auth/me').then(data => {
     currentUser = data;
-    isAdmin = currentUser.role === 'org_admin';
+    isAdmin = currentUser.role === 'admin';
     authMode = 'session';
     saveSession();
     enterApp();
@@ -2202,15 +2201,15 @@ function renderTeams() {
       : '<li style="color:var(--text2)">No agents</li>';
     const userList = t.users.length
       ? t.users.map(u => {
-          const teamBadge = `<span class="role-badge${u.team_role === 'admin' ? ' admin' : ''}">${esc(u.team_role || 'member')}</span>`;
-          const removeDis = canManage ? '' : ' disabled title="Team admin or org admin only"';
+          const teamBadge = `<span class="role-badge${u.team_role === 'admin' ? ' admin' : ''}">${u.team_role === 'admin' ? 'Team Admin' : 'Member'}</span>`;
+          const removeDis = canManage ? '' : ' disabled title="Team admin or tenant admin only"';
           const nameEmail = u.name ? `${esc(u.name)} &lt;${esc(u.email)}&gt;` : esc(u.email);
           const fullTip = u.name ? `${esc(u.name)} &lt;${esc(u.email)}&gt;` : esc(u.email);
           return `<li><span class="team-user-name">${nameEmail}<span class="tip">${fullTip}</span></span>${teamBadge}<button class="btn-danger btn-sm" onclick="removeTeamMember('${esc(t.name)}','${u.id}','${esc(u.name || u.email)}')"${removeDis}>Remove</button></li>`;
         }).join('')
       : '<li style="color:var(--text2)">No users</li>';
 
-    const addDis = canManage ? '' : ' disabled title="Team admin or org admin only"';
+    const addDis = canManage ? '' : ' disabled title="Team admin or tenant admin only"';
     const addBtn = `<button class="btn-ghost btn-sm" onclick="openAddMemberModal('${esc(t.name)}')"${addDis}>+ Add Member</button>`;
 
     return `<div class="team-section">
@@ -2230,7 +2229,7 @@ function openAddMemberModal(team) {
   const sel = document.getElementById('add-member-user');
   const teamData = teamsCache.find(t => t.name === team);
   const existingIds = new Set(teamData ? teamData.users.map(u => u.id) : []);
-  const available = (usersCache.length ? usersCache : []).filter(u => !existingIds.has(u.id) && u.role !== 'org_admin');
+  const available = (usersCache.length ? usersCache : []).filter(u => !existingIds.has(u.id) && u.role !== 'admin');
   sel.innerHTML = available.map(u => `<option value="${u.id}">${esc(u.name || u.email)} (${esc(u.email)})</option>`).join('');
   if (!available.length) {
     sel.innerHTML = '<option value="">No users available</option>';
@@ -2759,17 +2758,17 @@ function renderUsers() {
     const teamsStr = (u.teams && u.teams.length)
       ? u.teams.map(t => t.team + ':' + t.role).join(', ')
       : '\u2014';
-    const roleLabel = u.role === 'org_admin' ? 'org admin' : u.role;
+    const roleLabel = u.role === 'admin' ? 'admin' : u.role;
     const isSelf = currentUser && u.id === currentUser.id;
     const canEdit = isAdmin || isSelf;
     const canDelete = isAdmin && !isSelf;
     const editAttr = canEdit ? '' : ' disabled title="You can only edit your own profile"';
-    const deleteAttr = canDelete ? '' : (isSelf ? ' disabled title="Cannot delete yourself"' : ' disabled title="Org admin only"');
+    const deleteAttr = canDelete ? '' : (isSelf ? ' disabled title="Cannot delete yourself"' : ' disabled title="Admin only"');
     return `<tr${isSelf ? ' style="background:var(--surface)"' : ''}>
     <td style="font-weight:600">${esc(u.email)}${isSelf ? ' <span style="font-size:9px;color:var(--text2)">(you)</span>' : ''}</td>
     <td>${esc(u.name || '\u2014')}</td>
     <td>${esc(teamsStr)}</td>
-    <td><span class="role-badge${u.role === 'org_admin' ? ' admin' : ''}">${esc(roleLabel)}</span></td>
+    <td><span class="role-badge${u.role === 'admin' ? ' admin' : ''}">${esc(roleLabel)}</span></td>
     <td>${fmtDate(u.created_at)}</td>
     <td style="white-space:nowrap">
       <button class="btn-ghost btn-sm" onclick="editUser('${u.id}')"${editAttr}>Edit</button>

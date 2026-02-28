@@ -15,7 +15,7 @@ type User struct {
 	PasswordHash string           `json:"-"`
 	Name         string           `json:"name"`
 	Teams        []TeamMembership `json:"teams"`
-	Role         string           `json:"role"` // "org_admin" or "member"
+	Role         string           `json:"role"` // "admin" or "member"
 	TenantID     string           `json:"tenant_id"`
 	CreatedAt    time.Time        `json:"created_at"`
 	ArchivedAt   *time.Time       `json:"archived_at,omitempty"`

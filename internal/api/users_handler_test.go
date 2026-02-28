@@ -137,7 +137,7 @@ func adminCtx() context.Context {
 	return auth.ContextWithUser(ctx, &auth.User{
 		ID:    "admin-1",
 		Email: "admin@test.com",
-		Role:  "org_admin",
+		Role:  "admin",
 		Teams: []auth.TeamMembership{{Team: "team-a", Role: "admin"}},
 	})
 }
@@ -301,7 +301,7 @@ func TestListUsers_WithUsers(t *testing.T) {
 		ID:    "u1",
 		Email: "alice@example.com",
 		Name:  "Alice",
-		Role:  "org_admin",
+		Role:  "admin",
 		Teams: []user.TeamMembership{{Team: "team-a", Role: "admin"}},
 	})
 	store.seed(&user.User{
@@ -420,7 +420,7 @@ func TestUpdateUser_LastAdminConstraint(t *testing.T) {
 	store.seed(&user.User{
 		ID:    "u1",
 		Email: "admin@example.com",
-		Role:  "org_admin",
+		Role:  "admin",
 		Teams: []user.TeamMembership{{Team: "team-a", Role: "admin"}},
 	})
 	// u2 is a member of team-a (not admin).
@@ -597,13 +597,13 @@ func TestDeleteUser_Success(t *testing.T) {
 	store.seed(&user.User{
 		ID:    "u1",
 		Email: "target@example.com",
-		Role:  "org_admin",
+		Role:  "admin",
 		Teams: []user.TeamMembership{{Team: "team-a", Role: "admin"}},
 	})
 	store.seed(&user.User{
 		ID:    "u2",
 		Email: "other-admin@example.com",
-		Role:  "org_admin",
+		Role:  "admin",
 		Teams: []user.TeamMembership{{Team: "team-a", Role: "admin"}},
 	})
 	h := &usersHandler{store: store}
@@ -645,7 +645,7 @@ func TestDeleteUser_LastAdminConstraint(t *testing.T) {
 	store.seed(&user.User{
 		ID:    "u1",
 		Email: "sole-admin@example.com",
-		Role:  "org_admin",
+		Role:  "admin",
 		Teams: []user.TeamMembership{{Team: "team-a", Role: "admin"}},
 	})
 	store.seed(&user.User{

@@ -214,7 +214,7 @@ func toolsRouter(svc toolServicer) chi.Router {
 				ctx := auth.ContextWithUser(req.Context(), &auth.User{
 					ID:    "admin-1",
 					Email: "admin@test.com",
-					Role:  "org_admin",
+					Role:  "admin",
 				})
 				next.ServeHTTP(w, req.WithContext(ctx))
 			})

@@ -254,7 +254,7 @@ func NewRouter(deps RouterDeps) http.Handler {
 		})
 	}
 
-	// Admin routes (require org_admin session).
+	// Admin routes (require admin session).
 	r.Route("/api/v1/admin", func(ar chi.Router) {
 		ar.Use(auth.AdminSessionMiddleware(sessionLookup, adminAuthFail, adminAuthSuccess))
 

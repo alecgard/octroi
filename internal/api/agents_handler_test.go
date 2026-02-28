@@ -168,7 +168,7 @@ func setupAdminAgentsRouter(store *fakeAgentStore, budgetStore *fakeBudgetStore)
 			ctx = auth.ContextWithUser(ctx, &auth.User{
 				ID:    "admin-1",
 				Email: "admin@test.com",
-				Role:  "org_admin",
+				Role:  "admin",
 			})
 			next.ServeHTTP(w, req.WithContext(ctx))
 		})

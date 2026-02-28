@@ -95,7 +95,7 @@ func AgentAuthMiddleware(svc *Service, callbacks ...func()) func(http.Handler) h
 	}
 }
 
-// AdminSessionMiddleware validates the session token and requires org_admin role.
+// AdminSessionMiddleware validates the session token and requires admin role.
 func AdminSessionMiddleware(sessions SessionLookup, callbacks ...func()) func(http.Handler) http.Handler {
 	var onFailure, onSuccess func()
 	if len(callbacks) > 0 {
@@ -143,7 +143,7 @@ func AdminSessionMiddleware(sessions SessionLookup, callbacks ...func()) func(ht
 				writeForbidden(w, "tenant mismatch")
 				return
 			}
-			if user.Role != "org_admin" {
+			if user.Role != "admin" {
 				if onFailure != nil {
 					onFailure()
 				}
