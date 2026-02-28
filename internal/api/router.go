@@ -159,8 +159,8 @@ func NewRouter(deps RouterDeps) http.Handler {
 		usage.setBodyStore(deps.BodyStore)
 	}
 
-	// Login rate limiter: 5 attempts per IP per minute.
-	loginRL := newLoginRateLimiter(5, time.Minute)
+	// Login rate limiter: 10 attempts per IP per minute.
+	loginRL := newLoginRateLimiter(10, time.Minute)
 	loginRL.startCleanup(context.Background(), 5*time.Minute)
 
 	// Session lookup adapter for user auth middlewares.
@@ -224,10 +224,7 @@ func NewRouter(deps RouterDeps) http.Handler {
 	if deps.UserStore != nil {
 		authH := newAuthHandler(deps.UserStore)
 		r.Post("/api/v1/auth/login", func(w http.ResponseWriter, r *http.Request) {
-			ip := r.RemoteAddr
-			if fwd := r.Header.Get("X-Forwarded-For"); fwd != "" {
-				ip = fwd
-			}
+			ip := clientIP(r)
 			allowed, retryAfter := loginRL.allow(ip)
 			if !allowed {
 				w.Header().Set("Retry-After", fmt.Sprintf("%d", retryAfter))

@@ -4,6 +4,7 @@ import (
 	"context"
 	"log/slog"
 	"net/http"
+	"strings"
 	"sync"
 	"time"
 
@@ -78,9 +79,24 @@ func auditLog(r *http.Request, action string, resourceType string, resourceID st
 	}
 }
 
+// clientIP extracts the client IP address from the request.
+// It checks X-Forwarded-For first (taking the leftmost/first IP),
+// then X-Real-IP, and falls back to RemoteAddr.
 func clientIP(r *http.Request) string {
 	if fwd := r.Header.Get("X-Forwarded-For"); fwd != "" {
-		return fwd
+		return parseForwardedFor(fwd)
+	}
+	if realIP := r.Header.Get("X-Real-IP"); realIP != "" {
+		return strings.TrimSpace(realIP)
 	}
 	return r.RemoteAddr
+}
+
+// parseForwardedFor extracts the first (leftmost/client) IP from an
+// X-Forwarded-For header value, which may contain a comma-separated list.
+func parseForwardedFor(fwd string) string {
+	if i := strings.IndexByte(fwd, ','); i > 0 {
+		return strings.TrimSpace(fwd[:i])
+	}
+	return strings.TrimSpace(fwd)
 }
