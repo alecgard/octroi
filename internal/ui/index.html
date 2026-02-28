@@ -988,8 +988,8 @@ body.shift-held .txn-filter-pending { background: var(--surface2); }
       <code id="agent-id-display" style="display:block;padding:6px 8px;background:var(--surface);border:1px solid var(--border);border-radius:4px;font-size:12px;color:var(--text2);user-select:all"></code>
     </div>
     <div class="form-group" id="agent-key-group" style="display:none">
-      <label>Key</label>
-      <div class="mono" id="agent-key-display" style="padding:4px 0;color:var(--text2)"></div>
+      <label>Keys</label>
+      <div id="agent-key-display" style="padding:4px 0;font-size:12px"></div>
     </div>
     <div class="form-group">
       <label>Name *</label>
@@ -1997,33 +1997,34 @@ function openAgentModal(ag) {
   teamSel.value = ag ? ag.team || '' : '';
   document.getElementById('agent-rate-limit').value = ag ? ag.rate_limit || '' : '';
   document.getElementById('agent-regen-btn').style.display = ag ? '' : 'none';
-  // Show key prefix in edit mode
+  // Show key info in edit mode
   const keyGroup = document.getElementById('agent-key-group');
   const keyDisplay = document.getElementById('agent-key-display');
+  const hasPrevKey = ag && ag.prev_key_expires_at && ag.prev_key_prefix && new Date(ag.prev_key_expires_at) > new Date();
   if (ag && ag.api_key_prefix) {
-    let keyText = ag.api_key_prefix + '...';
-    if (ag.prev_key_expires_at) {
+    const mask = (prefix, suffix) => prefix + '…' + (suffix || '');
+    let html = '<div style="display:flex;align-items:center;gap:6px;margin-bottom:2px">'
+      + '<code style="font-size:12px;color:var(--text)">' + esc(mask(ag.api_key_prefix, ag.api_key_suffix)) + '</code>'
+      + '<span style="font-size:10px;padding:1px 5px;border-radius:3px;background:var(--green,#22c55e);color:#fff">active</span>'
+      + '</div>';
+    if (hasPrevKey) {
       const expires = new Date(ag.prev_key_expires_at);
-      const now = new Date();
-      if (expires > now) {
-        const hoursLeft = Math.max(0, Math.round((expires - now) / 3600000));
-        const minsLeft = Math.max(0, Math.round((expires - now) / 60000));
-        const timeLeft = hoursLeft > 0 ? hoursLeft + 'h' : minsLeft + 'm';
-        keyText += '  (old key expiring in ' + timeLeft + ')';
-      }
+      const hoursLeft = Math.max(0, Math.round((expires - new Date()) / 3600000));
+      const minsLeft = Math.max(0, Math.round((expires - new Date()) / 60000));
+      const timeLeft = hoursLeft > 0 ? hoursLeft + 'h' : minsLeft + 'm';
+      html += '<div style="display:flex;align-items:center;gap:6px">'
+        + '<code style="font-size:12px;color:var(--text2)">' + esc(mask(ag.prev_key_prefix, '')) + '</code>'
+        + '<span style="font-size:10px;padding:1px 5px;border-radius:3px;background:var(--warning,#f59e0b);color:#fff">expiring in ' + timeLeft + '</span>'
+        + '</div>';
     }
-    keyDisplay.textContent = keyText;
+    keyDisplay.innerHTML = html;
     keyGroup.style.display = '';
   } else {
     keyGroup.style.display = 'none';
   }
   // Show/hide revoke button based on whether there is an expiring previous key.
   const revokeBtn = document.getElementById('agent-revoke-btn');
-  if (ag && ag.prev_key_expires_at && new Date(ag.prev_key_expires_at) > new Date()) {
-    revokeBtn.style.display = '';
-  } else {
-    revokeBtn.style.display = 'none';
-  }
+  revokeBtn.style.display = hasPrevKey ? '' : 'none';
   // Allowlist mode + permissions (edit mode only)
   const allowlistSection = document.getElementById('agent-allowlist-section');
   const permsSection = document.getElementById('agent-permissions-section');

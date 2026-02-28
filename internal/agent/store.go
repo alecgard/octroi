@@ -12,12 +12,12 @@ import (
 )
 
 // agentColumns is the standard column list for agent queries.
-const agentColumns = `id, name, api_key_hash, api_key_prefix, team, rate_limit, allowlist_mode, created_at, prev_key_hash, prev_key_expires_at`
+const agentColumns = `id, name, api_key_hash, api_key_prefix, api_key_suffix, team, rate_limit, allowlist_mode, created_at, prev_key_hash, prev_key_prefix, prev_key_expires_at`
 
 // scanAgent scans a row into an Agent struct using the standard column order.
 func scanAgent(row pgx.Row) (*Agent, error) {
 	a := &Agent{}
-	err := row.Scan(&a.ID, &a.Name, &a.APIKeyHash, &a.APIKeyPrefix, &a.Team, &a.RateLimit, &a.AllowlistMode, &a.CreatedAt, &a.PrevKeyHash, &a.PrevKeyExpiresAt)
+	err := row.Scan(&a.ID, &a.Name, &a.APIKeyHash, &a.APIKeyPrefix, &a.APIKeySuffix, &a.Team, &a.RateLimit, &a.AllowlistMode, &a.CreatedAt, &a.PrevKeyHash, &a.PrevKeyPrefix, &a.PrevKeyExpiresAt)
 	return a, err
 }
 
@@ -26,7 +26,7 @@ func scanAgentRows(rows pgx.Rows) ([]*Agent, error) {
 	var agents []*Agent
 	for rows.Next() {
 		a := &Agent{}
-		if err := rows.Scan(&a.ID, &a.Name, &a.APIKeyHash, &a.APIKeyPrefix, &a.Team, &a.RateLimit, &a.AllowlistMode, &a.CreatedAt, &a.PrevKeyHash, &a.PrevKeyExpiresAt); err != nil {
+		if err := rows.Scan(&a.ID, &a.Name, &a.APIKeyHash, &a.APIKeyPrefix, &a.APIKeySuffix, &a.Team, &a.RateLimit, &a.AllowlistMode, &a.CreatedAt, &a.PrevKeyHash, &a.PrevKeyPrefix, &a.PrevKeyExpiresAt); err != nil {
 			return nil, err
 		}
 		agents = append(agents, a)
@@ -47,10 +47,10 @@ func NewStore(pool *pgxpool.Pool) *Store {
 // Create inserts a new agent and returns the created record.
 func (s *Store) Create(ctx context.Context, in CreateAgentInput) (*Agent, error) {
 	a, err := scanAgent(s.pool.QueryRow(ctx,
-		`INSERT INTO agents (name, api_key_hash, api_key_prefix, team, rate_limit, allowlist_mode)
-		 VALUES ($1, $2, $3, $4, $5, $6)
+		`INSERT INTO agents (name, api_key_hash, api_key_prefix, api_key_suffix, team, rate_limit, allowlist_mode)
+		 VALUES ($1, $2, $3, $4, $5, $6, $7)
 		 RETURNING `+agentColumns,
-		in.Name, in.APIKeyHash, in.APIKeyPrefix, in.Team, in.RateLimit, false,
+		in.Name, in.APIKeyHash, in.APIKeyPrefix, in.APIKeySuffix, in.Team, in.RateLimit, false,
 	))
 	if err != nil {
 		return nil, fmt.Errorf("creating agent: %w", err)
@@ -231,16 +231,18 @@ func (s *Store) ListIDsByTeams(ctx context.Context, teams []string) ([]string, e
 
 // RotateKey moves the current key to prev_key with a 24h grace period and sets
 // the new key as the active key.
-func (s *Store) RotateKey(ctx context.Context, id, newHash, newPrefix string) (*Agent, error) {
+func (s *Store) RotateKey(ctx context.Context, id, newHash, newPrefix, newSuffix string) (*Agent, error) {
 	a, err := scanAgent(s.pool.QueryRow(ctx,
 		`UPDATE agents
 		 SET prev_key_hash = api_key_hash,
+		     prev_key_prefix = api_key_prefix,
 		     prev_key_expires_at = now() + interval '24 hours',
 		     api_key_hash = $1,
-		     api_key_prefix = $2
-		 WHERE id = $3 AND archived_at IS NULL
+		     api_key_prefix = $2,
+		     api_key_suffix = $3
+		 WHERE id = $4 AND archived_at IS NULL
 		 RETURNING `+agentColumns,
-		newHash, newPrefix, id,
+		newHash, newPrefix, newSuffix, id,
 	))
 	if err != nil {
 		return nil, fmt.Errorf("rotating agent key: %w", err)
@@ -253,6 +255,7 @@ func (s *Store) RevokePrevKey(ctx context.Context, id string) (*Agent, error) {
 	a, err := scanAgent(s.pool.QueryRow(ctx,
 		`UPDATE agents
 		 SET prev_key_hash = NULL,
+		     prev_key_prefix = NULL,
 		     prev_key_expires_at = NULL
 		 WHERE id = $1 AND archived_at IS NULL
 		 RETURNING `+agentColumns,
@@ -269,7 +272,7 @@ func (s *Store) RevokePrevKey(ctx context.Context, id string) (*Agent, error) {
 func (s *Store) CleanupExpiredKeys(ctx context.Context) (int64, error) {
 	tag, err := s.pool.Exec(ctx,
 		`UPDATE agents
-		 SET prev_key_hash = NULL, prev_key_expires_at = NULL
+		 SET prev_key_hash = NULL, prev_key_prefix = NULL, prev_key_expires_at = NULL
 		 WHERE prev_key_expires_at IS NOT NULL AND prev_key_expires_at <= now()`,
 	)
 	if err != nil {
@@ -280,8 +283,8 @@ func (s *Store) CleanupExpiredKeys(ctx context.Context) (int64, error) {
 
 // RegenerateKey updates the api_key_hash and api_key_prefix for the given agent.
 // Deprecated: Use RotateKey for zero-downtime rotation with a grace period.
-func (s *Store) RegenerateKey(ctx context.Context, id, newHash, newPrefix string) (*Agent, error) {
-	return s.RotateKey(ctx, id, newHash, newPrefix)
+func (s *Store) RegenerateKey(ctx context.Context, id, newHash, newPrefix, newSuffix string) (*Agent, error) {
+	return s.RotateKey(ctx, id, newHash, newPrefix, newSuffix)
 }
 
 // Update performs a partial update on the agent with the given id and returns

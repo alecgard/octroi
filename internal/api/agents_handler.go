@@ -19,7 +19,7 @@ type agentStore interface {
 	Update(ctx context.Context, id string, in agent.UpdateAgentInput) (*agent.Agent, error)
 	Archive(ctx context.Context, id string) error
 	List(ctx context.Context, params agent.AgentListParams) ([]*agent.Agent, string, error)
-	RegenerateKey(ctx context.Context, id, newHash, newPrefix string) (*agent.Agent, error)
+	RegenerateKey(ctx context.Context, id, newHash, newPrefix, newSuffix string) (*agent.Agent, error)
 	RevokePrevKey(ctx context.Context, id string) (*agent.Agent, error)
 }
 
@@ -74,6 +74,7 @@ func (h *agentsHandler) CreateAgent(w http.ResponseWriter, r *http.Request) {
 		Name:         req.Name,
 		APIKeyHash:   apiKey.Hash,
 		APIKeyPrefix: apiKey.Prefix,
+		APIKeySuffix: apiKey.Suffix,
 		Team:         req.Team,
 		RateLimit:    req.RateLimit,
 	}
@@ -214,7 +215,7 @@ func (h *agentsHandler) RegenerateKey(w http.ResponseWriter, r *http.Request) {
 		return
 	}
 
-	ag, err := h.store.RegenerateKey(r.Context(), id, apiKey.Hash, apiKey.Prefix)
+	ag, err := h.store.RegenerateKey(r.Context(), id, apiKey.Hash, apiKey.Prefix, apiKey.Suffix)
 	if err != nil {
 		if errors.Is(err, pgx.ErrNoRows) {
 			writeError(w, http.StatusNotFound, "not_found", "agent not found")

@@ -22,7 +22,7 @@ type memberAgentStore interface {
 	Create(ctx context.Context, in agent.CreateAgentInput) (*agent.Agent, error)
 	Update(ctx context.Context, id string, in agent.UpdateAgentInput) (*agent.Agent, error)
 	Archive(ctx context.Context, id string) error
-	RegenerateKey(ctx context.Context, id, newHash, newPrefix string) (*agent.Agent, error)
+	RegenerateKey(ctx context.Context, id, newHash, newPrefix, newSuffix string) (*agent.Agent, error)
 	RevokePrevKey(ctx context.Context, id string) (*agent.Agent, error)
 	ListIDsByTeams(ctx context.Context, teams []string) ([]string, error)
 }
@@ -157,6 +157,7 @@ func (h *memberHandler) CreateAgent(w http.ResponseWriter, r *http.Request) {
 		Name:         req.Name,
 		APIKeyHash:   apiKey.Hash,
 		APIKeyPrefix: apiKey.Prefix,
+		APIKeySuffix: apiKey.Suffix,
 		Team:         team,
 		RateLimit:    req.RateLimit,
 	}
@@ -303,7 +304,7 @@ func (h *memberHandler) RegenerateKey(w http.ResponseWriter, r *http.Request) {
 		return
 	}
 
-	ag, err := h.agentStore.RegenerateKey(r.Context(), id, apiKey.Hash, apiKey.Prefix)
+	ag, err := h.agentStore.RegenerateKey(r.Context(), id, apiKey.Hash, apiKey.Prefix, apiKey.Suffix)
 	if err != nil {
 		writeError(w, http.StatusInternalServerError, "internal_error", "failed to regenerate key")
 		return

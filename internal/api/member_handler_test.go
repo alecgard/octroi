@@ -95,15 +95,18 @@ func (f *fakeMemberAgentStore) Archive(_ context.Context, id string) error {
 	return nil
 }
 
-func (f *fakeMemberAgentStore) RegenerateKey(_ context.Context, id, newHash, newPrefix string) (*agent.Agent, error) {
+func (f *fakeMemberAgentStore) RegenerateKey(_ context.Context, id, newHash, newPrefix, newSuffix string) (*agent.Agent, error) {
 	a, ok := f.agents[id]
 	if !ok {
 		return nil, pgx.ErrNoRows
 	}
 	oldHash := a.APIKeyHash
+	oldPrefix := a.APIKeyPrefix
 	a.APIKeyHash = newHash
 	a.APIKeyPrefix = newPrefix
+	a.APIKeySuffix = newSuffix
 	a.PrevKeyHash = &oldHash
+	a.PrevKeyPrefix = &oldPrefix
 	expires := time.Now().Add(24 * time.Hour)
 	a.PrevKeyExpiresAt = &expires
 	return a, nil
