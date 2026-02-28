@@ -31,6 +31,7 @@ env:
   SOURCE_ENV_ID: ${{ vars.RAILWAY_SOURCE_ENV_ID }}
   SERVICE_NAME: ${{ vars.RAILWAY_SERVICE_NAME }}
   ENV_NAME: pr-${{ github.event.number }}
+  TENANT_SLUG: ${{ vars.RAILWAY_SERVICE_NAME }}-pr-${{ github.event.number }}
 
 jobs:
   deploy:
@@ -58,9 +59,8 @@ jobs:
       - name: Set tenant env vars
         run: |
           railway variables set \
-            OCTROI_TENANT_NAME="$ENV_NAME" \
-            OCTROI_TENANT_SLUG="$ENV_NAME" \
-            OCTROI_DEFAULT_TENANT="$ENV_NAME"
+            OCTROI_TENANT_NAME="$TENANT_SLUG" \
+            OCTROI_TENANT_SLUG="$TENANT_SLUG"
 
       - name: Deploy
         run: railway up --detach --service $SERVICE_NAME
@@ -87,7 +87,7 @@ jobs:
       - name: Seed data and generate traffic
         run: |
           apk add --no-cache bash curl jq bc
-          timeout 120 bash scripts/seed.sh --tenant=$ENV_NAME ${{ steps.domain.outputs.url }} || true
+          timeout 120 bash scripts/seed.sh --tenant=$TENANT_SLUG ${{ steps.domain.outputs.url }} || true
 
       - name: Comment on PR
         uses: marocchino/sticky-pull-request-comment@v2

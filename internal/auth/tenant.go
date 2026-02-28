@@ -33,9 +33,6 @@ type TenantLookup interface {
 	GetBySlug(ctx context.Context, slug string) (*Tenant, error)
 }
 
-// TenantMiddleware resolves the tenant from the request Host subdomain and
-// injects it into the request context. Returns 400 if no subdomain is present,
-// 404 if the tenant is not found.
 // tenantSkipPaths are operational endpoints that don't require tenant context.
 var tenantSkipPaths = map[string]bool{
 	"/health":  true,
@@ -45,14 +42,9 @@ var tenantSkipPaths = map[string]bool{
 // TenantMiddleware resolves the tenant from (in order):
 //  1. Host subdomain (e.g. acme.octroi.dev)
 //  2. X-Tenant-Slug header (for programmatic clients like Node.js)
-//  3. defaultSlug (for cloud deployments without subdomain routing)
 //
 // Returns 400 if no slug can be determined, 404 if the slug doesn't match.
-func TenantMiddleware(lookup TenantLookup, defaultSlug ...string) func(http.Handler) http.Handler {
-	fallback := ""
-	if len(defaultSlug) > 0 {
-		fallback = defaultSlug[0]
-	}
+func TenantMiddleware(lookup TenantLookup) func(http.Handler) http.Handler {
 	return func(next http.Handler) http.Handler {
 		return http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
 			if tenantSkipPaths[r.URL.Path] {
@@ -67,7 +59,7 @@ func TenantMiddleware(lookup TenantLookup, defaultSlug ...string) func(http.Hand
 			}
 
 			// Resolve tenant. If the subdomain doesn't match, try the
-			// X-Tenant-Slug header and default slug as fallbacks.
+			// X-Tenant-Slug header as a fallback.
 			var t *Tenant
 			var err error
 			if slug != "" {
@@ -77,9 +69,6 @@ func TenantMiddleware(lookup TenantLookup, defaultSlug ...string) func(http.Hand
 				if h := r.Header.Get("X-Tenant-Slug"); h != "" && h != slug {
 					t, err = lookup.GetBySlug(r.Context(), h)
 				}
-			}
-			if t == nil && fallback != "" {
-				t, err = lookup.GetBySlug(r.Context(), fallback)
 			}
 
 			if slug == "" && t == nil {

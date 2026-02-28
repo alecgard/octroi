@@ -127,7 +127,6 @@ type RouterDeps struct {
 	UserStore          *user.Store
 	ToolRateLimitStore *ratelimit.ToolRateLimitStore
 	AllowedOrigins     []string
-	DefaultTenantSlug  string
 	Metrics            *metrics.Metrics
 	MCPServer          *mcp.Server
 	MCPAggregator      *mcp.Aggregator
@@ -145,7 +144,7 @@ func NewRouter(deps RouterDeps) http.Handler {
 	r.Use(corsMiddleware(deps.AllowedOrigins))
 	r.Use(requestIDMiddleware)
 	if deps.TenantStore != nil {
-		r.Use(auth.TenantMiddleware(tenant.NewAuthAdapter(deps.TenantStore), deps.DefaultTenantSlug))
+		r.Use(auth.TenantMiddleware(tenant.NewAuthAdapter(deps.TenantStore)))
 	}
 	if deps.Metrics != nil {
 		r.Use(metricsMiddleware(deps.Metrics))
