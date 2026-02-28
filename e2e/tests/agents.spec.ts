@@ -65,10 +65,13 @@ test.describe('Agents tab', () => {
       // Submit.
       await page.locator('#agent-submit-btn').click();
 
-      // Verify the API key banner appears with an octroi_ prefixed key.
-      await expect(page.locator('#agent-key-banner')).toHaveClass(/show/);
-      const keyValue = await page.locator('#agent-key-value').innerText();
+      // Verify the API key modal appears with an octroi_ prefixed key.
+      await expect(page.locator('#confirm-modal')).toHaveClass(/open/);
+      const keyValue = await page.locator('#confirm-msg code').innerText();
       expect(keyValue).toMatch(/^octroi_/);
+
+      // Dismiss the key modal.
+      await page.locator('#confirm-ok').click();
 
       // Navigate back to agents tab to find the row.
       await page.goto('/ui#agents');

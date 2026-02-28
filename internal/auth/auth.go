@@ -17,10 +17,11 @@ type Agent struct {
 	RateLimit int
 }
 
-// APIKey holds the hashed key and a short prefix for identification.
+// APIKey holds the hashed key and short prefix/suffix for identification.
 type APIKey struct {
 	Hash   string
 	Prefix string // first 14 characters of the plaintext key
+	Suffix string // last 4 characters of the plaintext key
 }
 
 // TeamMembership represents a user's membership in a team with a role.
@@ -112,6 +113,7 @@ func GenerateAPIKey() (APIKey, string, error) {
 	key := APIKey{
 		Hash:   HashKey(plaintext),
 		Prefix: plaintext[:14],
+		Suffix: plaintext[len(plaintext)-4:],
 	}
 
 	return key, plaintext, nil

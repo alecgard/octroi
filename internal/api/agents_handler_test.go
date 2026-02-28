@@ -90,13 +90,30 @@ func (f *fakeAgentStore) List(_ context.Context, _ agent.AgentListParams) ([]*ag
 	return list, "", nil
 }
 
-func (f *fakeAgentStore) RegenerateKey(_ context.Context, id, newHash, newPrefix string) (*agent.Agent, error) {
+func (f *fakeAgentStore) RegenerateKey(_ context.Context, id, newHash, newPrefix, newSuffix string) (*agent.Agent, error) {
 	a, ok := f.agents[id]
 	if !ok {
 		return nil, pgx.ErrNoRows
 	}
+	oldHash := a.APIKeyHash
+	oldPrefix := a.APIKeyPrefix
 	a.APIKeyHash = newHash
 	a.APIKeyPrefix = newPrefix
+	a.APIKeySuffix = newSuffix
+	a.PrevKeyHash = &oldHash
+	a.PrevKeyPrefix = &oldPrefix
+	expires := time.Now().Add(24 * time.Hour)
+	a.PrevKeyExpiresAt = &expires
+	return a, nil
+}
+
+func (f *fakeAgentStore) RevokePrevKey(_ context.Context, id string) (*agent.Agent, error) {
+	a, ok := f.agents[id]
+	if !ok {
+		return nil, pgx.ErrNoRows
+	}
+	a.PrevKeyHash = nil
+	a.PrevKeyExpiresAt = nil
 	return a, nil
 }
 
@@ -177,6 +194,7 @@ func setupAdminAgentsRouter(store *fakeAgentStore, budgetStore *fakeBudgetStore)
 	r.Put("/agents/{id}", h.UpdateAgent)
 	r.Delete("/agents/{id}", h.DeleteAgent)
 	r.Post("/agents/{id}/regenerate-key", h.RegenerateKey)
+	r.Post("/agents/{id}/revoke-prev-key", h.RevokeKey)
 	r.Put("/agents/{agentID}/budgets/{toolID}", h.SetBudget)
 	r.Get("/agents/{agentID}/budgets/{toolID}", h.GetBudget)
 	r.Get("/agents/{agentID}/budgets", h.ListBudgets)
@@ -797,5 +815,101 @@ func TestListBudgets_Empty(t *testing.T) {
 	}
 	if len(budgets) != 0 {
 		t.Errorf("expected 0 budgets, got %d", len(budgets))
+	}
+}
+
+// ---------------------------------------------------------------------------
+// Key rotation tests
+// ---------------------------------------------------------------------------
+
+func TestRegenerateKey_ReturnsPrevKeyExpiresAt(t *testing.T) {
+	store := newFakeAgentStore()
+	store.agents["a1"] = &agent.Agent{
+		ID:           "a1",
+		Name:         "test-agent",
+		APIKeyHash:   "oldhash",
+		APIKeyPrefix: "octroi_old123",
+		Team:         "eng",
+		RateLimit:    100,
+		CreatedAt:    time.Now().UTC(),
+	}
+
+	router := setupAdminAgentsRouter(store, newFakeBudgetStore())
+	req := httptest.NewRequest(http.MethodPost, "/agents/a1/regenerate-key", nil)
+	rec := httptest.NewRecorder()
+	router.ServeHTTP(rec, req)
+
+	if rec.Code != http.StatusOK {
+		t.Fatalf("expected 200, got %d: %s", rec.Code, rec.Body.String())
+	}
+
+	var resp map[string]interface{}
+	if err := json.NewDecoder(rec.Body).Decode(&resp); err != nil {
+		t.Fatalf("failed to decode response: %v", err)
+	}
+
+	// Should have prev_key_expires_at in response.
+	if resp["prev_key_expires_at"] == nil {
+		t.Error("expected prev_key_expires_at to be present after key rotation")
+	}
+
+	// New key should be different from old prefix.
+	if resp["api_key_prefix"] == "octroi_old123" {
+		t.Error("expected api_key_prefix to change after rotation")
+	}
+
+	// The old key hash should be stored.
+	if store.agents["a1"].PrevKeyHash == nil {
+		t.Error("expected prev_key_hash to be set after rotation")
+	}
+	if *store.agents["a1"].PrevKeyHash != "oldhash" {
+		t.Errorf("expected prev_key_hash to be 'oldhash', got %q", *store.agents["a1"].PrevKeyHash)
+	}
+}
+
+func TestRevokeKey_Success(t *testing.T) {
+	store := newFakeAgentStore()
+	oldHash := "oldhash"
+	expires := time.Now().Add(24 * time.Hour)
+	store.agents["a1"] = &agent.Agent{
+		ID:               "a1",
+		Name:             "test-agent",
+		APIKeyHash:       "newhash",
+		APIKeyPrefix:     "octroi_new123",
+		Team:             "eng",
+		RateLimit:        100,
+		CreatedAt:        time.Now().UTC(),
+		PrevKeyHash:      &oldHash,
+		PrevKeyExpiresAt: &expires,
+	}
+
+	router := setupAdminAgentsRouter(store, newFakeBudgetStore())
+	req := httptest.NewRequest(http.MethodPost, "/agents/a1/revoke-prev-key", nil)
+	rec := httptest.NewRecorder()
+	router.ServeHTTP(rec, req)
+
+	if rec.Code != http.StatusOK {
+		t.Fatalf("expected 200, got %d: %s", rec.Code, rec.Body.String())
+	}
+
+	// Verify the previous key was cleared.
+	if store.agents["a1"].PrevKeyHash != nil {
+		t.Error("expected prev_key_hash to be nil after revoke")
+	}
+	if store.agents["a1"].PrevKeyExpiresAt != nil {
+		t.Error("expected prev_key_expires_at to be nil after revoke")
+	}
+}
+
+func TestRevokeKey_NotFound(t *testing.T) {
+	store := newFakeAgentStore()
+	router := setupAdminAgentsRouter(store, newFakeBudgetStore())
+
+	req := httptest.NewRequest(http.MethodPost, "/agents/nonexistent/revoke-prev-key", nil)
+	rec := httptest.NewRecorder()
+	router.ServeHTTP(rec, req)
+
+	if rec.Code != http.StatusNotFound {
+		t.Fatalf("expected 404, got %d: %s", rec.Code, rec.Body.String())
 	}
 }

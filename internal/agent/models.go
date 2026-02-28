@@ -4,15 +4,19 @@ import "time"
 
 // Agent represents a registered API agent.
 type Agent struct {
-	ID            string    `json:"id"`
-	Name          string    `json:"name"`
-	APIKeyHash    string    `json:"-"`
-	APIKeyPrefix  string    `json:"api_key_prefix"`
-	Team          string    `json:"team"`
-	RateLimit     int       `json:"rate_limit"`
-	AllowlistMode bool       `json:"allowlist_mode"`
-	CreatedAt     time.Time  `json:"created_at"`
-	ArchivedAt    *time.Time `json:"archived_at,omitempty"`
+	ID               string     `json:"id"`
+	Name             string     `json:"name"`
+	APIKeyHash       string     `json:"-"`
+	APIKeyPrefix     string     `json:"api_key_prefix"`
+	APIKeySuffix     string     `json:"api_key_suffix"`
+	Team             string     `json:"team"`
+	RateLimit        int        `json:"rate_limit"`
+	AllowlistMode    bool       `json:"allowlist_mode"`
+	CreatedAt        time.Time  `json:"created_at"`
+	ArchivedAt       *time.Time `json:"archived_at,omitempty"`
+	PrevKeyHash      *string    `json:"-"`
+	PrevKeyPrefix    *string    `json:"prev_key_prefix,omitempty"`
+	PrevKeyExpiresAt *time.Time `json:"prev_key_expires_at,omitempty"`
 }
 
 // CreateAgentInput holds the fields required to create a new agent.
@@ -20,6 +24,7 @@ type CreateAgentInput struct {
 	Name         string `json:"name"`
 	APIKeyHash   string `json:"api_key_hash"`
 	APIKeyPrefix string `json:"api_key_prefix"`
+	APIKeySuffix string `json:"api_key_suffix"`
 	Team         string `json:"team"`
 	RateLimit    int    `json:"rate_limit"`
 }

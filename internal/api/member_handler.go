@@ -22,7 +22,8 @@ type memberAgentStore interface {
 	Create(ctx context.Context, in agent.CreateAgentInput) (*agent.Agent, error)
 	Update(ctx context.Context, id string, in agent.UpdateAgentInput) (*agent.Agent, error)
 	Archive(ctx context.Context, id string) error
-	RegenerateKey(ctx context.Context, id, newHash, newPrefix string) (*agent.Agent, error)
+	RegenerateKey(ctx context.Context, id, newHash, newPrefix, newSuffix string) (*agent.Agent, error)
+	RevokePrevKey(ctx context.Context, id string) (*agent.Agent, error)
 	ListIDsByTeams(ctx context.Context, teams []string) ([]string, error)
 }
 
@@ -156,6 +157,7 @@ func (h *memberHandler) CreateAgent(w http.ResponseWriter, r *http.Request) {
 		Name:         req.Name,
 		APIKeyHash:   apiKey.Hash,
 		APIKeyPrefix: apiKey.Prefix,
+		APIKeySuffix: apiKey.Suffix,
 		Team:         team,
 		RateLimit:    req.RateLimit,
 	}
@@ -302,7 +304,7 @@ func (h *memberHandler) RegenerateKey(w http.ResponseWriter, r *http.Request) {
 		return
 	}
 
-	ag, err := h.agentStore.RegenerateKey(r.Context(), id, apiKey.Hash, apiKey.Prefix)
+	ag, err := h.agentStore.RegenerateKey(r.Context(), id, apiKey.Hash, apiKey.Prefix, apiKey.Suffix)
 	if err != nil {
 		writeError(w, http.StatusInternalServerError, "internal_error", "failed to regenerate key")
 		return
@@ -310,7 +312,7 @@ func (h *memberHandler) RegenerateKey(w http.ResponseWriter, r *http.Request) {
 
 	auditLog(r, "regenerate_key", "agent", id, "name", ag.Name)
 
-	writeJSON(w, http.StatusOK, map[string]interface{}{
+	resp := map[string]interface{}{
 		"id":             ag.ID,
 		"name":           ag.Name,
 		"api_key_prefix": ag.APIKeyPrefix,
@@ -318,7 +320,51 @@ func (h *memberHandler) RegenerateKey(w http.ResponseWriter, r *http.Request) {
 		"team":           ag.Team,
 		"rate_limit":     ag.RateLimit,
 		"created_at":     ag.CreatedAt,
-	})
+	}
+	if ag.PrevKeyExpiresAt != nil {
+		resp["prev_key_expires_at"] = ag.PrevKeyExpiresAt
+	}
+	writeJSON(w, http.StatusOK, resp)
+}
+
+// RevokeKey handles POST /api/v1/member/agents/{id}/revoke-prev-key.
+func (h *memberHandler) RevokeKey(w http.ResponseWriter, r *http.Request) {
+	u := auth.UserFromContext(r.Context())
+	if u == nil {
+		writeError(w, http.StatusUnauthorized, "unauthorized", "not authenticated")
+		return
+	}
+
+	id := chi.URLParam(r, "id")
+	if id == "" {
+		writeError(w, http.StatusBadRequest, "invalid_id", "agent id is required")
+		return
+	}
+
+	// Verify ownership.
+	existing, err := h.agentStore.GetByID(r.Context(), id)
+	if err != nil {
+		if errors.Is(err, pgx.ErrNoRows) {
+			writeError(w, http.StatusNotFound, "not_found", "agent not found")
+			return
+		}
+		writeError(w, http.StatusInternalServerError, "internal_error", "failed to get agent")
+		return
+	}
+	if !u.InTeam(existing.Team) {
+		writeError(w, http.StatusNotFound, "not_found", "agent not found")
+		return
+	}
+
+	ag, err := h.agentStore.RevokePrevKey(r.Context(), id)
+	if err != nil {
+		writeError(w, http.StatusInternalServerError, "internal_error", "failed to revoke key")
+		return
+	}
+
+	auditLog(r, "revoke_prev_key", "agent", id, "name", ag.Name)
+
+	writeJSON(w, http.StatusOK, ag)
 }
 
 // GetUsage handles GET /api/v1/member/usage — team-scoped usage.

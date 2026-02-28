@@ -266,6 +266,7 @@ func NewRouter(deps RouterDeps) http.Handler {
 		ar.Put("/agents/{id}", agents.UpdateAgent)
 		ar.Delete("/agents/{id}", agents.DeleteAgent)
 		ar.Post("/agents/{id}/regenerate-key", agents.RegenerateKey)
+		ar.Post("/agents/{id}/revoke-prev-key", agents.RevokeKey)
 
 		// Budget management.
 		ar.Put("/agents/{agentID}/budgets/{toolID}", agents.SetBudget)
@@ -352,6 +353,7 @@ func NewRouter(deps RouterDeps) http.Handler {
 			mr.Put("/agents/{id}", member.UpdateAgent)
 			mr.Delete("/agents/{id}", member.DeleteAgent)
 			mr.Post("/agents/{id}/regenerate-key", member.RegenerateKey)
+			mr.Post("/agents/{id}/revoke-prev-key", member.RevokeKey)
 			mr.Get("/usage", member.GetUsage)
 			mr.Get("/usage/transactions", member.ListTransactions)
 			mr.Get("/teams", teams.MemberListTeams)
